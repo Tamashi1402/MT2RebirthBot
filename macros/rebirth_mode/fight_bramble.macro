@@ -1,0 +1,22 @@
+# Macro: fight_bramble
+# Walk + open + JOIN. Loadout clicks removed — bot.py plays
+# select_loadout_X.macro from Config > Boss Fight.
+# SENS_RECORDED_H:17.0
+# SENS_RECORDED_V:17.0
+# SENS_USER_H:17.0
+# SENS_USER_V:17.0
+DELAY:50
+KEY_DOWN:0x57
+DELAY:1000
+KEY_UP:0x57
+DELAY:100
+KEY_PRESS:0x73
+DELAY:20
+KEY_PRESS:0x45
+DELAY:1000
+MOUSE_MOVE_ABS:1337,830
+DELAY:200
+MOUSE_LEFT_CLICK
+DELAY:1000
+MOUSE_LEFT_CLICK
+DELAY:2000

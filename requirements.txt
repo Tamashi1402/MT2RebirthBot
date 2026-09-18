@@ -1,0 +1,10 @@
+mss
+opencv-python
+pytesseract
+psutil
+numpy
+keyboard
+mouse
+flask
+pywebview
+Pillow

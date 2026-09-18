@@ -1,0 +1,8 @@
+# Hold left button — bot centres mouse first, kills macro when done
+DELAY:600
+KEY_PRESS:0x46
+DELAY:150
+MOUSE_LEFT_DOWN
+LABEL:HOLD
+DELAY:5000
+GOTO:HOLD

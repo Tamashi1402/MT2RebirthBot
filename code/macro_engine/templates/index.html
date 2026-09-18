@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MT2 Recorder</title>
+  <link rel="stylesheet" href="/me/static/style.css?v=40">
+</head>
+<body>
+  <header id="topbar">
+    <div class="topbar-left topbar-controls">
+      <button id="playStopBtn" class="control-icon accent" type="button" title="Play / Stop (F6)">▶</button>
+      <button id="recordBtnTop" class="control-icon danger" type="button" title="Record (F5)">●</button>
+      <div class="play-mode-wrap">
+        <select id="playModeSelect" title="Playback">
+          <option value="once">Play Once</option>
+          <option value="loop">Loop</option>
+          <option value="times">Loop xTimes</option>
+        </select>
+        <input id="playModeTimes" class="play-mode-times" type="number" min="1" step="1" value="5" hidden title="Loop count">
+      </div>
+    </div>
+    <div class="topbar-sep"></div>
+    <div class="topbar-left">
+      <div class="menu-wrap">
+        <button class="menu-btn" type="button">File</button>
+        <div class="menu-popover">
+          <button id="newBtn" class="menu-item" type="button">New Macro</button>
+          <button id="openBtn" class="menu-item" type="button">Open</button>
+          <button id="importBtn" class="menu-item" type="button">Import</button>
+        </div>
+      </div>
+      <div class="menu-wrap">
+        <button class="menu-btn" type="button">Save</button>
+        <div class="menu-popover">
+          <button id="saveBtn" class="menu-item" type="button">Save</button>
+          <button id="saveAsBtn" class="menu-item" type="button">Save As</button>
+        </div>
+      </div>
+    </div>
+    <div class="topbar-sep"></div>
+    <div id="macroTopLabel" class="top-macro-label">No macro</div>
+    <div class="topbar-spacer"></div>
+    <div class="top-hint">F5 record · F6 play</div>
+  </header>
+
+  <div id="layout">
+    <aside id="left-sidebar">
+      <div class="sb-body">
+        <button class="sb-item block-category" data-category="mouse" title="Mouse">
+          <img class="sb-img" src="/me/static/icons/mouse.png" alt="">
+          <span class="sb-label">Mouse</span>
+        </button>
+        <button class="sb-item block-category" data-category="keyboard" title="Keyboard">
+          <img class="sb-img" src="/me/static/icons/keyboard.png" alt="">
+          <span class="sb-label">Keyboard</span>
+        </button>
+        <hr class="sb-section-sep">
+        <button class="sb-item block-category" data-category="play_macro" title="Play Macro">
+          <img class="sb-img" src="/me/static/icons/play_macro.png" alt="">
+          <span class="sb-label">Play Macro</span>
+        </button>
+        <button class="sb-item block-category" data-category="variable" title="Variable">
+          <img class="sb-img" src="/me/static/icons/variable.png" alt="">
+          <span class="sb-label">Variable</span>
+        </button>
+        <button class="sb-item block-category" data-category="set_variable" title="Set Variable">
+          <img class="sb-img" src="/me/static/icons/set_variable.png" alt="">
+          <span class="sb-label">Set Variable</span>
+        </button>
+        <button class="sb-item block-category" data-category="image" title="Image">
+          <img class="sb-img" src="/me/static/icons/image.png" alt="">
+          <span class="sb-label">Image</span>
+        </button>
+        <button class="sb-item block-category" data-category="if" title="If">
+          <img class="sb-img" src="/me/static/icons/if.png" alt="">
+          <span class="sb-label">If</span>
+        </button>
+        <button class="sb-item block-category" data-category="else_if" title="Else If">
+          <img class="sb-img" src="/me/static/icons/else_if.png" alt="">
+          <span class="sb-label">Else If</span>
+        </button>
+        <button class="sb-item block-category" data-category="end_if" title="End If">
+          <img class="sb-img" src="/me/static/icons/end_if.png" alt="">
+          <span class="sb-label">End If</span>
+        </button>
+        <hr class="sb-section-sep">
+        <button class="sb-item block-category" data-category="delay" title="Delay">
+          <img class="sb-img" src="/me/static/icons/delay.png" alt="">
+          <span class="sb-label">Delay</span>
+        </button>
+        <button class="sb-item block-category" data-category="repeat" title="Repeat">
+          <img class="sb-img" src="/me/static/icons/repeat.png" alt="">
+          <span class="sb-label">Repeat</span>
+        </button>
+        <button class="sb-item block-category" data-category="end_repeat" title="End Repeat">
+          <img class="sb-img" src="/me/static/icons/end_repeat.png" alt="">
+          <span class="sb-label">End Repeat</span>
+        </button>
+        <button class="sb-item block-category" data-category="label" title="Label">
+          <img class="sb-img" src="/me/static/icons/label.png" alt="">
+          <span class="sb-label">Label</span>
+        </button>
+        <button class="sb-item block-category" data-category="goto" title="Goto">
+          <img class="sb-img" src="/me/static/icons/goto.png" alt="">
+          <span class="sb-label">Goto</span>
+        </button>
+      </div>
+      <div id="sb-footer">
+        <button id="sb-toggle-btn" title="Collapse / expand blocks panel">
+          <svg id="sb-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+          <span class="sb-label">Hide panel</span>
+        </button>
+      </div>
+    </aside>
+
+    <main id="main">
+      <section class="editor-panel">
+        <div id="blocks"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="modalBackdrop" class="modal-backdrop hidden"></div>
+
+  <div id="blockPickerModal" class="modal picker-modal hidden" role="dialog">
+    <div class="modal-head">
+      <span id="blockPickerTitle">Add Block</span>
+      <button id="blockPickerClose" class="modal-x">×</button>
+    </div>
+    <div id="blockPickerOptions" class="picker-options"></div>
+  </div>
+
+  <div id="cmdModal" class="modal cmd-modal hidden" role="dialog">
+    <div class="modal-head">
+      <span id="cmdTitle">Edit command</span>
+      <button id="cmdClose" class="modal-x" type="button">×</button>
+    </div>
+    <p id="cmdHint" class="cmd-hint"></p>
+    <label id="cmdEventWrap">Event type
+      <select id="cmdEventType"></select>
+    </label>
+    <div id="cmdMouseFields">
+      <div class="cmd-xy">
+        <label>X
+          <input id="cmdX" type="text" inputmode="numeric" spellcheck="false" value="0">
+        </label>
+        <label>Y
+          <input id="cmdY" type="text" inputmode="numeric" spellcheck="false" value="0">
+        </label>
+      </div>
+      <div id="cmdF2Hint" class="cmd-f2">Press F2 to capture current screen position</div>
+    </div>
+    <div id="cmdKeyFields" class="hidden">
+      <label>Key
+        <select id="cmdKey"></select>
+      </label>
+    </div>
+    <div id="cmdSimpleFields" class="hidden">
+      <label><span id="cmdSimpleName">Value</span>
+        <input id="cmdSimple" type="text" spellcheck="false">
+      </label>
+    </div>
+    <div id="cmdPlayFields" class="hidden">
+      <label>Macro
+        <input id="cmdPlayPath" type="text" readonly spellcheck="false" placeholder="Select macro">
+      </label>
+      <div class="modal-actions" style="margin-top:8px;justify-content:flex-start">
+        <button id="cmdPlayBrowse" class="btn ghost" type="button">Browse…</button>
+      </div>
+    </div>
+    <div id="cmdVarFields" class="hidden">
+      <label>Name
+        <input id="cmdVarName" type="text" spellcheck="false" placeholder="var1">
+      </label>
+      <label>Type
+        <select id="cmdVarType">
+          <option value="number">Number</option>
+          <option value="boolean">Boolean</option>
+        </select>
+      </label>
+      <label id="cmdVarValueWrap">Value
+        <input id="cmdVarValue" type="text" inputmode="numeric" spellcheck="false" value="0">
+      </label>
+      <label id="cmdVarBoolWrap" class="hidden">Value
+        <select id="cmdVarBool">
+          <option value="true">True</option>
+          <option value="false">False</option>
+        </select>
+      </label>
+    </div>
+    <div id="cmdSetFields" class="hidden">
+      <label>Name
+        <input id="cmdSetName" type="text" spellcheck="false" placeholder="var1">
+      </label>
+      <label>Operation
+        <select id="cmdSetOp">
+          <option value="set">Set</option>
+          <option value="add">Add</option>
+          <option value="subtract">Subtract</option>
+          <option value="toggle">Toggle</option>
+        </select>
+      </label>
+      <label id="cmdSetValueWrap">Value
+        <input id="cmdSetValue" type="text" inputmode="numeric" spellcheck="false" value="0">
+      </label>
+    </div>
+    <div id="cmdIfFields" class="hidden">
+      <label>Variable
+        <input id="cmdIfName" type="text" spellcheck="false" placeholder="image_found">
+      </label>
+      <label>Mode
+        <select id="cmdIfMode">
+          <option value="boolean">Boolean</option>
+          <option value="number">Number</option>
+        </select>
+      </label>
+      <label id="cmdIfBoolWrap">Condition
+        <select id="cmdIfBool">
+          <option value="true">is True</option>
+          <option value="false">is False</option>
+        </select>
+      </label>
+      <div id="cmdIfNumWrap" class="hidden cmd-xy">
+        <label>Op
+          <select id="cmdIfOp">
+            <option value=">=">>=</option>
+            <option value=">">></option>
+            <option value="==">==</option>
+            <option value="!=">!=</option>
+            <option value="<"><</option>
+            <option value="<="><=</option>
+          </select>
+        </label>
+        <label>Value
+          <input id="cmdIfValue" type="text" inputmode="numeric" spellcheck="false" value="0">
+        </label>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button id="cmdOk" class="btn primary" type="button">OK</button>
+      <button id="cmdCancel" class="btn ghost" type="button">Cancel</button>
+    </div>
+  </div>
+
+  <div id="saveAsModal" class="modal hidden" role="dialog">
+    <div class="modal-head">Save As</div>
+    <label>File path
+      <input id="saveAsPath" type="text" placeholder="C:\path\to\my_macro.macro">
+    </label>
+    <label>Macro name
+      <input id="saveAsName" type="text" placeholder="my_macro">
+    </label>
+    <div class="modal-actions">
+      <button id="saveAsConfirm" class="btn primary">Save</button>
+      <button id="saveAsCancel" class="btn ghost">Cancel</button>
+    </div>
+  </div>
+
+  <div id="fileBrowserModal" class="modal file-browser-modal hidden" role="dialog">
+    <div id="fileBrowserHead" class="modal-head">Open Macro</div>
+    <div class="file-browser-bar">
+      <button id="fileBrowserUp" class="btn ghost">Up</button>
+      <input id="fileBrowserPath" type="text" spellcheck="false">
+      <button id="fileBrowserGo" class="btn ghost">Go</button>
+    </div>
+    <div id="fileBrowserRoots" class="file-browser-roots"></div>
+    <div id="fileBrowserEntries" class="file-browser-entries"></div>
+    <label id="fileBrowserNameWrap">File name
+      <input id="fileBrowserName" type="text" spellcheck="false" placeholder="macro.macro">
+    </label>
+    <div id="fileBrowserStatus" class="muted"></div>
+    <div class="modal-actions">
+      <button id="fileBrowserConfirm" class="btn primary">Open</button>
+      <button id="fileBrowserCancel" class="btn ghost">Cancel</button>
+    </div>
+  </div>
+
+  <div id="pointPickerModal" class="modal picker-tool-modal hidden" role="dialog">
+    <div class="modal-head">
+      <span>Picker</span>
+      <button id="pointPickerClose" class="modal-x">×</button>
+    </div>
+    <label>X,Y
+      <input id="pointPickerResult" type="text" readonly spellcheck="false" placeholder="No point picked yet">
+    </label>
+    <div id="pointPickerStatus" class="muted picker-tool-status"></div>
+    <div class="modal-actions">
+      <button id="pointPickerCopy" class="btn accent" type="button">Copy X,Y</button>
+      <button id="pointPickerCancel" class="btn ghost" type="button">Close</button>
+    </div>
+  </div>
+
+  <div id="smoothMoveModal" class="modal picker-tool-modal hidden" role="dialog">
+    <div class="modal-head">
+      <span>Smooth Move</span>
+      <button id="smoothMoveClose" class="modal-x">×</button>
+    </div>
+    <label>Smooth mouse
+      <input id="smoothMoveResult" type="text" readonly spellcheck="false" placeholder="No smooth move captured yet (hold the key, move, release)">
+    </label>
+    <div id="smoothMoveStatus" class="muted picker-tool-status">Copied as "x,y" — paste into a Smooth Move block.</div>
+    <div class="modal-actions">
+      <button id="smoothMoveCopy" class="btn accent" type="button">Copy</button>
+      <button id="smoothMoveCancel" class="btn ghost" type="button">Close</button>
+    </div>
+  </div>
+
+  <div id="imageEditorModal" class="modal image-editor-modal hidden" role="dialog">
+    <div class="modal-head">
+      <span>Image Block</span>
+      <button id="imageEditorClose" class="modal-x">x</button>
+    </div>
+    <div class="image-editor-grid">
+      <label>Boolean variable
+        <input id="imageVarInput" type="text" spellcheck="false" placeholder="image_found">
+      </label>
+      <label>Output
+        <select id="imageResultMode">
+          <option value="bool">True/False</option>
+          <option value="coords">Mid X/Y</option>
+          <option value="both">Both</option>
+        </select>
+      </label>
+      <label>Mid X variable
+        <input id="imageXVarInput" type="text" spellcheck="false" placeholder="image_x">
+      </label>
+      <label>Mid Y variable
+        <input id="imageYVarInput" type="text" spellcheck="false" placeholder="image_y">
+      </label>
+      <label>Match %
+        <input id="imageThresholdInput" type="number" min="1" max="100" step="1">
+      </label>
+      <label class="image-check-row">
+        <input id="imageFixedInput" type="checkbox">
+        Same coordinates
+      </label>
+      <label class="image-path-field">Image path
+        <input id="imagePathInput" type="text" spellcheck="false" list="imagePathList" placeholder="images/sample.png">
+        <datalist id="imagePathList"></datalist>
+      </label>
+      <label class="image-path-field">Saved image
+        <select id="imagePathSelect">
+          <option value="">Select image...</option>
+        </select>
+      </label>
+    </div>
+    <div class="image-editor-actions">
+      <button id="imageSelectSample" class="btn accent" type="button">Select Sample</button>
+      <button id="imageSelectSearch" class="btn ghost" type="button">Select Search Area</button>
+      <button id="imageTestCurrent" class="btn ghost" type="button">Test Current Screen</button>
+    </div>
+    <div class="image-coord-grid">
+      <label>X1<input id="imageX1" type="number" step="1"></label>
+      <label>Y1<input id="imageY1" type="number" step="1"></label>
+      <label>X2<input id="imageX2" type="number" step="1"></label>
+      <label>Y2<input id="imageY2" type="number" step="1"></label>
+      <label>SX1<input id="imageSearchX1" type="number" step="1"></label>
+      <label>SY1<input id="imageSearchY1" type="number" step="1"></label>
+      <label>SX2<input id="imageSearchX2" type="number" step="1"></label>
+      <label>SY2<input id="imageSearchY2" type="number" step="1"></label>
+    </div>
+    <div id="imageShotStatus" class="muted image-shot-status"></div>
+    <div id="imageShotWrap" class="image-shot-wrap hidden">
+      <canvas id="imageShotCanvas"></canvas>
+    </div>
+    <div class="modal-actions">
+      <button id="imageApplySelection" class="btn primary" type="button" disabled>Use Selection</button>
+      <button id="imageEditorSave" class="btn accent" type="button">Save</button>
+      <button id="imageEditorCancel" class="btn ghost" type="button">Close</button>
+    </div>
+  </div>
+
+  <aside class="side-panel" id="settingsPanel">
+    <div class="panel-header">
+      <div class="title">Config</div>
+      <button id="settingsClose" title="Close">×</button>
+    </div>
+    <div class="panel-body">
+      <div class="cfg-subhead">Sensitivity</div>
+      <div class="cfg-group">
+        <label class="cfg-label" for="sensRh">Recorded H</label>
+        <div class="cfg-slider-row">
+          <input id="sensRhSlider" class="cfg-slider" type="range" min="1" max="100" step="0.1" value="17">
+          <input id="sensRh" class="cfg-slider-input" type="number" step="0.1" value="17">
+        </div>
+      </div>
+      <div class="cfg-group">
+        <label class="cfg-label" for="sensRv">Recorded V</label>
+        <div class="cfg-slider-row">
+          <input id="sensRvSlider" class="cfg-slider" type="range" min="1" max="100" step="0.1" value="17">
+          <input id="sensRv" class="cfg-slider-input" type="number" step="0.1" value="17">
+        </div>
+      </div>
+      <div class="cfg-group">
+        <label class="cfg-label" for="sensUh">User H</label>
+        <div class="cfg-slider-row">
+          <input id="sensUhSlider" class="cfg-slider" type="range" min="1" max="100" step="0.1" value="17">
+          <input id="sensUh" class="cfg-slider-input" type="number" step="0.1" value="17">
+        </div>
+      </div>
+      <div class="cfg-group">
+        <label class="cfg-label" for="sensUv">User V</label>
+        <div class="cfg-slider-row">
+          <input id="sensUvSlider" class="cfg-slider" type="range" min="1" max="100" step="0.1" value="17">
+          <input id="sensUv" class="cfg-slider-input" type="number" step="0.1" value="17">
+        </div>
+      </div>
+      <hr class="cfg-section-sep">
+      <div class="cfg-subhead">Keybindings</div>
+      <div class="cfg-group">
+        <label class="cfg-label" for="recordBinding">Record keybind</label>
+        <select id="recordBinding" class="cfg-input"></select>
+      </div>
+      <div class="cfg-group">
+        <label class="cfg-label" for="playBinding">Play / Stop keybind</label>
+        <select id="playBinding" class="cfg-input"></select>
+      </div>
+      <div class="cfg-group">
+        <label class="cfg-label" for="smoothMoveBinding">Smooth move key (hold)</label>
+        <select id="smoothMoveBinding" class="cfg-input"></select>
+      </div>
+    </div>
+    <div class="panel-footer">
+      <button id="settingsSave" class="btn-primary">Apply & Save</button>
+      <button id="settingsCloseBottom" class="btn-secondary">Close</button>
+      <!-- Sign out lives on the bot account menu -->
+    </div>
+  </aside>
+
+  <div id="blockCtxMenu" class="ctx-menu hidden" role="menu">
+    <button type="button" data-act="edit">Edit</button>
+    <div class="ctx-sep"></div>
+    <button type="button" data-act="cut"><span>Cut</span><span class="ctx-kbd">Ctrl+X</span></button>
+    <button type="button" data-act="copy"><span>Copy</span><span class="ctx-kbd">Ctrl+C</span></button>
+    <button type="button" data-act="paste"><span>Paste</span><span class="ctx-kbd">Ctrl+V</span></button>
+    <div class="ctx-sep"></div>
+    <button type="button" data-act="remove"><span>Remove</span><span class="ctx-kbd">Del</span></button>
+  </div>
+
+  <script>window.MACRO_ENGINE_BASE="/me";</script>
+  <script src="/me/static/app.js?v=40"></script>
+</body>
+</html>

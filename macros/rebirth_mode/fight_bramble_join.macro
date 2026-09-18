@@ -1,0 +1,13 @@
+# Macro: fight_bramble_join
+# JOIN only. Fighting/farming loadouts are played by bot.py from
+# Config > Boss Fight (select_loadout_X.macro) — do not click a slot here.
+# SENS_RECORDED_H:17.0
+# SENS_RECORDED_V:17.0
+# SENS_USER_H:17.0
+# SENS_USER_V:17.0
+MOUSE_MOVE_ABS:1337,830
+DELAY:200
+MOUSE_LEFT_CLICK
+DELAY:1000
+MOUSE_LEFT_CLICK
+DELAY:2000

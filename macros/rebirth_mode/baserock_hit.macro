@@ -1,0 +1,8 @@
+# Single-shot baserock hit. Mouse left is held down for the swing and is
+# intentionally not released at the end so repeated runs keep swinging.
+DELAY:600
+KEY_PRESS:0x46
+DELAY:150
+MOUSE_LEFT_DOWN
+DELAY:200
+DELAY:4500

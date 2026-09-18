@@ -1,0 +1,274 @@
+{
+  "REGION_BASE_WIDTH": 1920,
+  "REGION_BASE_HEIGHT": 1080,
+  "regions": {
+    "STONE_ICON_REGION": [
+      1629,
+      657,
+      1704,
+      727
+    ],
+    "STONE_REGION": [
+      1700,
+      659,
+      1919,
+      721
+    ],
+    "STRENGTH_REGION": [
+      1698,
+      602,
+      1919,
+      655
+    ],
+    "AUTO_STR_REGION": [
+      76,
+      1023,
+      126,
+      1073
+    ],
+    "MAIN_MENU_REGION": [
+      660,
+      760,
+      1260,
+      900
+    ],
+    "ROCK_HEALTH_BAR_REGION": [
+      610,
+      55,
+      1328,
+      122
+    ],
+    "TELEPORT_BUTTON_REGION": [
+      827,
+      807,
+      1171,
+      868
+    ],
+    "TELEPORT_BASE_REGION": [
+      790,
+      843,
+      1130,
+      902
+    ],
+    "TELEPORT_AREA1_REGION": [
+      790,
+      138,
+      1130,
+      198
+    ],
+    "TELEPORT_AREA2_REGION": [
+      790,
+      226,
+      1130,
+      286
+    ],
+    "TELEPORT_AREA3_REGION": [
+      790,
+      314,
+      1130,
+      374
+    ],
+    "TELEPORT_AREA4_REGION": [
+      790,
+      403,
+      1130,
+      463
+    ],
+    "TELEPORT_AREA5_REGION": [
+      790,
+      491,
+      1130,
+      551
+    ],
+    "TELEPORT_AREA7_REGION": [
+      790,
+      755,
+      1130,
+      815
+    ],
+    "TELEPORT_AREA8_REGION": [
+      790,
+      843,
+      1130,
+      902
+    ],
+    "MENU_PLAY_REGION": [
+      660,
+      840,
+      820,
+      900
+    ],
+    "MENU_PRIVACY_REGION": [
+      660,
+      770,
+      820,
+      840
+    ],
+    "MANUAL_STR_ROW1_LEFT": [
+      1137,
+      269,
+      1466,
+      339
+    ],
+    "MANUAL_STR_ROW1_RIGHT": [
+      1495,
+      266,
+      1828,
+      341
+    ],
+    "MANUAL_STR_ROW2_LEFT": [
+      1137,
+      426,
+      1466,
+      496
+    ],
+    "MANUAL_STR_ROW2_RIGHT": [
+      1495,
+      426,
+      1828,
+      496
+    ],
+    "MANUAL_STR_ROW3_LEFT": [
+      1137,
+      583,
+      1466,
+      653
+    ],
+    "MANUAL_STR_ROW3_RIGHT": [
+      1495,
+      583,
+      1828,
+      653
+    ],
+    "MANUAL_STR_ROW4_LEFT": [
+      1137,
+      740,
+      1466,
+      810
+    ],
+    "MANUAL_STR_ROW4_RIGHT": [
+      1495,
+      740,
+      1828,
+      810
+    ],
+    "MANUAL_STR_ROW5_LEFT": [
+      1137,
+      897,
+      1466,
+      967
+    ],
+    "MANUAL_STR_ROW5_RIGHT": [
+      1495,
+      897,
+      1828,
+      967
+    ],
+    "MANUAL_STR_CLOSE_REGION": [
+      1605,
+      66,
+      1881,
+      137
+    ],
+    "MANUAL_STR_STONE_REGION": [
+      145,
+      72,
+      370,
+      139
+    ],
+    "MANUAL_STR_STRENGTH_REGION": [
+      475,
+      72,
+      682,
+      139
+    ],
+    "DELVE_CLOSE_REGION": [
+      900,
+      895,
+      1220,
+      955
+    ],
+    "DELVE_JOIN_REGION": [
+      1070,
+      795,
+      1415,
+      865
+    ],
+    "KRAKEN_CLOSE_REGION": [
+      900,
+      895,
+      1220,
+      955
+    ],
+    "KRAKEN_JOIN_REGION": [
+      1070,
+      795,
+      1415,
+      865
+    ],
+    "KRAKEN_HEALTH_BAR_REGION": [
+      610,
+      55,
+      1328,
+      122
+    ],
+    "ZYTOS_CLOSE_REGION": [
+      900,
+      895,
+      1220,
+      955
+    ],
+    "ZYTOS_JOIN_REGION": [
+      1070,
+      795,
+      1415,
+      865
+    ],
+    "ZYTOS_HEALTH_BAR_REGION": [
+      605,
+      48,
+      657,
+      121
+    ],
+    "CRATER_TIMER_REGION": [
+      890,
+      170,
+      1025,
+      215
+    ],
+    "CRATER_PET_DROP_REGION": [
+      760,
+      200,
+      1160,
+      400
+    ],
+    "BRAMBLE_MODE_REGION": [
+      182,
+      270,
+      701,
+      331
+    ]
+  },
+  "points": {
+    "MANUAL_STR_CLOSE_CENTER": [
+      1742,
+      101
+    ],
+    "DELVE_JOIN_CENTER": [
+      1242,
+      830
+    ],
+    "KRAKEN_JOIN_CENTER": [
+      1242,
+      830
+    ],
+    "ZYTOS_JOIN_CENTER": [
+      1337,
+      826
+    ],
+    "BRAMBLE_MODE_SWAP_CENTER": [
+      439,
+      826
+    ]
+  }
+}
