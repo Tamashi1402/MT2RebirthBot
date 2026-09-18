@@ -1876,8 +1876,11 @@ def icon_route():
 
 
 # ============================================================
-# CUSTOM MODES API + BLOCKLY (kept for v1.8 Mode Builder)
+# CUSTOM MODES API (kept for v1.8 Mode Builder)
 # Builder tab is hidden in this build. Routes stay so 1.8 can enable it.
+# NOTE: the Blockly editor bundle and its serving routes were removed
+# from this build (unused third-party code); re-add code/blockly/ and
+# the /blockly/* routes to bring the visual editor back.
 # ============================================================
 _MODES_DIR = os.path.join(BOT_DIR, "modes")
 _BUILDER_TAB_ENABLED = False
@@ -1887,156 +1890,6 @@ def _ensure_modes_dir():
     os.makedirs(_MODES_DIR, exist_ok=True)
 
 
-def _blockly_web_dir():
-    if getattr(sys, "frozen", False):
-        return os.path.join(sys._MEIPASS, "blockly", "web")
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "blockly", "web")
-
-
-_BLOCKLY_DIR = _blockly_web_dir()
-
-
-def _blockly_safe_path(*parts):
-    base = os.path.normpath(_BLOCKLY_DIR)
-    path = os.path.normpath(os.path.join(base, *parts))
-    if path != base and not path.startswith(base + os.sep):
-        return None
-    return path
-
-
-def _blockly_scan_blocks():
-    # Scan block .js files and return list of {name, code, category}.
-    blocks_dir = os.path.join(_BLOCKLY_DIR, "blocks")
-    result = []
-    seen_paths = set()
-    if not os.path.isdir(blocks_dir):
-        return result
-    for category in sorted(os.listdir(blocks_dir)):
-        cat_path = os.path.join(blocks_dir, category)
-        if not os.path.isdir(cat_path):
-            continue
-        for fname in sorted(os.listdir(cat_path)):
-            if not fname.endswith(".block.js"):
-                continue
-            fpath = os.path.join(cat_path, fname)
-            if fpath in seen_paths:
-                continue
-            seen_paths.add(fpath)
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    code = f.read()
-                result.append({"name": fname, "code": code, "category": category})
-            except Exception:
-                pass
-    return result
-
-
-def _blockly_build_toolbox():
-    # Build toolbox XML from block files.
-    blocks_dir = os.path.join(_BLOCKLY_DIR, "blocks")
-    from collections import defaultdict
-    by_category = defaultdict(list)
-    CATEGORY_META = {
-        "flow":       ("Flow", 120),
-        "logic":      ("Logic", 210),
-        "math":       ("Math", 230),
-        "text":       ("Text", 160),
-        "variables":  ("Variables", 330),
-        "time":       ("Time", 90),
-        "game":       ("Game", 280),
-        "action":     ("Action", 20),
-        "overlay":    ("Overlay", 180),
-        "input":      ("Input", 40),
-        "screenshot": ("Screen", 20),
-        "threading":  ("Threading", 280),
-        "system":     ("System", 260),
-    }
-    EXCLUDED = {"variables_get", "variables_set", "me_procedure_hat"}
-    if not os.path.isdir(blocks_dir):
-        return "<xml></xml>"
-    for category in sorted(os.listdir(blocks_dir)):
-        cat_path = os.path.join(blocks_dir, category)
-        if not os.path.isdir(cat_path):
-            continue
-        for fname in sorted(os.listdir(cat_path)):
-            if not fname.endswith(".block.js"):
-                continue
-            fpath = os.path.join(cat_path, fname)
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    block_content = f.read()
-            except Exception:
-                continue
-            for m in re.finditer(r"""Blockly\.Blocks\[['"]([^'"]+)['"]\]""", block_content):
-                bt = m.group(1)
-                if bt not in EXCLUDED:
-                    by_category[category].append(bt)
-    for category in sorted(os.listdir(blocks_dir)):
-        cat_path = os.path.join(blocks_dir, category)
-        if not os.path.isdir(cat_path):
-            continue
-        for fname in sorted(os.listdir(cat_path)):
-            if not fname.endswith(".block.js"):
-                continue
-            fpath = os.path.join(cat_path, fname)
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    block_content = f.read()
-            except Exception:
-                continue
-            for m in re.finditer(r"""Blockly\.Python\[['"]([^'"]+)['"]\]""", block_content):
-                bt = m.group(1)
-                if bt not in EXCLUDED and bt not in by_category.get(category, []):
-                    by_category[category].append(bt)
-
-    xml_parts = ['<xml>']
-    order = [("flow", "Flow"), ("logic", "Logic"), ("math", "Math"), ("text", "Text"), ("time", "Time"),
-             ("game", "Game"), ("action", "Action"), ("overlay", "Overlay"),
-             ("input", "Input"), ("screenshot", "Screen"), ("threading", "Threading"),
-             ("system", "System"), ("variables", "Variables")]
-    for cat_key, cat_display in order:
-        blocks = sorted(set(by_category.get(cat_key, [])))
-        if not blocks:
-            continue
-        display_name, colour = CATEGORY_META.get(cat_key, (cat_display, 0))
-        xml_parts.append(f'<category name="{display_name}" colour="{colour}">')
-        for bt in blocks:
-            if bt not in EXCLUDED:
-                xml_parts.append(f'  <block type="{bt}"></block>')
-        xml_parts.append('</category>')
-    xml_parts.append('</xml>')
-    return '\n'.join(xml_parts)
-
-
-@app.route("/blockly/editor")
-def blockly_editor():
-    path = _blockly_safe_path("blockly_editor.html")
-    if not path or not os.path.isfile(path):
-        return jsonify({"ok": False, "error": "Blockly editor not bundled"}), 404
-    return send_file(path)
-
-
-@app.route("/blockly/lib/<path:filename>")
-def blockly_lib(filename):
-    path = _blockly_safe_path("lib", filename)
-    if not path or not os.path.isfile(path):
-        return jsonify({"ok": False, "error": "Not found"}), 404
-    return send_file(path)
-
-
-@app.route("/blockly/media/<path:filename>")
-def blockly_media(filename):
-    path = _blockly_safe_path("lib", "media", filename)
-    if not path or not os.path.isfile(path):
-        return jsonify({"ok": False, "error": "Not found"}), 404
-    return send_file(path)
-
-
-@app.route("/blockly/blocks_data")
-def blockly_blocks_data():
-    files = _blockly_scan_blocks()
-    toolbox = _blockly_build_toolbox()
-    return jsonify({"blocks": files, "toolbox": toolbox})
 
 
 @app.route("/modes/list")

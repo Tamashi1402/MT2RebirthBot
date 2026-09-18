@@ -1,6 +1,6 @@
 """
 MT2 BOT - MODE RUNNER
-Executes custom modes created via the Blockly editor.
+Executes custom modes created via the Mode Builder editor.
 
 A mode consists of:
   - A flow graph (visual nodes: Start → Procedure → ...)
