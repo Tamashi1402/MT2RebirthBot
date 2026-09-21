@@ -298,6 +298,28 @@ def run_farm_meteor():
         # ── Failure path: recover or stop ──
         failure_streak += 1
         log.warning(f"[FARM_METEOR] {area} session failed (streak={failure_streak})")
+        # Dead-loop guard: same dashboard strike limit as the other modes.
+        # After the limit, stop instead of force-restarting forever.
+        try:
+            _strike_limit = _bot()._route_redo_limit()
+        except Exception:
+            _strike_limit = 5
+        if failure_streak >= _strike_limit:
+            log.error(
+                f"[FARM_METEOR] {failure_streak} consecutive failures — strike out, "
+                "stopping (dead-loop guard)"
+            )
+            try:
+                _bot()._rec_set_failure(f"strike_out:farm_meteor:{area}")
+            except Exception:
+                pass
+            try:
+                from screen import save_debug_fullscreen
+                save_debug_fullscreen("farm_meteor_strike_out")
+            except Exception as e:
+                log.debug(f"[FARM_METEOR] strike-out screenshot failed: {e}")
+            _status("STOPPED", "Meteor: strike out")
+            break
         _status("RECOVERING", "Meteor: recovering")
         if not _get_force_restart():
             log.info("[FARM_METEOR] Force Restart off — stopping. Enable Force Restart to keep going.")

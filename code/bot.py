@@ -2666,7 +2666,9 @@ def _menu_resume_enabled(ds_snap: dict | None = None) -> bool:
         return False
 
 
-def _try_force_restart_after_failure(reason: str, ds_snap: dict | None = None) -> bool:
+def _try_force_restart_after_failure(
+    reason: str, ds_snap: dict | None = None, in_game_short_circuit: bool = True
+) -> bool:
     global _WAITING_FOR_START, _STONE_LOST, _at_base, _menu_resume_fresh_start
     reason_l = str(reason or "").lower()
     if "loadouts not set" in reason_l or "missing_loadout" in reason_l:
@@ -2686,8 +2688,15 @@ def _try_force_restart_after_failure(reason: str, ds_snap: dict | None = None) -
         from fr_flow import three_state_recovery as _tsr, menu_join_flow as _mjf
         state = _tsr(tag=reason)
         if state == "in_game":
-            log.info(f"[FORCE_RESTART] three-state: in game \u2014 recovered without leaving ({reason})")
-            return True
+            if in_game_short_circuit:
+                log.info(f"[FORCE_RESTART] three-state: in game \u2014 recovered without leaving ({reason})")
+                return True
+            # Kraken strike-out: the game looks loaded but the map is bugged
+            # (character stuck). Only a real leave-to-lobby restart clears it.
+            log.info(
+                f"[FORCE_RESTART] three-state: in game but a real restart is required ({reason}) "
+                "\u2014 leaving to lobby anyway"
+            )
         if state == "menu":
             log.info("[FORCE_RESTART] three-state: already in the lobby menu \u2014 joining Miner Tycoon 2")
             if _mjf(reason):
@@ -5862,6 +5871,8 @@ def _delve_open_menu_via_a5() -> bool:
         set_overlay(status="DELVE", goal="Teleport")
         if not _builtin_teleport_safe("area5", attempts=10, wait_seconds=3.5):
             log.warning(f"[DELVE] F4 Area 5 teleport failed before delve macro ({attempt}/{attempts})")
+            if _boss_add_strike("delve", "F4 area5 teleport failed"):
+                return False
             _delve_try_menu_resume("route teleport failure")
             continue
         _mark_area5_unlocked_if_visible(f"delve attempt {attempt}", attempts=2, delay=0.15)
@@ -5870,6 +5881,8 @@ def _delve_open_menu_via_a5() -> bool:
         set_overlay(status="DELVE", goal="Navigation")
         if not _run_macro("area5_to_delve"):
             log.warning(f"[DELVE] area5_to_delve macro failed ({attempt}/{attempts})")
+            if _boss_add_strike("delve", "area5_to_delve macro failed"):
+                return False
             _delve_try_menu_resume("route macro failure")
             continue
         time.sleep(wait_s)
@@ -5880,6 +5893,8 @@ def _delve_open_menu_via_a5() -> bool:
                 log.warning("[DELVE] CLOSE found but JOIN OCR missed; clicking configured JOIN center anyway")
             return True
         log.warning(f"[DELVE] boss menu not confirmed after route attempt {attempt}/{attempts}")
+        if _boss_add_strike("delve", "boss menu not confirmed after route"):
+            return False
         _delve_try_menu_resume("route menu confirm miss")
     _rec_set_failure("redo_limit:delve")
     return False
@@ -5965,6 +5980,109 @@ def _kraken_try_menu_resume(reason: str) -> bool:
     return False
 
 
+# \u2500\u2500 Boss-mode strike-out (dead-loop guard): kraken / zytos / delve \u2500\u2500\u2500\u2500\u2500
+# The dashboard "Route retry limit" (ROUTE_REDO_LIMIT) is the strike limit
+# for every boss mode, exactly like crater's consecutive-failure counter.
+# Strikes (per mode, consecutive):
+#   +1 for every failed route attempt (F4 teleport + walk macro + boss-menu
+#      check) that ends without the menu confirmed
+#   +1 for a failed fight-open (JOIN clicked but no health bar appeared)
+#      (kraken / zytos; delve has no health-bar detector)
+# Strikes reset on a successful kill (or death \u2014 game still responsive).
+# At the limit: force restart if it is ON in the dashboard (a REAL
+# leave-to-lobby restart, because the in-game map itself is usually what is
+# bugged), otherwise stop the bot instead of retrying forever.
+_BOSS_STRIKES = {"kraken": 0, "zytos": 0, "delve": 0}
+_BOSS_STOP = {"kraken": False, "zytos": False, "delve": False}
+
+
+def _boss_strike_init(mode: str):
+    """Fresh mode start: clear the strike counter and stop flag."""
+    _BOSS_STRIKES[mode] = 0
+    _BOSS_STOP[mode] = False
+
+
+def _boss_strike_stopped(mode: str) -> bool:
+    return bool(_BOSS_STOP.get(mode, False))
+
+
+def _boss_strike_reset(mode: str, reason: str = "kill"):
+    if _BOSS_STRIKES.get(mode):
+        log.info(f"[{mode.upper()}] {reason} \u2014 resetting strike count (was {_BOSS_STRIKES[mode]})")
+    _BOSS_STRIKES[mode] = 0
+
+
+_REBIRTH_RUN_STRIKES = 0
+
+
+def _rebirth_strike_record(run_ok: bool) -> bool:
+    """Track consecutive failed rebirth runs (dashboard strike limit).
+
+    Returns True only on strike-out: N failed runs in a row (each one
+    already went through its own force-restart / menu-resume attempt) means
+    recovery is not helping - stop instead of looping forever.
+    """
+    global _REBIRTH_RUN_STRIKES
+    if run_ok:
+        if _REBIRTH_RUN_STRIKES:
+            log.info(f"[REBIRTH] run succeeded \u2014 resetting failed-run strikes (was {_REBIRTH_RUN_STRIKES})")
+        _REBIRTH_RUN_STRIKES = 0
+        return False
+    _REBIRTH_RUN_STRIKES += 1
+    limit = _route_redo_limit()
+    log.warning(f"[REBIRTH] failed-run strike {_REBIRTH_RUN_STRIKES}/{limit}")
+    if _REBIRTH_RUN_STRIKES < limit:
+        return False
+    _REBIRTH_RUN_STRIKES = 0
+    log.error(f"[REBIRTH] {limit} consecutive failed runs \u2014 strike out (dead-loop guard)")
+    _rec_set_failure("strike_out:rebirth")
+    try:
+        from screen import save_debug_fullscreen
+        save_debug_fullscreen("rebirth_strike_out")
+    except Exception as e:
+        log.debug(f"[REBIRTH] strike-out screenshot failed: {e}")
+    return True
+
+
+def _boss_add_strike(mode: str, reason: str) -> bool:
+    """Count one consecutive failure for a boss mode (kraken/zytos/delve).
+
+    Returns False when the mode loop should keep going (still under the
+    limit, or force restart just recovered the game), True when the loop
+    must stop (limit reached and force restart is OFF or failed).
+    """
+    tag = mode.upper()
+    limit = _route_redo_limit()
+    _BOSS_STRIKES[mode] = _BOSS_STRIKES.get(mode, 0) + 1
+    log.warning(f"[{tag}] strike {_BOSS_STRIKES[mode]}/{limit} \u2014 {reason}")
+    if _BOSS_STRIKES[mode] < limit:
+        return False
+    log.error(f"[{tag}] {limit} consecutive failures ({reason}) \u2014 strike out")
+    _rec_set_failure(f"strike_out:{mode}:{reason}")
+    try:
+        from screen import save_debug_fullscreen
+        save_debug_fullscreen(f"{mode}_strike_out")
+    except Exception as e:
+        log.debug(f"[{tag}] strike-out screenshot failed: {e}")
+    _BOSS_STRIKES[mode] = 0
+    if _force_restart_enabled(None):
+        log.warning(f"[{tag}] force restart ON \u2014 leaving to lobby and rejoining")
+        _console_status(tag, "Force Restart")
+        set_overlay(status="RESTART", goal="Force Restart", run_start_time=0)
+        if _try_force_restart_after_failure(
+            f"{mode} strike out: {reason}", in_game_short_circuit=False
+        ):
+            log.info(f"[{tag}] force restart OK \u2014 resuming {mode} loop")
+            return False
+        log.error(f"[{tag}] force restart failed \u2014 stopping {mode} loop")
+    else:
+        log.error(f"[{tag}] force restart OFF \u2014 stopping {mode} loop (dead-loop guard)")
+    _BOSS_STOP[mode] = True
+    set_overlay(status="STOPPED", goal=f"{tag.title()} strike out", run_start_time=0)
+    _dash_update(run_active=False, run_start_time=None, status="STOPPED", goal=f"{tag.title()} strike out")
+    return True
+
+
 def _kraken_open_menu_via_a7() -> bool:
     import config as _cfg_kraken
     attempts = _route_redo_limit()
@@ -5979,12 +6097,16 @@ def _kraken_open_menu_via_a7() -> bool:
         set_overlay(status="KRAKEN", goal="Teleport", run_start_time=0)
         if not _builtin_teleport_safe("area7", attempts=10, wait_seconds=3.5):
             log.warning(f"[KRAKEN] F4 Area 7 teleport failed before kraken macro ({attempt}/{attempts})")
+            if _boss_add_strike("kraken", "F4 area7 teleport failed"):
+                return False
             continue
         _console_status("KRAKEN", f"Navigation {attempt}/{attempts}")
         _dash_update(status="KRAKEN", goal="Navigation")
         set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
         if not _run_macro("area7_to_kraken"):
             log.warning(f"[KRAKEN] area7_to_kraken macro failed ({attempt}/{attempts})")
+            if _boss_add_strike("kraken", "area7_to_kraken macro failed"):
+                return False
             continue
         time.sleep(wait_s)
         close_ok = _kraken_close_visible()
@@ -5994,6 +6116,8 @@ def _kraken_open_menu_via_a7() -> bool:
                 log.warning("[KRAKEN] CLOSE found but JOIN OCR missed; clicking configured JOIN center anyway")
             return True
         log.warning(f"[KRAKEN] boss menu not confirmed after route attempt {attempt}/{attempts}")
+        if _boss_add_strike("kraken", "boss menu not confirmed after route"):
+            return False
     _rec_set_failure("redo_limit:kraken")
     return False
 
@@ -6091,12 +6215,15 @@ def _run_kraken_loop():
 
     _dash_update(run_active=True, status="KRAKEN", goal="Navigation", waiting_for_start=False)
     set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
+    _boss_strike_init("kraken")
     log.info("[KRAKEN] loop started (no ESP, no dodge â€” walk loop + mouse aim)")
     menu_ready = False
 
-    while not _KILLED and not _TEST_FORCE_FAILURE and not _STONE_LOST:
+    while not _KILLED and not _TEST_FORCE_FAILURE and not _STONE_LOST and not _boss_strike_stopped("kraken"):
         if not menu_ready:
             if not _kraken_open_menu_via_a7():
+                if _boss_strike_stopped("kraken"):
+                    break
                 _console_status("KRAKEN", "Menu retry")
                 _wait_polling(1.0, "Kraken retry", freeze=False)
                 continue
@@ -6318,10 +6445,15 @@ def _run_kraken_loop():
         if _KILLED or _TEST_FORCE_FAILURE:
             break
         if boss_end_reason == "join_failed":
+            # Got there, clicked JOIN, but the fight never opened. This is a
+            # failed attempt too â€” it feeds the same strike counter.
+            if _boss_add_strike("kraken", "kraken fight did not open (no health bar after JOIN)"):
+                break
             _dash_update(status="KRAKEN", goal="Navigation", run_start_time=None)
             set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
             continue
         if boss_end_reason == "killed":
+            _boss_strike_reset("kraken", "boss killed")
             _dash_update(status="KRAKEN", goal="Post Fight", run_start_time=None)
             set_overlay(status="KRAKEN", goal="Post Fight", run_start_time=0)
             _console_status("KRAKEN", "Post Fight")
@@ -6336,6 +6468,8 @@ def _run_kraken_loop():
                 set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
                 continue
         # Death / stopped / other: wait for respawn, no timer
+        if boss_end_reason == "death":
+            _boss_strike_reset("kraken", "death â€” game still responsive")
         _dash_update(status="KRAKEN", goal="Finish", run_start_time=None)
         set_overlay(status="KRAKEN", goal="Finish", run_start_time=0)
         _wait_polling(death_wait, "Kraken respawn", freeze=True)
@@ -6377,9 +6511,12 @@ def _run_delve_loop():
         getattr(_cfg_delve, "DELVE_JOIN_REGION", None),
         getattr(_cfg_delve, "DELVE_JOIN_CENTER", None),
     )
+    _boss_strike_init("delve")
     log.info("[DELVE] loop started")
-    while not _KILLED:
+    while not _KILLED and not _boss_strike_stopped("delve"):
         if not _delve_open_menu_via_a5():
+            if _boss_strike_stopped("delve"):
+                break
             _console_status("DELVE", "Menu retry")
             _wait_polling(1.0, "Delve retry", freeze=False)
             continue
@@ -6456,6 +6593,8 @@ def _run_delve_loop():
 
         if _KILLED:
             break
+        if boss_end_reason == "death":
+            _boss_strike_reset("delve", "death - game still responsive")
         _console_status("DELVE", "Finish")
         _dash_update(status="DELVE", goal="Finish", run_start_time=None)
         set_overlay(status="DELVE", goal="Finish", run_start_time=0)
@@ -6951,6 +7090,7 @@ def run_bot():
                 continue   # loop back (either to _wait_for_start via _KILLED path, or clean restart)
 
             if run_ok:
+                _rebirth_strike_record(True)
                 stats.finish_run()
                 gs = stats.global_stats
                 _dash_update(
@@ -6972,6 +7112,12 @@ def run_bot():
                 except Exception as _rec_e:
                     log.debug(f"[Recorder] stop_run error: {_rec_e}")
             else:
+                if _rebirth_strike_record(False):
+                    _console_status("STOPPED", "Too many failed runs")
+                    set_overlay(status="STOPPED", goal="Strike out")
+                    _dash_update(run_active=False, run_start_time=None, status="STOPPED", goal="Strike out")
+                    _KILLED = True   # soft kill: F9 tail parks the bot in wait-for-start
+                    continue
                 if _LOADOUT_BLOCKED:
                     _LOADOUT_BLOCKED = False
                     _WAITING_FOR_START = True

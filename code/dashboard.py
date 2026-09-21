@@ -5490,7 +5490,7 @@ const CFG_TOOLTIPS = {
   MANUAL_STR_OPEN_AFTER_MONITOR_WAIT: 'Open sequence: seconds to wait after pressing the monitor item key before the click that opens the strength menu (default 0.5s).',
   MANUAL_STR_NO_STRENGTH_TIMEOUT: 'Seconds without manual strength progress before the bot treats the rock as stalled and reroutes.',
   MANUAL_STR_HUD_STALL_SECONDS: 'While the manual strength menu is open, if HUD stone does not change for this many seconds the bot closes the menu and redoes the rock/baserock route (default 5).',
-  ROUTE_REDO_LIMIT: 'Global. How many times a failed route can be redone (baserock, rock, meteor, crater, kraken, zytos, delve) before the run stops. With Force Restart on, that triggers a force restart. Default 5.',
+  ROUTE_REDO_LIMIT: 'Global strike limit. How many consecutive failures can pile up before the run stops (baserock, rock, meteor, crater, kraken, zytos, delve). With Force Restart on, that triggers a force restart. In kraken and zytos a failed fight-open (JOIN clicked but no health bar) also adds a strike; a kill or death clears the count in boss modes. Default 5.',
   MANUAL_STR_POST_CLOSE_SETTLE_SECONDS: 'Seconds to wait after manual strength closes before mining/reading HUD outside the menu.',
   MANUAL_STR_POST_CLOSE_TOPUP_SECONDS: 'Minimum seconds to mine outside the menu after a manual threshold before moving on.',
   MANUAL_STR_POST_CLOSE_CONFIRM_TIMEOUT_SECONDS: 'Maximum seconds to keep mining/reading HUD outside the menu after a manual threshold.',

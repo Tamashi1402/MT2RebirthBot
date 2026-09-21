@@ -43,6 +43,14 @@ def _must_exit() -> bool:
     return _stop_requested() or bool(getattr(_bot(), "_STONE_LOST", False))
 
 
+def _strike_stopped() -> bool:
+    """Strike-out stop requested (boss-mode dead-loop guard)."""
+    try:
+        return bool(_bot()._boss_strike_stopped("zytos"))
+    except Exception:
+        return False
+
+
 def _try_menu_resume(reason: str) -> bool:
     """Only when stone is already lost. Engine menu-resume helper."""
     b = _bot()
@@ -88,12 +96,16 @@ def _open_menu_via_a8() -> bool:
         set_overlay(status="ZYTOS", goal="Teleport", run_start_time=0)
         if not b._builtin_teleport_safe("area8", attempts=10, wait_seconds=3.5):
             log.warning(f"[ZYTOS] F4 Area 8 teleport failed before zytos macro ({attempt}/{attempts})")
+            if b._boss_add_strike("zytos", "F4 area8 teleport failed"):
+                return False
             continue
         b._console_status("ZYTOS", f"Navigation {attempt}/{attempts}")
         b._dash_update(status="ZYTOS", goal="Navigation")
         set_overlay(status="ZYTOS", goal="Navigation", run_start_time=0)
         if not b._run_macro("a8_to_zytos"):
             log.warning(f"[ZYTOS] a8_to_zytos macro failed ({attempt}/{attempts})")
+            if b._boss_add_strike("zytos", "a8_to_zytos macro failed"):
+                return False
             continue
         # a8_to_zytos is walk-only (no E). Press E in code so the nav macro
         # does not need to be re-recorded.
@@ -111,6 +123,8 @@ def _open_menu_via_a8() -> bool:
                 log.warning("[ZYTOS] CLOSE found but JOIN OCR missed; clicking configured JOIN center anyway")
             return True
         log.warning(f"[ZYTOS] boss menu not confirmed after route attempt {attempt}/{attempts}")
+        if b._boss_add_strike("zytos", "boss menu not confirmed after route"):
+            return False
     try:
         b._rec_set_failure("redo_limit:zytos")
     except Exception:
@@ -198,13 +212,14 @@ def run_zytos():
 
     b._dash_update(run_active=True, status="ZYTOS", goal="Navigation", waiting_for_start=False)
     set_overlay(status="ZYTOS", goal="Navigation", run_start_time=0)
+    b._boss_strike_init("zytos")
     log.info("[ZYTOS] loop started (own module: walk loop + mouse aim, no kraken calls)")
     menu_ready = False
 
-    while not _must_exit():
+    while not _must_exit() and not _strike_stopped():
         if not menu_ready:
             if not _open_menu_via_a8():
-                if _must_exit():
+                if _must_exit() or _strike_stopped():
                     break
                 b._console_status("ZYTOS", "Menu retry")
                 b._wait_polling(1.0, "Zytos retry", freeze=False)
@@ -388,10 +403,15 @@ def run_zytos():
         if boss_end_reason in {"stone_lost", "test_force_failure"}:
             break
         if boss_end_reason == "join_failed":
+            # Got there, clicked JOIN, but the fight never opened. This is a
+            # failed attempt too - it feeds the same strike counter.
+            if b._boss_add_strike("zytos", "zytos fight did not open (no health bar after JOIN)"):
+                break
             b._dash_update(status="ZYTOS", goal="Navigation", run_start_time=None)
             set_overlay(status="ZYTOS", goal="Navigation", run_start_time=0)
             continue
         if boss_end_reason == "killed":
+            b._boss_strike_reset("zytos", "boss killed")
             b._dash_update(status="ZYTOS", goal="Post Fight", run_start_time=None)
             set_overlay(status="ZYTOS", goal="Post Fight", run_start_time=0)
             b._console_status("ZYTOS", "Post Fight")
@@ -404,6 +424,8 @@ def run_zytos():
                 b._dash_update(status="ZYTOS", goal="Navigation", run_start_time=None)
                 set_overlay(status="ZYTOS", goal="Navigation", run_start_time=0)
                 continue
+        if boss_end_reason == "death":
+            b._boss_strike_reset("zytos", "death - game still responsive")
         b._dash_update(status="ZYTOS", goal="Finish", run_start_time=None)
         set_overlay(status="ZYTOS", goal="Finish", run_start_time=0)
         b._wait_polling(death_wait, "Zytos respawn", freeze=True)

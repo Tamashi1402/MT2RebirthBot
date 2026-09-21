@@ -964,6 +964,9 @@ def run_crater():
                         log.debug(f"Crater: failure debug screenshot failed: {e}")
                     break
 
+            # Success: a full detection cycle completed - clear the
+            # consecutive-failure streak so it only counts real failures.
+            _failure_count = 0
             continue
     except Exception as _crater_e:
         log.error(f"Crater: unhandled error in run_crater: {_crater_e}")
