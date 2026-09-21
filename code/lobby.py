@@ -269,6 +269,21 @@ def _ready_and_join() -> bool:
     return True
 
 
+def _join() -> bool:
+    """Rejoin MT2 from the lobby menu: OCR flow v2 (fr_flow).
+
+    Finds the lobby (PLAY OCR + scroll-up drift protection), verifies the
+    selected game is Miner Tycoon 2 (wrong game -> island-code map search),
+    presses PLAY, then waits for the picked in-game HUD image.
+    Falls back to the legacy pixel Ready/shard flow if fr_flow is missing."""
+    try:
+        from fr_flow import menu_join_flow
+        return bool(menu_join_flow("lobby join"))
+    except Exception as e:
+        log.warning(f"[LOBBY] fr_flow join failed ({e}) â legacy fallback")
+        return _join()
+
+
 def _pause_menu_open() -> bool:
     xy = _pt("FORCE_ESC_SAMPLE", (1622, 149))
     rgb = getattr(_cfg, "FORCE_ESC_COLOR", (5, 14, 38))
@@ -332,7 +347,11 @@ def _esc_open_pause_menu(step: float, ready_xy, ready_rgb) -> str:
 
 
 def force_restart() -> bool:
-    """Always try ESC. In-match shard HUD is ignored. Fallback = wait Ready 5 min."""
+    """Leave to the lobby (ESC -> Menu -> Return to lobby), then rejoin MT2.
+
+    The rejoin is the OCR flow: lobby PLAY detection, Miner Tycoon 2 title
+    verification (wrong game -> island-code map search), PLAY, in-game HUD
+    image wait. In-match shard HUD is ignored during the leave."""
     try:
         from net_guard import set_path_redo
         set_path_redo(False)
@@ -343,7 +362,7 @@ def force_restart() -> bool:
         ready_xy, ready_rgb = _ready_pt()
         if _dump("ready already", ready_xy, ready_rgb, tol=70):
             log.info("[FORCE_RESTART] already in lobby (Ready) — skip ESC")
-            return _ready_and_join()
+            return _join()
 
         step = _step()
         menu_xy = _pt("FORCE_MENU_CLICK", (1677, 66))
@@ -359,12 +378,12 @@ def force_restart() -> bool:
             return False
         if _dump("ready mid-leave", ready_xy, ready_rgb, tol=70):
             log.info("[FORCE_RESTART] Ready appeared — skip ESC")
-            return _ready_and_join()
+            return _join()
         _dismiss_game_menus()
         which = _esc_open_pause_menu(step, ready_xy, ready_rgb)
         if which == "ready":
             log.info("[FORCE_RESTART] Ready appeared during ESC — skip Menu")
-            return _ready_and_join()
+            return _join()
         log.info("[FORCE_RESTART] wait then click Menu")
         if _click_slow(menu_xy, "Menu", 1):
             if _wait_color(exit_xy, exit_rgb, 8.0, pause_lag=False, label="exit panel", tol=70):
@@ -375,7 +394,7 @@ def force_restart() -> bool:
             _click_slow(lobby_xy, "return to lobby")
         else:
             log.warning("[FORCE_RESTART] exit panel not seen — wait Ready 5 min")
-        return _ready_and_join()
+        return _join()
     finally:
         try:
             from net_guard import set_path_redo
@@ -391,7 +410,7 @@ def menu_resume() -> bool:
     except Exception:
         pass
     try:
-        return _ready_and_join()
+        return _join()
     finally:
         try:
             from net_guard import set_path_redo

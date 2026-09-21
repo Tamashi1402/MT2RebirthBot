@@ -5,11 +5,16 @@ const supportedBlocks = [
   'LABEL','GOTO','DELAY',
   'KEY_DOWN','KEY_UP','KEY_PRESS',
   'MOUSE_MOVE_ABS','MOUSE_LEFT_DOWN','MOUSE_LEFT_UP','MOUSE_LEFT_CLICK',
+  'MOUSE_RIGHT_DOWN','MOUSE_RIGHT_UP','MOUSE_RIGHT_CLICK',
+  'MOUSE_MIDDLE_DOWN','MOUSE_MIDDLE_UP','MOUSE_MIDDLE_CLICK',
   'MOUSE_REL','SMOOTH_MOVE',
-  'REPEAT','ENDREPEAT',
+  'REPEAT','ENDREPEAT','WHILE','UNTIL','END_WHILE','END_UNTIL',
   'VARIABLE','SET_VARIABLE','IMAGE',
   'IF','ELSE_IF','END_IF',
   'PLAY_MACRO',
+  'GROUP','GROUP_END','COMMENT','SECTION','SECTION_END','ELSE',
+  'PRINT','LOCK','LOCK_END',
+  'BG_BEGIN','BG_END',
 ];
 
 const blockDefaults = {
@@ -27,21 +32,37 @@ const blockDefaults = {
   SMOOTH_MOVE:      '60,0',
   REPEAT:           '2',
   ENDREPEAT:        '',
+  WHILE:            '{"mode":"boolean","name":"flag","value":true}',
+  UNTIL:            '{"mode":"boolean","name":"flag","value":false}',
+  END_WHILE:        '',
+  END_UNTIL:        '',
   VARIABLE:         '{"name":"var1","var_type":"number","value":0}',
   SET_VARIABLE:     '{"name":"var1","op":"set","value":0}',
   IMAGE:            '{"var":"image_found","path":"","threshold":85,"fixed":true,"base_w":1920,"base_h":1080,"x1":0,"y1":0,"x2":100,"y2":100,"search_x1":0,"search_y1":0,"search_x2":1920,"search_y2":1080}',
   IF:               '{"mode":"boolean","name":"image_found","value":true}',
   ELSE_IF:          '{"mode":"boolean","name":"image_found","value":true}',
   END_IF:           '',
+  ELSE:             '',
+  SECTION:          'note',
+  SECTION_END:      '',
   PLAY_MACRO:       '',
+  PRINT:            '',
 };
 
 const valueLessBlocks = new Set([
   'ENDREPEAT',
-  'MOUSE_LEFT_DOWN',
-  'MOUSE_LEFT_UP',
-  'MOUSE_LEFT_CLICK',
+  'END_WHILE','END_UNTIL',
+  'MOUSE_LEFT_DOWN','MOUSE_LEFT_UP','MOUSE_LEFT_CLICK',
+  'MOUSE_RIGHT_DOWN','MOUSE_RIGHT_UP','MOUSE_RIGHT_CLICK',
+  'MOUSE_MIDDLE_DOWN','MOUSE_MIDDLE_UP','MOUSE_MIDDLE_CLICK',
   'END_IF',
+  'ELSE',
+  'GROUP_END',
+  'SECTION_END',
+  'LOCK',
+  'LOCK_END',
+  'BG_BEGIN',
+  'BG_END',
 ]);
 
 const keyOptions = [
@@ -99,72 +120,25 @@ const pickerGroups = {
       ['SET_VARIABLE', 'Set Variable', 'Set, add, subtract, or toggle a variable.'],
       ['IMAGE', 'Image', 'Capture a region and set a boolean variable from match percent.'],
       ['IF', 'If', 'Run following blocks when a variable condition is true.'],
+      ['WHILE', 'While', 'Repeat following blocks while a condition stays true.'],
+      ['UNTIL', 'Until', 'Repeat following blocks until a condition turns true.'],
+      ['END_WHILE', 'End While', 'Close the current While loop.'],
+      ['END_UNTIL', 'End Until', 'Close the current Until loop.'],
       ['ELSE_IF', 'Else If', 'Alternative condition for the same IF chain.'],
       ['END_IF', 'End If', 'Close the current IF chain.'],
+      ['GROUP', 'Group', 'Named container — steps live inside, edit opens them in their own editor.'],
+      ['GROUP_END', 'End Group', 'Close the current group.'],
+      ['COMMENT', 'Comment', 'Single # comment line (ignored on playback).'],
+      ['SECTION', 'Section', 'A note header that wraps blocks — blocks stay visible on the canvas (comment markers, ignored on playback).'],
+      ['SECTION_END', 'End Section', 'Close the current section.'],
+      ['ELSE', 'Else', 'Plain else branch of the current IF chain.'],
     ],
   },
 };
 
-const MACRO_FOLDER_LABELS = {
-  '': 'Root',
-  'teleports': 'Teleports',
-  'engine': 'Engine',
-  'rebirth_mode': 'Rebirth',
-  'rebirth_mode/area1': 'Rebirth / Area 1',
-  'rebirth_mode/area2': 'Rebirth / Area 2',
-  'rebirth_mode/area3': 'Rebirth / Area 3',
-  'rebirth_mode/area4': 'Rebirth / Area 4',
-  'rebirth_mode/area5': 'Rebirth / Area 5',
-  'delve_mode': 'Delve',
-  'kraken_mode': 'Kraken',
-  'zytos_mode': 'Zytos',
-  'crater_mode': 'Crater',
-  'meteor_mode': 'Meteor',
-};
-const MACRO_FOLDER_ORDER = [
-  'rebirth_mode',
-  'rebirth_mode/area1', 'rebirth_mode/area2', 'rebirth_mode/area3',
-  'rebirth_mode/area4', 'rebirth_mode/area5',
-  'delve_mode', 'kraken_mode', 'zytos_mode', 'crater_mode',
-  'meteor_mode',
-  'teleports', 'engine', '',
-];
-const MACRO_HINTS = {
-  base_to_baserock: 'Start after teleporting to base. Walk to baserock and stop when you are facing it in hitting radius. Do not start hitting.',
-  base_to_meteor_shortcut_p1: 'Start after teleporting to base. Walk through the base portal into Area 6 and stop after you have spawned in Area 6.',
-  base_to_meteor_shortcut_p1_shortcut: 'Start from the end position of base_to_baserock (facing baserock). Walk through the base portal into Area 6 and stop after you have spawned in Area 6.',
-  base_to_meteor_shortcut_p3: 'Start after teleporting to Area 5. Walk to the Area 5 Stage 3 meteor and stop when it is in hitting radius. Do not start hitting.',
-  base_to_rebirth: 'Start after teleporting to base. Walk to the rebirth NPC and press E until the rebirth menu is open, then STOP recording.\n\nDo not click Rebirth / Confirm with the mouse while recording — UI clicks are not sensitivity-scaled. After saving, open the .macro in Notepad and paste this on the end:\n\nDELAY:1000\nMOUSE_MOVE_ABS:959,937\nDELAY:500\nMOUSE_LEFT_CLICK\nDELAY:1000\nMOUSE_MOVE_ABS:1544,936\nDELAY:500\nMOUSE_LEFT_CLICK\nDELAY:5000',
-  unlock_drills: 'Start after teleporting to base. Walk to the drill NPC, press E to open the shop, then STOP recording.\n\nShop buttons are UI — after saving, keep/add these absolute clicks (1920x1080):\nMOUSE_MOVE_ABS:1045,858 + click (unlock)\nMOUSE_MOVE_ABS:660,953 + click (close/back)',
-  area1_to_bramble: 'Start after teleporting to Area 1 (on the pad). Walk to the Bramble NPC and stop in interact range. Do not open the boss menu (fight_bramble_open does that).',
-  fight_bramble_open: 'Start standing at the Bramble NPC (end of area1_to_bramble). Walk in, press E to open the Bramble info card, and stop when the card is open. Do not click JOIN.',
-  fight_bramble_join: 'Do not record mouse turns. This is UI-only (JOIN button).\n\nIf JOIN misses, edit the file and keep absolute clicks (1920x1080):\nMOUSE_MOVE_ABS:1337,830\nDELAY:200\nMOUSE_LEFT_CLICK\nDELAY:1000\nMOUSE_LEFT_CLICK\nDELAY:2000\n\nDo not click a loadout slot here — loadouts are selected by the bot.',
-  fight_bramble: 'Legacy combined walk + open + JOIN. Prefer area1_to_bramble + fight_bramble_open + fight_bramble_join. If you re-record this one: start at Area 1 pad, walk to Bramble, open the card, then stop before JOIN and paste the fight_bramble_join UI clicks.',
-  area1_to_meteor: 'Start after teleporting to Area 1 (on the pad). Walk to the Area 1 meteor and stop when it is in hitting radius. Do not start hitting.',
-  area5_to_meteor: 'Start after teleporting to Area 5 (on the pad). Walk to the Area 5 meteor and stop when it is in hitting radius. Do not start hitting.',
-  area5_to_delve: 'Start after teleporting to Area 5 (on the pad). Walk to the Delve entrance, press E to open the Delve card, and stop when the card is open. Do not click Join — the bot clicks that.',
-  area7_to_kraken: 'Start after teleporting to Area 7 (on the pad). Walk to Kraken, press E to open the Kraken card, and stop when the card is open. Do not click Join — the bot clicks that.',
-  a8_to_zytos: 'Start after teleporting to Area 8 (on the pad). Walk to Zytos and stop in interact range / facing the Zytos card. Do not click Join — the bot clicks that.',
-  cosmic_to_crater: 'Start after teleporting to Cosmic. Walk to the Crater entrance and stop when you can join. Do not click Join — the bot handles Crater join.',
-  area6_to_node: 'Meteor (Area 6). Start after teleporting to Area 6 (on the pad). Walk to the rock node and stop when you are facing it in hitting radius. Do not start hitting. The bot holds left click for 1 second to break it.',
-  area6_to_meteor: 'Meteor (Area 6). Start after teleporting to Area 6 (on the pad). Walk to the Area 6 meteor and stop when it is in hitting radius. Do not start hitting.',
-  base_to_area6: 'Start after teleporting to base. Walk through the base portal into Area 6 and stop after you have spawned in Area 6 (unlocks F4 Area 6).',
-  area6_to_stage1: 'Start after teleporting to Area 6 (on the pad). Walk to the Area 6 Stage 1 rock and stop when you are facing it in hitting radius. Do not start hitting.',
-  area6_to_stage2: 'Start after teleporting to Area 6 (on the pad). Walk to the Area 6 Stage 2 rock and stop when you are facing it in hitting radius. Do not start hitting.',
-  area6_to_stage3: 'Start after teleporting to Area 6 (on the pad). Walk to the Area 6 Stage 3 rock and stop when you are facing it in hitting radius. Do not start hitting.',
-  area6_to_stage4: 'Start after teleporting to Area 6 (on the pad). Walk to the Area 6 Stage 4 rock and stop when you are facing it in hitting radius. Do not start hitting.',
-  area7_to_meteor: 'Meteor (Area 7). Start after teleporting to Area 7 (on the pad). Walk to the Area 7 meteor and stop when it is in hitting radius. Do not start hitting.',
-  area8_to_meteor: 'Meteor (Area 8). Start after teleporting to Area 8 (on the pad). Walk to the Area 8 meteor and stop when it is in hitting radius. Do not start hitting.',
-};
-for (let area = 1; area <= 5; area++) {
-  MACRO_HINTS[`base_to_a${area}_teleport`] =
-    `Start after teleporting to base. Walk through the portal into Area ${area} and stop after you have spawned in Area ${area} (unlocks teleport_to_area${area}).`;
-  for (let stage = 1; stage <= 4; stage++) {
-    MACRO_HINTS[`area${area}_to_stage${stage}_rock`] =
-      `Start after teleporting to Area ${area} (on the pad). Walk to Stage ${stage} rock 1 and stop when you are facing it in hitting radius. Do not start hitting.`;
-  }
-}
-
+const MACRO_FOLDER_LABELS = { '': 'Root' };
+const MACRO_FOLDER_ORDER = [''];
+const MACRO_HINTS = {};
 let recordBindingValue = 'F5';
 let playBindingValue = 'F6';
 let smoothMoveBindingValue = 'L';
@@ -172,8 +146,6 @@ let lastSmoothMoveSeq = 0;
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const macroQuickSelect = document.getElementById('macroQuickSelect');
-const macroHintBtn     = document.getElementById('macroHintBtn');
-const macroHintPop     = document.getElementById('macroHintPop');
 const newBtn           = document.getElementById('newBtn');
 const openBtn          = document.getElementById('openBtn');
 const importBtn        = document.getElementById('importBtn');
@@ -330,6 +302,13 @@ let currentPath   = '';
 let currentMacro  = '';
 let currentMeta   = {};
 let blocks        = [];
+// The macro's embedded Blockly workspace (exact editor state: layout,
+// arrangement, group data). Set on load (server hash-verified), kept in
+// sync from the blockly iframe, nulled by any list-side edit (the
+// workspace is then rebuilt from the text steps — never stale).
+let blocklyJson   = null;
+let blocklyWsXml  = null;   // v3 container's blockly.xaml — exact workspace XML
+let blocklyEpoch  = 0;   // bumped per loaded macro — drives iframe reload
 let running       = false;
 let recording     = false;
 let lastRecordVersion = 0;
@@ -338,6 +317,8 @@ let browserDir    = '';
 let browserParent = '';
 let browserFile   = '';
 let autosaveTimer = null;
+let prevPollRecording = false;
+const appVersionEl = document.getElementById('appVersion');
 let isSaving      = false;
 let playbackRepeatValue = 1;
 let playbackTimesValue = 5;
@@ -368,6 +349,12 @@ function fmt(s) {
   s = Math.max(0, Math.floor(s));
   return String(Math.floor(s / 60)).padStart(2,'0') + ':' + String(s % 60).padStart(2,'0');
 }
+
+// The dashboard's File / Play-mode dropdowns live in the PARENT page;
+// clicks in here never bubble up there, so report them instead.
+document.addEventListener('pointerdown', function () {
+  try { window.parent.postMessage({ type: 'rec-close-menus' }, '*'); } catch (e) {}
+}, true);
 
 function isKeyType(t) {
   return t === 'KEY_DOWN' || t === 'KEY_UP' || t === 'KEY_PRESS';
@@ -455,6 +442,7 @@ function applyPlayModeUI() {
     playModeTimes.hidden = playbackMode !== 'times';
     playModeTimes.value = String(playbackTimesValue);
   }
+  postRecorderUi();
 }
 
 function playbackRepeat() {
@@ -574,12 +562,15 @@ function scheduleAutosave() {
   if (!currentPath) return;
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(async () => {
-    if (!currentPath || isSaving) return;
+    if (!currentPath) return;
+    if (isSaving) { scheduleAutosave(); return; }   // a save is in flight — retry, never drop
     await saveCurrent(undefined, undefined, { silent: true, reload: false, sensitivityOverride: macroSensitivityForSave() });
   }, 450);
 }
 
 function markEdited() {
+  blocklyJson = null;   // text steps changed outside blockly — workspace cache is stale
+  blocklyWsXml = null;
   updateRunUI({ running, recording });
   scheduleAutosave();
 }
@@ -947,7 +938,7 @@ function openEditForBlock(index) {
   else if (t === 'PLAY_MACRO') openCmdDialog('play_macro', index);
   else if (t === 'VARIABLE') openCmdDialog('variable', index);
   else if (t === 'SET_VARIABLE') openCmdDialog('set_variable', index);
-  else if (t === 'IF' || t === 'ELSE_IF') openCmdDialog('if', index);
+  else if (t === 'IF' || t === 'ELSE_IF' || t === 'WHILE' || t === 'UNTIL') openCmdDialog('if', index);
   else if (t === 'IMAGE') openImageEditor(index);
 }
 
@@ -1346,6 +1337,10 @@ const CATEGORY_MAP = {
   SMOOTH_MOVE:      { icon: 'mouse.png',        label: 'Mouse' },
   REPEAT:           { icon: 'repeat.png',       label: 'Repeat' },
   ENDREPEAT:        { icon: 'end_repeat.png',   label: 'End Repeat' },
+  WHILE:            { icon: 'repeat.png',       label: 'Repeat' },
+  UNTIL:            { icon: 'repeat.png',       label: 'Repeat' },
+  END_WHILE:        { icon: 'end_repeat.png',   label: 'End Repeat' },
+  END_UNTIL:        { icon: 'end_repeat.png',   label: 'End Repeat' },
   VARIABLE:         { icon: 'variable.png',     label: 'Variable' },
   SET_VARIABLE:     { icon: 'set_variable.png', label: 'Set Variable' },
   IMAGE:            { icon: 'image.png',        label: 'Image' },
@@ -1353,6 +1348,9 @@ const CATEGORY_MAP = {
   ELSE_IF:          { icon: 'else_if.png',      label: 'Else If' },
   END_IF:           { icon: 'end_if.png',       label: 'End If' },
   PLAY_MACRO:       { icon: 'play_macro.png',   label: 'Macro' },
+  PRINT:            { icon: 'play_macro.png',   label: 'Macro' },
+  LOCK:             { icon: '',                  label: 'Lock' },
+  LOCK_END:         { icon: '',                  label: 'Lock' },
 };
 
 const ACTION_LABELS = {
@@ -1361,9 +1359,15 @@ const ACTION_LABELS = {
   MOUSE_MOVE_ABS: 'Absolute Move', MOUSE_LEFT_DOWN: 'Left Down', MOUSE_LEFT_UP: 'Left Up',
   MOUSE_LEFT_CLICK: 'Click', MOUSE_REL: 'Move Relative', SMOOTH_MOVE: 'Smooth Move',
   REPEAT: 'Repeat', ENDREPEAT: 'End Repeat',
+  WHILE: 'While', UNTIL: 'Until', END_WHILE: 'End While', END_UNTIL: 'End Until',
   VARIABLE: 'Define Variable', SET_VARIABLE: 'Set Variable', IMAGE: 'Check Image',
   IF: 'If', ELSE_IF: 'Else If', END_IF: 'End If',
   PLAY_MACRO: 'Play Macro',
+  MOUSE_RIGHT_DOWN: 'Right Down', MOUSE_RIGHT_UP: 'Right Up', MOUSE_RIGHT_CLICK: 'Right Click',
+  MOUSE_MIDDLE_DOWN: 'Middle Down', MOUSE_MIDDLE_UP: 'Middle Up', MOUSE_MIDDLE_CLICK: 'Middle Click',
+  GROUP: 'Group', GROUP_END: 'End Group', COMMENT: 'Comment',
+  SECTION: 'Section', SECTION_END: 'End Section', ELSE: 'Else',
+  PRINT: 'Print', LOCK: 'Lock', LOCK_END: 'End Lock',
 };
 
 const ACTIONS_COL_WIDTH = 58;
@@ -1392,7 +1396,7 @@ let selectedIndices = new Set();
 let selectionAnchor = null;
 let dragIndices = [];
 let blockClipboard = [];
-const CLIP_PREFIX = 'MT2BLOCKS:';
+const CLIP_PREFIX = 'MFBLOCKS:';
 const blockCtxMenu = document.getElementById('blockCtxMenu');
 let colsFittedSig = '';
 let _measureCtx = null;
@@ -1544,7 +1548,7 @@ function buildVarCells(block, index) {
   if (valueLessBlocks.has(type)) {
     return { mode: 'split', a: emptyVarCell(), b: emptyVarCell() };
   }
-  if (['VARIABLE', 'SET_VARIABLE', 'IMAGE', 'IF', 'ELSE_IF'].includes(type)) {
+  if (['VARIABLE', 'SET_VARIABLE', 'IMAGE', 'IF', 'ELSE_IF', 'WHILE', 'UNTIL'].includes(type)) {
     return { mode: 'span', el: createLogicEditor(block, index) };
   }
   if (type === 'PLAY_MACRO') {
@@ -1583,11 +1587,11 @@ function blockIndentFor(index) {
   let depth = 0;
   for (let i = 0; i < index; i++) {
     const t = blocks[i]?.type;
-    if (t === 'IF' || t === 'REPEAT') depth += 1;
-    if (t === 'END_IF' || t === 'ENDREPEAT') depth = Math.max(0, depth - 1);
+    if (t === 'IF' || t === 'REPEAT' || t === 'LOCK' || t === 'WHILE' || t === 'UNTIL') depth += 1;
+    if (t === 'END_IF' || t === 'ENDREPEAT' || t === 'LOCK_END' || t === 'END_WHILE' || t === 'END_UNTIL') depth = Math.max(0, depth - 1);
   }
   const current = blocks[index]?.type;
-  if (current === 'ELSE_IF' || current === 'END_IF' || current === 'ENDREPEAT') depth = Math.max(0, depth - 1);
+  if (current === 'ELSE_IF' || current === 'END_IF' || current === 'ENDREPEAT' || current === 'END_WHILE' || current === 'END_UNTIL') depth = Math.max(0, depth - 1);
   return depth;
 }
 
@@ -1933,6 +1937,7 @@ function renderRecorderHint() {
   hint.textContent = `${rec} record · ${play} play`;
   if (recordBtnTop) recordBtnTop.title = `Record (${rec})`;
   if (playStopBtn) playStopBtn.title = `Play / Stop (${play})`;
+  postRecorderUi();
 }
 
 function renderMeta() {
@@ -1943,32 +1948,17 @@ function renderMeta() {
     macroTopLabel.textContent = file;
     macroTopLabel.title = currentPath || file;
   }
+  postRecorderUi();
 }
 
 function macroRelKey(m) {
   return String((m && (m.rel || m.name)) || '').replace(/\\/g, '/').replace(/\.macro$/i, '');
-}
-function macroHintFor(m) {
-  if (!m) return '';
-  const rel = macroRelKey(m);
-  const base = rel.split('/').pop();
-  return MACRO_HINTS[rel] || MACRO_HINTS[base] || '';
 }
 function folderLabel(folder) {
   const key = String(folder || '');
   if (MACRO_FOLDER_LABELS[key]) return MACRO_FOLDER_LABELS[key];
   return key.replace(/_/g, ' ');
 }
-function updateMacroHint() {
-  if (!macroHintBtn || !macroHintPop) return;
-  const path = macroQuickSelect ? macroQuickSelect.value : currentPath;
-  const m = macroList.find(x => x.path === path) || null;
-  const hint = macroHintFor(m);
-  macroHintBtn.hidden = !hint;
-  macroHintPop.textContent = hint;
-  if (!hint) macroHintPop.classList.add('hidden');
-}
-
 function renderMacroList() {
   if (!macroQuickSelect) return;
   const keep = currentPath;
@@ -1994,7 +1984,6 @@ function renderMacroList() {
     const o = document.createElement('option');
     o.textContent = '(no macros in folder)';
     macroQuickSelect.appendChild(o);
-    updateMacroHint();
     return;
   }
   for (const folder of folders) {
@@ -2003,7 +1992,7 @@ function renderMacroList() {
     for (const m of groups.get(folder)) {
       const o = document.createElement('option');
       o.value = m.path;
-      o.textContent = m.name + (macroHintFor(m) ? '' : '');
+      o.textContent = m.name;
       og.appendChild(o);
     }
     macroQuickSelect.appendChild(og);
@@ -2018,21 +2007,9 @@ if (macroQuickSelect) {
     if (!p) return;
     if (p === currentPath) { updateMacroHint(); return; }
     await loadMacroByPath(p);
-    updateMacroHint();
   });
 }
-if (macroHintBtn && macroHintPop) {
-  const showHint = () => {
-    if (macroHintBtn.hidden) return;
-    if (macroHintPop.textContent) macroHintPop.classList.remove('hidden');
-  };
-  const hideHint = () => macroHintPop.classList.add('hidden');
-  macroHintBtn.addEventListener('mouseenter', showHint);
-  macroHintBtn.addEventListener('focus', showHint);
-  const wrap = macroHintBtn.closest('.macro-select-wrap');
-  if (wrap) wrap.addEventListener('mouseleave', hideHint);
-  macroHintBtn.addEventListener('blur', hideHint);
-}
+
 
 // ── State polling (overlay data) ──────────────────────────────────────────────
 function updateRunUI(st) {
@@ -2055,12 +2032,25 @@ function updateRunUI(st) {
   playStopBtn.textContent = running ? '■' : '▶';
   playStopBtn.title = running ? 'Stop' : 'Play';
   playStopBtn.disabled = recording || (!running && blocks.length === 0);
+  postRecorderUi();
 }
 
 async function pollState() {
   try {
     const d = await api('/api/state');
     const st = d.state || {};
+    if (d.version && appVersionEl) appVersionEl.textContent = 'v' + d.version;
+    // F5 just armed: flush any pending editor edits to the file NOW.
+    // The re-record purge at stop re-reads the file — a lock that is
+    // still sitting in the autosave debounce would be lost with it.
+    if (st.recording && !prevPollRecording) {
+      clearTimeout(autosaveTimer);
+      autosaveTimer = null;
+      if (currentPath && !isSaving) {
+        saveCurrent(undefined, undefined, { silent: true, reload: false, sensitivityOverride: macroSensitivityForSave() });
+      }
+    }
+    prevPollRecording = !!st.recording;
     const recordVersion = Number(st.record_version || 0);
     const recordPath = st.record_path || '';
     const sm = d.smooth_move || {};
@@ -2105,12 +2095,19 @@ async function saveCurrent(path, name, options = {}) {
     if (!silent) openSaveAs();
     return false;
   }
+  if (silent) {
+    var nExec = 0;
+    var skip = { GROUP:1, GROUP_END:1, COMMENT:1, SECTION:1, SECTION_END:1, LOCK:1, LOCK_END:1 };
+    (blocks || []).forEach(function (b) { if (b && b.type && !skip[b.type]) nExec++; });
+    if (nExec === 0) return false;   // never autosave an empty canvas over a file
+  }
   if (isSaving) return false;
   isSaving = true;
   const res = await api('/api/macro/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: p, name: n, blocks: normalizeBlocksList(blocks), sensitivity: sensitivityPayload }),
+    body: JSON.stringify({ path: p, name: n, blocks: normalizeBlocksList(blocks), sensitivity: sensitivityPayload,
+                            blockly: blocklyJson || undefined, blocklyXml: blocklyWsXml || undefined }),
   });
   isSaving = false;
   if (!res.ok) {
@@ -2118,7 +2115,7 @@ async function saveCurrent(path, name, options = {}) {
     return false;
   }
   if (reload) {
-    applyLoadedMacro(res);
+    applyLoadedMacro(res, { fromSave: true });   // server echoes the workspace back — no rebuild
   } else {
     currentPath = res.path || p;
     currentMacro = res.name || n;
@@ -2301,9 +2298,15 @@ async function openSaveAs() {
   return openFileBrowser('save');
 }
 
-function applyLoadedMacro(d) {
+function applyLoadedMacro(d, opts = {}) {
   currentPath  = d.path;
   currentMacro = d.name;
+  blocklyJson  = d.blockly || null;   // hash-verified by the server: exact saved workspace
+  blocklyWsXml  = d.blocklyXml || null;   // v3 container: blockly.xaml, exact workspace
+  // saves must NOT bump the epoch — the workspace in the iframe IS the
+  // state that was just persisted; rebuilding from steps would snap the
+  // layout back (the old "blockly doesn't save 1:1" bug)
+  if (!opts.fromSave) blocklyEpoch++;
   blocks = normalizeBlocksList(d.blocks || []);
   clearTimeout(autosaveTimer);
   const m = d.meta || {};
@@ -2460,6 +2463,8 @@ document.addEventListener('keydown', (e) => {
   if (mod && key === 'c') { e.preventDefault(); copySelectedBlocks(); return; }
   if (mod && key === 'x') { e.preventDefault(); cutSelectedBlocks(); return; }
   if (mod && key === 'v') { e.preventDefault(); pasteBlocks(); return; }
+  if (mod && key === 'z' && !e.shiftKey) { e.preventDefault(); undoRecording(); return; }
+  if ((mod && key === 'y') || (mod && key === 'z' && e.shiftKey)) { e.preventDefault(); redoRecording(); return; }
   if (e.key === 'Delete') { e.preventDefault(); removeSelectedBlocks(); return; }
   if (e.key === 'Escape') {
     hideCtxMenu();
@@ -2746,6 +2751,35 @@ if (settingsSave && settingsPanel) settingsSave.onclick = async () => { if (awai
 
 modalBackdrop.onclick = hideModals;
 
+// ── Recording undo/redo (Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z) ─────────────────
+// A recording is one undoable step: Ctrl+Z removes the fresh recording
+// group and restores the macro exactly as it was when the recording
+// started — locks, notes, everything the re-record wiped. Ctrl+Y puts the
+// recording back. The history lives on the server, so it survives editor
+// reloads and works from the recorder list. Quiet no-op when the server
+// has nothing recorded to undo.
+async function undoRecording() {
+  if (recording || running || recordBusy) return;
+  try {
+    const res = await api('/api/record/undo', { method: 'POST' });
+    if (!res.ok) return;
+    applyLoadedMacro(res);
+    await refreshMacroList();
+    await pollState();
+  } catch (e) {}
+}
+
+async function redoRecording() {
+  if (recording || running || recordBusy) return;
+  try {
+    const res = await api('/api/record/redo', { method: 'POST' });
+    if (!res.ok) return;
+    applyLoadedMacro(res);
+    await refreshMacroList();
+    await pollState();
+  } catch (e) {}
+}
+
 async function toggleRecordingFromUi() {
   if (running || recordBusy || !isRecorderTabArmed()) return;
   recordBusy = true;
@@ -2753,8 +2787,14 @@ async function toggleRecordingFromUi() {
   try {
     if (!recording) {
       const target = currentPath ? currentPath : `${currentMacro || 'recorded_macro'}.macro`;
-      const ok = confirm(`Recording will overwrite the current macro when stopped:\n\n${target}\n\nStart recording?`);
+      const ok = confirm(`Recording wipes this macro except Lock blocks (and their content).\nThe new recording lands as a Group at the bottom — below all locks:\n\n${target}\n\n(The macro is saved first. Press Ctrl+Z after a recording to undo it — Ctrl+Y redoes.)\n\nStart recording?`);
       if (!ok) return;
+      // persist the current editor state first: the stop handler re-reads
+      // the file on disk to decide what survives (locks keep their
+      // content, everything unlocked is wiped by the new recording)
+      if (currentPath) {
+        try { await saveCurrent(undefined, undefined, { silent: true, reload: false }); } catch (e) {}
+      }
       const res = await api('/api/record/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2784,6 +2824,10 @@ async function toggleRecordingFromHotkey() {
   if (recording !== wasRecording) return;
 
   if (!wasRecording) {
+    // same as the UI button: save first, the recording appends as a Group
+    if (currentPath) {
+      try { await saveCurrent(undefined, undefined, { silent: true, reload: false }); } catch (e) {}
+    }
     const res = await api('/api/record/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2864,6 +2908,47 @@ function isRecorderTabArmed() {
   }
 }
 
+function postRecorderUi() {
+  if (window.parent === window) return;
+  const file = (typeof macroTopLabel !== 'undefined' && macroTopLabel && macroTopLabel.textContent)
+    ? macroTopLabel.textContent
+    : (currentMacro ? `${String(currentMacro).replace(/\.macro$/i, '')}.macro` : 'No macro');
+  try {
+    window.parent.postMessage({
+      type: 'recorder-ui',
+      running: !!running,
+      recording: !!recording,
+      playMode: playbackMode || 'once',
+      playTimes: playbackTimesValue,
+      macroName: file,
+      playDisabled: !!(playStopBtn && playStopBtn.disabled),
+      recordDisabled: !!(recordBtnTop && recordBtnTop.disabled),
+    }, '*');
+  } catch (e) {}
+}
+
+function applyRecorderCmd(data) {
+  const cmd = data && data.cmd;
+  if (!cmd) return;
+  if (cmd === 'sync') { postRecorderUi(); return; }
+  if (cmd === 'loadMacro' && data.path) { loadMacroByPath(data.path); return; }
+  if (cmd === 'play' && playStopBtn) playStopBtn.click();
+  if (cmd === 'record' && recordBtnTop) recordBtnTop.click();
+  if (cmd === 'playMode' && playModeSelect) {
+    playModeSelect.value = data.value || 'once';
+    playModeSelect.dispatchEvent(new Event('change'));
+  }
+  if (cmd === 'playTimes' && playModeTimes) {
+    playModeTimes.value = data.value;
+    playModeTimes.dispatchEvent(new Event('change'));
+  }
+  if (cmd === 'new' && newBtn) newBtn.click();
+  if (cmd === 'open' && openBtn) openBtn.click();
+  if (cmd === 'import' && importBtn) importBtn.click();
+  if (cmd === 'save' && saveBtn) saveBtn.click();
+  if (cmd === 'saveAs' && saveAsBtn) saveAsBtn.click();
+}
+
 window.addEventListener('message', e => {
   if (!e.data) return;
   if (e.data.type === 'recorder-arm') {
@@ -2876,6 +2961,7 @@ window.addEventListener('message', e => {
           SENS_USER_V: Number(bs.SENS_USER_V ?? bs.user_v ?? appUserSensitivity.SENS_USER_V ?? 17),
         };
       }).catch(() => {});
+      postRecorderUi();
     }
   }
   if (e.data.type === 'bot-config') {
@@ -2890,6 +2976,7 @@ window.addEventListener('message', e => {
     if (e.data.play_binding) playBindingValue = String(e.data.play_binding).toUpperCase();
     if (e.data.record_binding || e.data.play_binding) renderRecorderHint();
   }
+  if (e.data.type === 'recorder-cmd') applyRecorderCmd(e.data);
 });
 
 document.addEventListener('keydown', async e => {
@@ -2915,3 +3002,97 @@ bootstrap().catch(e => {
   console.error(e);
   alert('Macro Engine UI failed to initialize.');
 });
+
+
+// ── Blockly macro editor bridge ───────────────────────────────────────────────
+// The blockly iframe (editor/macro-editor.html) is the visual editor; this page
+// keeps the top bar (play/record/save) and owns the `blocks` array.
+(function () {
+  const frame = document.getElementById('macro-blockly-frame');
+  if (!frame) return;
+  let applying = false;   // parent → blockly load in flight
+  let syncing  = false;   // blockly → parent change applied
+
+  const origRender = renderBlocks;
+  let _lastPushJson = null, _lastPushName = null, _lastPushKey = null;
+  renderBlocks = function () {
+    origRender();
+    pushToBlockly();
+  };
+
+  // ── code panel: dashboard asks for the generated .macro text ──
+  window.addEventListener('message', async function (ev) {
+    const d = ev.data || {};
+    if (d.type !== 'mf_code_request') return;
+    let code = '';
+    try {
+      const res = await api('/api/macro/serialize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: currentMacro || 'macro', blocks, sensitivity: sensitivity() }),
+      });
+      code = (res && res.text) || '';
+    } catch (e) {}
+    window.parent.postMessage({ type: 'mf_code', code: code, label: currentMacro || '' }, '*');
+  });
+
+  function executableCount(list) {
+    var n = 0;
+    var skip = { GROUP:1, GROUP_END:1, COMMENT:1, SECTION:1, SECTION_END:1, LOCK:1, LOCK_END:1 };
+    for (var i = 0; i < (list || []).length; i++) {
+      var t = list[i] && list[i].type;
+      if (t && !skip[t]) n++;
+    }
+    return n;
+  }
+
+  function pushToBlockly() {
+    if (syncing) return;
+    try {
+      // a full rebuild in the blockly iframe is expensive with thousands
+      // of blocks — only push when the list, the name, or the embedded
+      // workspace really changed
+      const json = JSON.stringify(blocks);
+      const name = currentMacro || '';
+      const key = ((blocklyJson || blocklyWsXml) ? 'ws' : 'tx') + ':' + blocklyEpoch;
+      if (json === _lastPushJson && name === _lastPushName && key === _lastPushKey) return;
+      _lastPushJson = json; _lastPushName = name; _lastPushKey = key;
+      applying = true;
+      if (window._mfmApplyTimer) clearTimeout(window._mfmApplyTimer);
+      window._mfmApplyTimer = setTimeout(function () { applying = false; }, 20000);
+      frame.contentWindow.postMessage({
+        type: 'mfm-init', blocks: blocks, name: name,
+        // blockly / blocklyXml: the exact saved workspace (steps stay
+        // authoritative for the engine; this is fidelity for the editor).
+        // null after list-side edits — the iframe then rebuilds from the steps.
+        blockly: blocklyJson, blocklyXml: blocklyWsXml, epoch: blocklyEpoch,
+      }, '*');
+    } catch (e) {}
+  }
+
+  window.addEventListener('message', function (ev) {
+    const d = ev.data || {};
+    if (d.type === 'mfm-ready') {
+      pushToBlockly();
+    } else if (d.type === 'mfm-loaded') {
+      applying = false;
+    } else if (d.type === 'mfm-changed' && Array.isArray(d.blocks)) {
+      if (applying) return;
+      const incoming = normalizeBlocksList(d.blocks);
+      // never let a load-race empty canvas wipe a recorded macro
+      if (executableCount(blocks) > 0 && executableCount(incoming) === 0) return;
+      syncing = true;
+      try {
+        blocks = incoming;
+        origRender();
+        markEdited();           // nulls blocklyJson (a text-side edit could be in flight)
+        // the iframe just serialized its workspace next to the steps —
+        // restore it as the current editor state
+        if (d.blockly) blocklyJson = d.blockly;
+        blocklyWsXml = d.blocklyXml || null;
+      } catch (e) {}
+      syncing = false;
+      try { window.parent.postMessage({ type: 'mf_code_refresh' }, '*'); } catch (e) {}
+    }
+  });
+})();

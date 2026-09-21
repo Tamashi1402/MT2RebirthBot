@@ -1,0 +1,1950 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Macro Editor</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
+                background: #0e0e12; }
+    body { display: flex; }
+    #blocklyWrap { position: relative; flex: 1; height: 100%; min-width: 0; z-index: 0; }
+    #blockly-div { position: absolute; inset: 0; }
+    /* ── local variables rail — 1:1 with the procedures editor ── */
+    #localVars {
+      position: relative; z-index: 2;
+      width: 200px; flex-shrink: 0; height: 100%;
+      background: #121218; border-left: 1px solid #2a2a35;
+      display: flex; flex-direction: column;
+    }
+    #localVars h3 {
+      margin: 0; padding: 10px 10px 6px;
+      font-size: 10px; letter-spacing: .8px; text-transform: uppercase;
+      color: #7070a0; font-weight: 800;
+    }
+    #localVars .lv-btns { display: flex; gap: 6px; padding: 0 10px 10px; }
+    #localVars .lv-btns button {
+      flex: 1; background: #1a1a24; border: 1px solid #2a2a35; color: #e0e0e8;
+      border-radius: 6px; padding: 6px 8px; font-size: 12px; cursor: pointer; font-weight: 700;
+    }
+    #localVars .lv-btns button:hover { border-color: #7c6af7; }
+    #localVars .lv-list { flex: 1; overflow: auto; padding: 0 8px 8px; }
+    #localVars .lv-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 7px 8px; border-radius: 6px; color: #e0e0e8; font-size: 12px; cursor: pointer;
+    }
+    #localVars .lv-item:hover, #localVars .lv-item.sel { background: rgba(124,106,247,.12); }
+    #localVars .lv-item .t { color: #7070a0; font-size: 10px; text-transform: uppercase; }
+    #localVars .lv-hint { color: #7070a0; font-size: 10px; margin: 0 0 8px; user-select: none; }
+    #lvDialog {
+      display: none; position: fixed; inset: 0; z-index: 200;
+      background: rgba(0,0,0,.45); align-items: center; justify-content: center;
+    }
+    #lvDialog.open { display: flex; }
+    #lvDialog .box {
+      width: 280px; background: #16161c; border: 1px solid #2a2a35; border-radius: 10px; padding: 16px;
+    }
+    #lvDialog h4 { margin: 0 0 12px; color: #e0e0e8; font-size: 13px; }
+    #lvDialog label { display: block; font-size: 11px; color: #7070a0; margin: 8px 0 4px; }
+    #lvDialog input, #lvDialog select {
+      width: 100%; height: 32px; background: #0e0e12; border: 1px solid #2a2a35;
+      border-radius: 6px; color: #e0e0e8; padding: 0 8px;
+    }
+    #lvDialog .row { display: flex; gap: 8px; margin-top: 14px; }
+    #lvDialog .row button {
+      flex: 1; height: 32px; border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 12px;
+    }
+    #lvDialog .ok { background: #7c6af7; border: 0; color: #fff; }
+    #lvDialog .no { background: transparent; border: 1px solid #2a2a35; color: #e0e0e8; }
+    /* 1:1 with the procedures editor's toolbox strip (blockly_editor.html) */
+    .blocklyToolboxDiv {
+      width: 168px !important;
+      display: flex !important;
+      flex-direction: column !important;
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+    }
+    .blocklyToolboxDiv > .blocklyToolboxContents {
+      flex-wrap: nowrap !important;
+      margin-top: auto !important;   /* bottom-anchor; scroll-safe */
+      flex-shrink: 0 !important;
+    }
+    .blocklyToolboxCategory {
+      padding: 3px 8px !important;
+      flex-shrink: 0 !important;
+    }
+    .blocklyTreeRow { flex-shrink: 0 !important; }
+    .blocklyToolboxCategory .blocklyToolboxCategory .blocklyTreeRow {
+      padding-left: 14px !important;
+    }
+    ::-webkit-scrollbar { width: 7px; }
+    .blocklyScrollbarBackground { opacity: 255; fill: transparent; }
+    .blocklyMainBackground { stroke-width: 0; }
+    .blocklyFlyoutBackground { fill-opacity: 0; }
+
+    /* Z-fix: category flyout blocks must paint ABOVE the group/studio
+       popup (z 60) so they stay visible wherever they overlap it —
+       while staying below the toolbox (70) and the drag surface (80,
+       dragged-block ghost floats over everything). Stack, bottom→top:
+       main canvas < popup(60) < flyout(65) < toolbox(70) < drag(80). */
+    #blocklyWrap .blocklyFlyout { z-index: 65; }
+    #blocklyWrap .blocklyFlyoutScrollbar { z-index: 66; }
+    #mfm-pop { position: fixed; inset: 0; background: rgba(14,14,18,.55);
+               z-index: 9990; display: none; align-items: center;
+               justify-content: center; }
+    .mfm-pop-panel { width: min(420px, 92vw); background: #16161c;
+                     border: 1px solid #2a2a35; border-radius: 10px;
+                     padding: 16px; color: #e0e0e8;
+                     font: 13px/1.5 IBM Plex Sans, sans-serif; }
+    .mfm-pop-panel h3 { margin: 0 0 8px; font-size: 15px; }
+    .mfm-pop-panel p { margin: 0 0 10px; color: #a0a0b0; }
+    .mfm-pop-status { min-height: 18px; color: #7070a0; margin-bottom: 12px; }
+    .mfm-pop-status.ok { color: #9585ff; }
+    .mfm-pop-status.err { color: #e05a5a; }
+    #mfm-pop-cancel, .mfm-shot-bar button { height: 34px; padding: 0 16px;
+      border: 1px solid #2a2a35; background: #1c1c26; color: #e0e0e8;
+      border-radius: 7px; cursor: pointer; }
+    .mfm-shot-bar button.primary { background: #7c6af7; border-color: #7c6af7;
+      color: #fff; font-weight: 700; }
+    #mfm-shot { position: fixed; inset: 0; z-index: 9995; background: #0b0b10;
+                overflow: hidden; }
+    #mfm-shot img { position: absolute; user-select: none;
+                    -webkit-user-drag: none; cursor: crosshair; }
+    #mfm-shot-sel { position: absolute; width: 3px; height: 3px;
+                    background: #7c6af7; outline: 1px solid #fff;
+                    display: none; pointer-events: none; }
+    .mfm-shot-bar { position: fixed; left: 0; right: 0; bottom: 0; height: 44px;
+                    display: flex; align-items: center; gap: 14px; padding: 0 16px;
+                    background: #16161c; border-top: 1px solid #2a2a35;
+                    color: #e0e0e8; font: 13px IBM Plex Sans, sans-serif;
+                    z-index: 9996; }
+    .mfm-hint { color: #a0a0b0; }
+    .mfm-coords { color: #9585ff; font-weight: 700; }
+    #mfm-toast { position: fixed; right: 18px; bottom: 62px;
+                 background: #16161c; border: 1px solid #7c6af7;
+                 color: #e0e0e8; border-radius: 8px; padding: 10px 14px;
+                 font: 13px IBM Plex Sans, sans-serif; z-index: 9999; }
+    /* dark chrome for blockly widgets (input editors, dropdowns, menus) */
+    .blocklyHtmlInput {
+      background: #16161c !important; color: #e0e0e8 !important;
+      border: 1px solid #7c6af7 !important; caret-color: #7c6af7;
+      font: 12px 'Segoe UI', sans-serif;
+    }
+    .blocklyDropDownDiv { background: #16161c !important; border-color: #2a2a35 !important; color: #e0e0e8; }
+    .blocklyDropDownDiv .blocklyMenuItem { color: #e0e0e8 !important; background: transparent; }
+    .blocklyDropDownDiv .blocklyMenuItem:hover { background: rgba(124,106,247,.18) !important; }
+    .blocklyWidgetDiv .blocklyMenu { background: #16161c !important; border-color: #2a2a35 !important; color: #e0e0e8; }
+    .blocklyWidgetDiv .blocklyMenuItem { color: #e0e0e8 !important; }
+    .blocklyWidgetDiv .blocklyMenuItemHighlight { background: rgba(124,106,247,.18) !important; }
+    .blocklyWidgetDiv .blocklyMenuItemDisabled { color: #7070a0 !important; }
+    .blocklyTooltipDiv { background: #16161c !important; border: 1px solid #2a2a35 !important; color: #a0a0b0 !important; }
+  
+  /* ── Group popup — mutator-style bubble (bigger) ─────────────────────── */
+  /* mutator-style window: plain workspace + close X top-right + a thin
+     drag strip on the top edge; no title bar, no Done/Cancel — edits are
+     live, the group block on the canvas updates as you edit. */
+  #mfmGroupBubble {
+    position: absolute; z-index: 60; display: none;
+    flex-direction: column;
+    background: rgba(30, 30, 38, .98);
+    border: 1.5px solid #5b80a5;            /* the mutator bubble border tone */
+    border-radius: 8px;
+    box-shadow: 0 0 0 1px rgba(91,128,165,.25), 0 10px 44px rgba(0,0,0,.55);
+    overflow: visible;                      /* the tail pokes out */
+  }
+  #mfmGroupBubble.open { display: flex; }
+  #mfmGroupBubble .gb-drag {
+    position: absolute; top: 0; left: 26px; right: 26px; height: 14px;
+    cursor: move; z-index: 3;
+  }
+  #mfmGroupBubble .gb-close {
+    position: absolute; top: 3px; right: 4px; z-index: 4;
+    background: none; border: none; color: #9a96b8;
+    font: 14px/1 system-ui, sans-serif; cursor: pointer; padding: 3px 7px; border-radius: 4px;
+  }
+  #mfmGroupBubble .gb-close:hover { color: #fff; background: rgba(255,255,255,.08); }
+  #mfmGroupBubble .gb-ws { flex: 1; min-height: 0; border-radius: 7px; overflow: hidden; }
+  #mfmGroupBubble .gb-ws .injectionDiv { height: 100%; }
+  /* resize grips — thin invisible strips on all edges/corners */
+  #mfmGroupBubble .gb-rz { position: absolute; z-index: 6; }
+  #mfmGroupBubble .gb-rz-n { top: -3px; left: 12px; right: 12px; height: 7px; cursor: n-resize; }
+  #mfmGroupBubble .gb-rz-s { bottom: -3px; left: 12px; right: 12px; height: 7px; cursor: s-resize; }
+  #mfmGroupBubble .gb-rz-w { left: -3px; top: 12px; bottom: 12px; width: 7px; cursor: w-resize; }
+  #mfmGroupBubble .gb-rz-e { right: -3px; top: 12px; bottom: 12px; width: 7px; cursor: e-resize; }
+  #mfmGroupBubble .gb-rz-nw { top: -4px; left: -4px; width: 14px; height: 14px; cursor: nw-resize; }
+  #mfmGroupBubble .gb-rz-ne { top: -4px; right: -4px; width: 14px; height: 14px; cursor: ne-resize; }
+  #mfmGroupBubble .gb-rz-sw { bottom: -4px; left: -4px; width: 14px; height: 14px; cursor: sw-resize; }
+  #mfmGroupBubble .gb-rz-se { bottom: -4px; right: -4px; width: 16px; height: 16px; cursor: se-resize; }
+  #mfmGroupBubble .gb-rz:hover, #mfmGroupBubble .gb-rz.active {
+    background: rgba(124,106,247,.35); border-radius: 3px;
+  }
+  #mfmGroupBubble .gb-loading {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(18,18,26,.85); color: #9a96b8; z-index: 5;
+    font: 500 13px system-ui, sans-serif; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+  <div id="blocklyWrap">
+    <div id="blockly-div"></div>
+    <div id="mfmGroupBubble">
+      <div class="gb-drag" id="gbDrag" title="Drag to move the window"></div>
+      <button type="button" class="gb-close" id="gbClose" title="Close">&#10005;</button>
+      <div class="gb-ws" id="gbWs"></div>
+      <div class="gb-rz gb-rz-n" data-d="n"></div>
+      <div class="gb-rz gb-rz-s" data-d="s"></div>
+      <div class="gb-rz gb-rz-w" data-d="w"></div>
+      <div class="gb-rz gb-rz-e" data-d="e"></div>
+      <div class="gb-rz gb-rz-nw" data-d="nw"></div>
+      <div class="gb-rz gb-rz-ne" data-d="ne"></div>
+      <div class="gb-rz gb-rz-sw" data-d="sw"></div>
+      <div class="gb-rz gb-rz-se" data-d="se"></div>
+      <div class="gb-loading" id="gbLoading" style="display:none">building blocks&hellip;</div>
+    </div>
+  </div>
+
+
+
+  <xml id="mfm-toolbox" style="display:none">
+    <!-- MACROS STAY CHEAP: record them or build them by hand. A lean
+         Mouse / Keyboard set, plus Flow — nothing else; heavy lifting
+         belongs to modes / flows / procedures. -->
+    <category name="Mouse" colour="40">
+      <block type="mfm_scaled_move">
+        <value name="POINT"><block type="pcr_point_xy">
+          <value name="X"><block type="math_number"><field name="NUM">0</field></block></value>
+          <value name="Y"><block type="math_number"><field name="NUM">0</field></block></value>
+        </block></value>
+      </block>
+      <block type="mfm_abs_move">
+        <value name="POINT"><block type="pcr_point_xy">
+          <value name="X"><block type="math_number"><field name="NUM">0</field></block></value>
+          <value name="Y"><block type="math_number"><field name="NUM">0</field></block></value>
+        </block></value>
+      </block>
+      <block type="mfm_click">
+        <value name="BUTTON"><block type="pcr_mouse"><field name="BUTTON">left</field></block></value>
+      </block>
+      <block type="mfm_mouse_down">
+        <value name="BUTTON"><block type="pcr_mouse"><field name="BUTTON">left</field></block></value>
+      </block>
+      <block type="mfm_mouse_up">
+        <value name="BUTTON"><block type="pcr_mouse"><field name="BUTTON">left</field></block></value>
+      </block>
+    </category>
+    <category name="Keyboard" colour="40">
+      <block type="mfm_press_key">
+        <value name="KEY"><block type="pcr_key"><field name="KEY">space</field></block></value>
+      </block>
+      <block type="mfm_key_down">
+        <value name="KEY"><block type="pcr_key"><field name="KEY">space</field></block></value>
+      </block>
+      <block type="mfm_key_up">
+        <value name="KEY"><block type="pcr_key"><field name="KEY">space</field></block></value>
+      </block>
+    </category>
+    <sep></sep>
+    <category name="Flow" colour="120">
+      <block type="mfm_delay">
+        <value name="MS"><block type="math_number"><field name="NUM">100</field></block></value>
+      </block>
+      <block type="mfm_label"></block>
+      <block type="mfm_goto"></block>
+      <block type="mfm_lock"></block>
+      <block type="mfm_group"></block>
+      <block type="mfm_section"></block>
+      <block type="mfm_comment"></block>
+      <block type="mfm_play_macro">
+        <value name="PATH"><block type="text"><field name="TEXT">other.macro</field></block></value>
+      </block>
+    </category>
+  </xml>
+
+  <script src="/blockly/lib/blockly.min.js"></script>
+  <script src="/blockly/lib/blockly_action_icons.js"></script>
+  <script src="/blockly/lib/python_compressed.js"></script>
+  <script src="/blockly/lib/en.js"></script>
+  <script src="/blockly/lib/mf-keys.js"></script>
+  <script src="/editor/mf-plugins.js"></script>
+  <script src="/editor/macro-blocks.js?v=216"></script>
+  <script src="/editor/macro-picker.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    try {
+      Blockly.utils.colour.setHsvSaturation(0.55);
+      Blockly.utils.colour.setHsvValue(0.70);
+    } catch (e) {}
+
+    function buildDarkTheme() {
+      try {
+        return new Blockly.Theme('mf_dark', {
+          math_blocks: { colourPrimary: '#5060b2' },
+          text_blocks: { colourPrimary: '#50b291' },
+          logic_blocks: { colourPrimary: '#5081b2' },
+          list_blocks: { colourPrimary: '#7150b2' },
+          loop_blocks: { colourPrimary: '#50b250' },
+          variable_blocks: { colourPrimary: '#b25081' }
+        }, {}, {
+          workspaceBackgroundColour: '#0e0e12',
+          toolboxBackgroundColour: '#16161c',
+          toolboxForegroundColour: '#e0e0e8',
+          flyoutBackgroundColour: '#12121a',
+          flyoutForegroundColour: '#e0e0e8',
+          flyoutOpacity: 1,
+          scrollbarColour: '#2a2a35',
+          scrollbarOpacity: 0.9,
+          insertionMarkerColour: '#7c6af7',
+          insertionMarkerOpacity: 0.4,
+          cursorColour: '#7c6af7'
+        });
+      } catch (e) { return undefined; }
+    }
+
+    var ws = null;
+    var loading = false;
+    var pushTimer = null;
+    var pushAllowed = false;   // false until the first real load finishes — hat-create must not wipe
+
+    function send(msg) {
+      try { window.parent.postMessage(msg, '*'); } catch (e) {}
+    }
+
+    function schedulePush() {
+      if (loading || !pushAllowed || !ws) return;
+      if (pushTimer) clearTimeout(pushTimer);
+      pushTimer = setTimeout(function () {
+        pushTimer = null;
+        if (loading || !pushAllowed || !ws) return;
+        try {
+          // blockly rides along with the steps so the host can embed the
+          // exact workspace in the .macro file (layout, arrangement,
+          // group data) — steps stay authoritative for the engine
+          // blocklyXml: the exact workspace as XML — v3 containers store
+          // it 1:1 (layout, strays, groups, mutators); JSON rides along
+          // for legacy state
+          send({ type: 'mfm-changed', blocks: mfmWorkspaceToList(ws),
+                 blockly: mfmWorkspaceToJson(ws), blocklyXml: mfmWorkspaceToXml(ws) });
+        } catch (e) {}
+      }, 250);
+    }
+
+    // ── viewport culling (per-workspace, cached-index fast path) ────────
+    // Thousands of recorded moves render as thousands of SVG groups; the
+    // browser paints ALL of them even off-screen. Culling toggles
+    // display:none on blocks outside the visible window (expanded by one
+    // extra viewport each side), leaving the Blockly model untouched —
+    // connections, fields and serialization all keep working.
+    // FAST PATH: each frame walks a CACHED index tree (post-order node
+    // array with absolute positions + parent/kid links). getChildren()
+    // allocations — the expensive part of the old pass — happen only when
+    // the index is REBUILT (create/delete/move/change/load). Scrolling
+    // and zooming just re-walk the cache: tight arithmetic, ~1ms at 20k
+    // blocks, which is what fixes 'laggy when just moving around'.
+    function MfmCull(ws) {
+      this.ws = ws;
+      this.hidden = {};
+      this.dragging = false; this.dragSet = {};
+      this.loading = false;
+      this.idxDirty = true; this.passDirty = true;
+      this.lastCX = 1e9; this.lastCY = 1e9; this.lastSc = 0;
+      this.nodes = [];              // post-order: kids always before parents
+      this.flatRecs = [];           // restore info for flattened chain members
+      this._changeTimer = null;
+      this.onAnyChange = null;
+    }
+    MfmCull.prototype.soon = function () { this.passDirty = true; };
+    MfmCull.prototype.indexSoon = function () { this.idxDirty = true; this.passDirty = true; };
+    MfmCull.prototype.indexSoonDebounced = function () {
+      var self = this;
+      if (self._changeTimer) return;
+      self._changeTimer = setTimeout(function () { self._changeTimer = null; self.indexSoon(); }, 200);
+    };
+    // block's translate offset relative to its svg parent, parsed from the
+    // g's transform attribute; null = unparseable → keep the block visible
+    MfmCull.prototype.blockOffset = function (b) {
+      var root = b.getSvgRoot();
+      if (!root) return { x: 0, y: 0 };
+      var t = root.getAttribute('transform');
+      if (!t) return { x: 0, y: 0 };
+      var m = /^translate\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)/.exec(t);
+      return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : null;
+    };
+    // ── chain flattening ─────────────────────────────────────────────
+    // Blockly nests each next-block's svg root INSIDE the previous
+    // block's svg group, so a long vertical chain is one deeply nested
+    // tree: a visible block forces every block ABOVE it to stay
+    // rendered (they're its svg ancestors), and every display toggle
+    // re-lays out the whole nest. The cull could only trim the tail —
+    // scroll to step 700 of 800 and ~700 nested groups repaint per pan
+    // frame. That's why the group window lagged vertically: the chain
+    // is narrow, so horizontal panning never brings new blocks into
+    // the band (zero toggles, smooth), while vertical panning unhides
+    // tail blocks every frame (full relayout, jank).
+    // Fix: for chains >= FLATTEN_MIN we MOVE each member's svg root
+    // out of its parent's group onto the block canvas itself, with an
+    // ABSOLUTE translate. The blocks stay connected in the block model
+    // (serialization, connects, drags all unchanged) but svg-wise every
+    // member is its own top-level group — so the cull can hide the
+    // prefix, and a toggle relayouts ~a viewport of blocks, not ~800.
+    // A drag start re-nests everything (Blockly drags the head's svg
+    // root with descendants inside it); the first rebuild after the
+    // drop re-flattens.
+    var FLATTEN_MIN = 60;
+    MfmCull.prototype._canvas = function () {
+      try { return (this.ws && this.ws.getCanvas) ? this.ws.getCanvas() : null; }
+      catch (e) { return null; }
+    };
+    MfmCull.prototype.flattenChains = function () {
+      var ws = this.ws;
+      if (!ws || this.dragging) return;   // never while a drag owns the svg
+      var canvas = this._canvas();
+      if (!canvas) return;
+      var self = this;
+      var bo = function (b) { return self.blockOffset(b); };
+      var tops;
+      try { tops = ws.getTopBlocks(false); } catch (e) { return; }
+      for (var t = 0; t < tops.length; t++) {
+        var top = tops[t];
+        var to = bo(top);
+        if (!to) continue;
+        // chain heads: the top itself AND its statement-input children
+        // (the popup's / the canvas' main chain hangs off the hat's DO
+        // input, not a next connection — walking only tops would miss it)
+        var heads = [{ b: top, x: to.x, y: to.y }];
+        try {
+          var il = top.inputList || [];
+          for (var ii = 0; ii < il.length; ii++) {
+            var conn = il[ii] && il[ii].connection;
+            var tgt = conn && conn.targetBlock ? conn.targetBlock() : null;
+            if (!tgt) continue;
+            var ho = bo(tgt);
+            if (ho) heads.push({ b: tgt, x: to.x + ho.x, y: to.y + ho.y });
+          }
+        } catch (e) {}
+        for (var hh = 0; hh < heads.length; hh++) {
+          this._flattenChain(heads[hh], canvas, bo);
+        }
+      }
+    };
+    // walk one head's next-chain (absolute positions accumulated) and
+    // detach long chains' members onto the canvas
+    MfmCull.prototype._flattenChain = function (head, canvas, bo) {
+      var ws = this.ws;
+      // the ORIGINAL relative offset of every already-flat member: its svg
+      // transform is absolute now, so re-walking must not re-add it
+      var recById = {};
+      for (var r = 0; r < this.flatRecs.length; r++) recById[this.flatRecs[r].id] = this.flatRecs[r];
+      var members = [], cur = head.b, cx = head.x, cy = head.y;
+      for (;;) {
+        members.push({ b: cur, x: cx, y: cy });
+        var nx = cur.getNextBlock ? cur.getNextBlock() : null;
+        if (!nx) break;
+        var ko = (nx.mfmFlat && recById[nx.id])
+          ? { x: recById[nx.id].relX, y: recById[nx.id].relY }
+          : bo(nx);                       // nested → transform is relative
+        if (!ko) break;
+        cx += ko.x; cy += ko.y;
+        cur = nx;
+      }
+      if (members.length < FLATTEN_MIN) return;
+      for (var i = 1; i < members.length; i++) {
+        var m = members[i].b;
+        if (m && m.mfmFlat) {
+          // already flattened: keep the absolute transform in sync —
+          // moveBy/cleanUp only repositions the head, Blockly never
+          // touches mid-chain roots, so we follow it here
+          try {
+            var r2 = m.getSvgRoot && m.getSvgRoot();
+            var want = 'translate(' + members[i].x + ', ' + members[i].y + ')';
+            if (r2 && r2.parentNode === canvas && r2.getAttribute('transform') !== want) {
+              r2.setAttribute('transform', want);
+            }
+          } catch (e) {}
+          continue;
+        }
+        if (!m) continue;
+        if (!ws.getBlockById(m.id)) continue;          // stale block
+        var root = m.getSvgRoot && m.getSvgRoot();
+        if (!root || root.parentNode === canvas) continue;
+        var rel = bo(m);                              // current transform (relative to parent's g)
+        var prev = m.getParent && m.getParent();
+        var prevRoot = prev && prev.getSvgRoot && prev.getSvgRoot();
+        if (!prevRoot || !rel) continue;
+        try {
+          canvas.appendChild(root);   // MOVES the node out of the parent's group
+          root.setAttribute('transform', 'translate(' + members[i].x + ', ' + members[i].y + ')');
+          m.mfmFlat = 1;
+          this.flatRecs.push({ id: m.id, prevRoot: prevRoot, relX: rel.x, relY: rel.y });
+        } catch (e) {}
+      }
+    };
+    MfmCull.prototype.revertFlatten = function () {
+      var ws = this.ws;
+      var canvas = this._canvas();
+      var recs = this.flatRecs;
+      this.flatRecs = [];
+      for (var i = 0; i < recs.length; i++) {
+        var r = recs[i];
+        var b = ws && ws.getBlockById ? ws.getBlockById(r.id) : null;
+        if (b) { try { delete b.mfmFlat; } catch (e) { b.mfmFlat = undefined; } }
+        try {
+          var root = b && b.getSvgRoot && b.getSvgRoot();
+          // only re-nest roots we still own on the canvas: if Blockly
+          // already re-parented the block (reconnect / transfer), the
+          // current DOM position is correct and must not be touched
+          if (b && root && canvas && root.parentNode === canvas &&
+              r.prevRoot && r.prevRoot.parentNode) {
+            r.prevRoot.appendChild(root);
+            root.setAttribute('transform', 'translate(' + r.relX + ', ' + r.relY + ')');
+          }
+        } catch (e) {}
+      }
+    };
+    MfmCull.prototype.rebuildIndex = function () {
+      this.idxDirty = false;
+      // flatten FIRST: flattened members become their own roots below, so
+      // the kid-vis propagation (which keeps svg ancestors rendered) only
+      // flows through REAL nesting (statement/value inputs)
+      this.flattenChains();
+      var nodes = this.nodes = [];
+      // iterative post-order DFS with absolute offsets accumulated per
+      // chain; phase 0 = visit (create node, push kids), phase 1 = after
+      // kids → link this node into its parent's kids list.
+      var stack = [];
+      var tops = this.ws.getTopBlocks(false);
+      // flattened members: svg-wise they are top-level (absolute transform
+      // on the canvas) — index them as roots so the pass can hide them
+      for (var fr = 0; fr < this.flatRecs.length; fr++) {
+        var fb = this.ws.getBlockById(this.flatRecs[fr].id);
+        if (fb) tops.push(fb);
+      }
+      for (var i = 0; i < tops.length; i++) {
+        var to = this.blockOffset(tops[i]);
+        if (to) stack.push({ b: tops[i], x: to.x, y: to.y, ph: 0, parent: -1 });
+      }
+      while (stack.length) {
+        var it = stack.pop();
+        if (it.ph === 0) {
+          var self = nodes.push({ b: it.b, x: it.x, y: it.y, w: it.b.width || 0, h: it.b.height || 0, kids: [], vis: false }) - 1;
+          stack.push({ ph: 1, self: self, parent: it.parent });
+          var kids = it.b.getChildren(false);
+          for (var k = 0; k < kids.length; k++) {
+            if (kids[k] && kids[k].mfmFlat) continue;   // own root via flatRecs
+            var ko = this.blockOffset(kids[k]);
+            if (ko) stack.push({ b: kids[k], x: it.x + ko.x, y: it.y + ko.y, ph: 0, parent: self });
+          }
+        } else {
+          if (it.parent >= 0) nodes[it.parent].kids.push(it.self);
+        }
+      }
+    };
+    MfmCull.prototype.pass = function () {
+      this.passDirty = false;
+      var ws = this.ws;
+      if (!ws || this.loading) return;
+      var scale = ws.scale || 1;
+      var m = ws.getMetrics();
+      // scrollX/Y are SCREEN pixels; the canvas transform is
+      // translate(absLeft+scrollX, absTop+scrollY) scale(scale), so the
+      // visible band in workspace units starts at -(scroll+abs)/scale.
+      var vw = (m.viewWidth || 0) / scale, vh = (m.viewHeight || 0) / scale;
+      var L = -((ws.scrollX || 0) + (m.absoluteLeft || 0)) / scale;
+      var T = -((ws.scrollY || 0) + (m.absoluteTop || 0)) / scale;
+      var mx = vw, my = vh;   // one extra viewport each side (view x2+ band)
+      var nodes = this.nodes, hidden = this.hidden;
+      var vh25 = 2.5 * vh;
+      var dragSet = this.dragSet;
+      // post-order array → reverse iteration decides parents AFTER their
+      // kids, so 'any descendant in band keeps its ancestor rendered'.
+      // Blockly nests chained/child blocks inside their predecessors' svg
+      // groups: a block may only be hidden when its WHOLE SUBTREE is out.
+      for (var i = nodes.length - 1; i >= 0; i--) {
+        var n = nodes[i];
+        var vis = (n.w && n.h) && (n.x + n.w > L - mx) && (n.x < L + vw + mx) &&
+                  (n.y + n.h > T - my) && (n.y < T + vh + my);
+        // mid-drag only the DRAGGED chain moves (it lives on the drag
+        // surface); forcing ALL blocks visible here would render 10k+
+        // blocks for every drag frame. Dragged blocks' offsets are stale
+        // (drag-layer origin), so a tail more than ~2.5 viewports below
+        // the grab can never be on screen — cap its paint.
+        if (dragSet[n.b.id] && n.y < vh25) vis = true;
+        var kids = n.kids;
+        for (var j = 0; j < kids.length; j++) {
+          if (nodes[kids[j]].vis) { vis = true; break; }
+        }
+        n.vis = vis;
+        var root = n.b.getSvgRoot();
+        if (root) {
+          if (vis) {
+            if (hidden[n.b.id]) { root.style.display = ''; delete hidden[n.b.id]; }
+          } else if (!hidden[n.b.id]) {
+            root.style.display = 'none'; hidden[n.b.id] = 1;
+          }
+        }
+      }
+    };
+    MfmCull.prototype.frame = function () {
+      if (!this.ws || this.loading) return;
+      try {
+        if (this.idxDirty) { this.rebuildIndex(); this.lastCX = 1e9; this.pass(); return; }
+        var cx = this.ws.scrollX || 0, cy = this.ws.scrollY || 0, sc = this.ws.scale || 1;
+        if (this.passDirty || cx !== this.lastCX || cy !== this.lastCY || sc !== this.lastSc) {
+          this.lastCX = cx; this.lastCY = cy; this.lastSc = sc;
+          this.pass();
+        }
+      } catch (e) { try { console.warn('MFMPHASE cull error', e); } catch (e2) {} }
+    };
+    MfmCull.prototype.markAll = function (loading_) {
+      this.loading = !!loading_;
+      if (!loading_) this.indexSoon();
+    };
+    MfmCull.prototype.dispose = function () {
+      try { this.revertFlatten(); } catch (e) {}
+      var i = _culls.indexOf(this);
+      if (i >= 0) _culls.splice(i, 1);
+      if (this._changeTimer) { clearTimeout(this._changeTimer); this._changeTimer = null; }
+    };
+
+    var _culls = [];
+    function _cullLoop() {
+      for (var i = 0; i < _culls.length; i++) _culls[i].frame();
+      window.requestAnimationFrame(_cullLoop);
+    }
+    function _cullStartLoop() {
+      if (window.__mfmCullLoopOn) return;
+      window.__mfmCullLoopOn = 1;
+      window.requestAnimationFrame(_cullLoop);
+    }
+    window.__mfmCullDbg = function () {
+      return _culls.map(function (c) {
+        return { hidden: Object.keys(c.hidden).length, nodes: c.nodes.length,
+                 loading: !!c.loading, dragging: !!c.dragging,
+                 scrollX: c.ws && c.ws.scrollX, scrollY: c.ws && c.ws.scrollY,
+                 scale: c.ws && c.ws.scale };
+      });
+    };
+
+    // shared workspace binding: cull maintenance + (main ws only) the
+    // debounced mfm-changed push and the local-variables rail refresh
+    function mfmBindWs(cull) {
+      var ws = cull.ws;
+      ws.addChangeListener(function (ev) {
+        if (ev.type === 'drag') {   // Blockly.Events.BLOCK_DRAG
+          // Foreign drags (started on the FLYOUT's workspace) still
+          // arrive here. Returning early on them kept cull.dragging
+          // false, so every mid-drag 'move' rebuilt the index and
+          // FLATTENED chains while the block was in flight — svg roots
+          // churned under the pointer, the connection preview went
+          // stale and drops near a big chain stopped plugging in.
+          // Fix: a drag in flight suppresses flatten passes no matter
+          // which workspace owns it; only the local-drag extras
+          // (dragSet visibility, revertFlatten) stay gated on 'mine'.
+          var mine = !ev.workspaceId || ev.workspaceId === ws.id;
+          cull.dragging = !!ev.isStart;
+          cull.dragSet = {};
+          if (mine && ev.isStart && ev.blocks) {
+            for (var di = 0; di < ev.blocks.length; di++) {
+              if (ws.getBlockById(ev.blocks[di])) cull.dragSet[ev.blocks[di]] = 1;
+            }
+          }
+          if (mine && ev.isStart) {
+            // Blockly drags the head's svg root WITH its descendants
+            // nested inside — re-nest the flattened chain first
+            try { cull.revertFlatten(); } catch (e) {}
+          }
+          cull.indexSoon();   // start: blocks move to the drag layer / drop: rebuild + re-flatten
+        }
+        // scroll / zoom / move / edit — rAF-throttled passes
+        if (ev.type === 'create' || ev.type === 'delete' || ev.type === 'move') cull.indexSoon();
+        else if (ev.type === 'change') cull.indexSoonDebounced();
+        cull.soon();
+        if (cull.onAnyChange) cull.onAnyChange(ev);
+      });
+    }
+
+    var mainCull = null;   // assigned in startEditor()
+
+    // ── Group popup — mutator-style bubble with its own workspace ──────
+    // Opening the group's ✎ edit renders its steps INSIDE this second
+    // workspace; the main canvas never sees them (that's the perf design
+    // for 100k+ step recordings). Done flattens the popup back into the
+    // group's data. Styled after Blockly's mutator bubble (rounded frame,
+    // close X, mini-workspace) — but bigger and draggable.
+    var _gb = null;   // {block, ws, cull, bubble}
+    window.__mfmOpenGroup = function (groupBlock) {
+      if (_gb || !groupBlock) return;   // one popup at a time
+      var wrap = document.getElementById('blocklyWrap');
+      var bubble = document.getElementById('mfmGroupBubble');
+      if (!wrap || !bubble) return;
+      var r = wrap.getBoundingClientRect();
+      var W = Math.max(560, Math.min(r.width * 0.8, r.width - 24));
+      var H = Math.max(420, Math.min(r.height * 0.8, r.height - 24));
+      bubble.style.left = Math.max(8, Math.round((r.width - W) / 2)) + 'px';
+      bubble.style.top = Math.max(8, Math.round((r.height - H) / 2)) + 'px';
+      bubble.style.width = W + 'px';
+      bubble.style.height = H + 'px';
+      bubble.classList.add('open');
+      _gb = { block: groupBlock, bubble: bubble, steps: (groupBlock.mfmSteps || []).slice() };
+      var loadEl = document.getElementById('gbLoading');
+      loadEl.style.display = 'flex';
+      // let the browser paint the (empty) bubble first — big builds can
+      // block for a while
+      setTimeout(function () { _gbBuild(_gb); }, 30);
+    };
+
+    function _gbBuild(gb) {
+      try {
+        // MUTATOR-STYLE: no toolbox, no trashcan, no scrollbars — just the
+        // plain workspace in the window. Blocks come IN by dragging them
+        // from the main canvas (or its flyout) onto the window; they go
+        // OUT by dragging them back onto the canvas. Deleting is the
+        // block's right-click menu (Delete), exactly like a mutator.
+        var opts = {
+          toolbox: null,
+          trashcan: false,
+          scrollbars: false,
+          zoom: { controls: false, wheel: false, startScale: 0.9, maxScale: 2, minScale: 0.4, scaleSpeed: 1.2 },
+          grid: { spacing: 20, length: 3, colour: '#1a1a25', snap: true },
+          // scrollbars:false → no auto-pan while a block is dragged, so a
+          // chain dragged past the window edge actually FOLLOWS the pointer;
+          // drag:true → grab the background to pan the view, like real Blockly
+          move: { scrollbars: false, drag: true, wheel: true },
+          renderer: 'thrasos',
+          media: '/blockly/media/',
+        };
+        var theme = buildDarkTheme();
+        if (theme) opts.theme = theme;
+        var gws = Blockly.inject('gbWs', opts);
+        gb.ws = gws;
+        window._mfmPopupWs = gws;   // debug/smoke-test handle
+        var cull = new MfmCull(gws);
+        cull.loading = true;
+        _culls.push(cull);
+        gb.cull = cull;
+        mfmBindWs(cull);
+
+        // build the group's steps inside the popup (events off: one load,
+        // no undo churn, no intermediate cull rebuilds). Loose chains parked
+        // by the user travel as STRAY pseudo-steps — they are rebuilt AFTER
+        // the main chain, parked at their saved spot, NOT chained to the hat.
+        var strays = [], content = [];
+        (gb.steps || []).forEach(function (s) {
+          if (s && s.type === 'COMMENT' && typeof s.value === 'string' && s.value.indexOf('STRAY:') === 0) {
+            try { strays.push(JSON.parse(s.value.slice(6))); } catch (e) {}
+          } else if (s && s.type) {
+            content.push(s);
+          }
+        });
+        Blockly.Events.disable();
+        try {
+          var r = mfmListToXml(content);
+          Blockly.Xml.domToWorkspace(r.dom, gws);
+          var hat = mfmEnsureHat(gws, (gb.block.getFieldValue('NAME') || 'recording'), 'mfm_group_hat');
+          // wire the main chain under the hat (loose tops here are content)
+          var prevTail = null;
+          var tops = gws.getTopBlocks(true).filter(function (b) { return b.type !== 'mfm_hat' && b.type !== 'mfm_group_hat'; });
+          tops.forEach(function (head) {
+            if (prevTail) {
+              try { prevTail.nextConnection.connect(head.previousConnection); } catch (e) { prevTail = null; }
+            } else if (hat.getInputTargetBlock('DO') == null) {
+              try { hat.getInput('DO').connection.connect(head.previousConnection); } catch (e) {}
+            }
+            var t = head;
+            while (t && t.getNextBlock()) t = t.getNextBlock();
+            prevTail = t;
+          });
+          if (content.length > 0 && content.length <= 400) { try { gws.cleanUp(); } catch (e) {} }
+          var _hatXy = hat.getRelativeToSurfaceXY();
+          hat.mfmCenterDx = _hatXy.x;   // remember where the hat is now
+          // rebuild parked strays at their saved positions
+          strays.forEach(function (se) {
+            try {
+              var rr = mfmListToXml(se.steps || []);
+              var top = rr.dom.firstElementChild;
+              if (!top) return;
+              top.setAttribute('x', String(Math.max(4, Math.round(se.x || 40))));
+              top.setAttribute('y', String(Math.max(4, Math.round(se.y || 40))));
+              Blockly.Xml.domToWorkspace(rr.dom, gws);
+            } catch (e) {}
+          });
+        } finally { Blockly.Events.enable(); }
+
+        cull.loading = false;
+        cull.indexSoon();
+        try { Blockly.svgResize(gws); } catch (e) {}
+        // hat centered on X — done AFTER svgResize so the view width is real
+        try {
+          var h2 = null;
+          gws.getTopBlocks(true).forEach(function (t) { if (t.type === 'mfm_group_hat') h2 = t; });
+          if (h2) {
+            var m2 = gws.getMetrics();
+            var vw2 = (m2 && m2.viewWidth ? m2.viewWidth : 500) / (gws.scale || 1);
+            var dx2 = Math.round(vw2 / 2 - (h2.width || 160) / 2 - (h2.mfmCenterDx !== undefined ? h2.mfmCenterDx : h2.getRelativeToSurfaceXY().x));
+            if (dx2) h2.moveBy(dx2, 0);   // the chain follows the hat
+          }
+        } catch (e) {}
+        // Blockly bumps "out of bounds" top-level blocks back into a
+        // non-scrollable workspace (mutator safety). For this window that
+        // would make drag-OUT impossible — a block dropped outside the
+        // window edge would always be yanked back inside. Opt out.
+        try { gws.getMetricsManager().hasFixedEdges = function () { return false; }; } catch (e) {}
+        document.getElementById('gbLoading').style.display = 'none';
+        // grab the background to pan the view (see note above: move.drag is
+        // forced off by Blockly when scrollbars are disabled)
+        (function () {
+          try {
+            var svg = gws.getParentSvg();
+            var sx = 0, sy = 0, ssx = 0, ssy = 0, panning = false, lastPan = 0;
+            svg.addEventListener('pointerdown', function (e) {
+              if (e.button !== 0) return;
+              var t = e.target;
+              while (t && t !== svg && t !== document.body) {
+                if (t.classList && (t.classList.contains('blocklyDraggable') ||
+                    t.classList.contains('blocklyScrollbarHandle'))) return;
+                t = t.parentNode || t.parentElement;
+              }
+              panning = true; sx = e.clientX; sy = e.clientY;
+              ssx = gws.scrollX || 0; ssy = gws.scrollY || 0;
+              try { svg.setPointerCapture(e.pointerId); } catch (er) {}
+              e.preventDefault();
+            }, true);
+            svg.addEventListener('pointermove', function (e) {
+              if (!panning) return;
+              var sc = gws.scale || 1;
+              // SAME sign convention as the main workspace / Blockly's
+              // scroll(): canvas attr = translate(absLeft+scrollX, absTop+
+              // scrollY) — exactly what the cull's band math assumes. The
+              // content still follows the hand; only the STORED sign is
+              // fixed, so the cull band now moves WITH the view instead of
+              // against it (the old translate(-scrollX,-scrollY) flipped
+              // the view against scrollX/Y and blocks vanished while
+              // panning: dragging down culled the blocks it just revealed).
+              gws.scrollX = ssx + (e.clientX - sx) / sc;
+              gws.scrollY = ssy + (e.clientY - sy) / sc;
+              try {
+                var mpan = gws.getMetrics();
+                gws.translate((gws.scrollX || 0) + ((mpan && mpan.absoluteLeft) || 0),
+                              (gws.scrollY || 0) + ((mpan && mpan.absoluteTop) || 0));
+              } catch (er) {}
+              // no indexSoon here: panning changes the canvas transform,
+              // not block positions — the index stays valid (rebuilds
+              // during a pan were pure waste at 800+ blocks)
+            }, true);
+            function _stop() {
+              if (!panning) return;
+              panning = false;
+              try { cull.indexSoon(); } catch (er) {}
+            }
+            svg.addEventListener('pointerup', _stop, true);
+            svg.addEventListener('pointercancel', _stop, true);
+          } catch (e) {}
+        })();
+        _gbBindPopup(gws, cull, gb);
+      } catch (e) {
+        try { console.warn('group popup build failed', e); } catch (e2) {}
+        _gbClose(false);   // cancel quietly — never leave a broken popup up
+      }
+    }
+
+    // Popup content → flat step list. Blocks chained under the hat are
+    // real steps; loose chains are parked as STRAY pseudo-steps (comment
+    // lines in the .macro file — playback skips comments) so they survive
+    // close/reopen AND app restarts, keeping their parked position.
+    function _gbSyncData(gws) {
+      var steps = [];
+      var hat = null;
+      gws.getTopBlocks(true).forEach(function (t) { if (t.type === 'mfm_group_hat') hat = t; });
+      if (hat) steps = mfmWorkspaceToList({ getTopBlocks: function () { return [hat]; } }, false);
+      gws.getTopBlocks(true).forEach(function (t) {
+        if (t === hat || t.type === 'mfm_group_hat') return;
+        var chain = mfmWorkspaceToList({ getTopBlocks: function () { return [t]; } }, false);
+        if (!chain.length) return;
+        var xy = t.getRelativeToSurfaceXY();
+        steps.push({ type: 'COMMENT', value: 'STRAY:' + JSON.stringify({ x: Math.round(xy.x), y: Math.round(xy.y), steps: chain }), locked: false });
+      });
+      return steps;
+    }
+
+    // ── LIVE SYNC: the popup IS the editor. Every change inside the window
+    // flows straight into the group block's data (badge updates live) —
+    // there is no Done button; closing just stops looking.
+    var _gbSyncTimer = null;
+    function _gbSyncNow() {
+      if (_gbLive && _gbLive.tgt) return;   // mid live-drag: sync at drop instead
+      if (!_gb || !_gb.ws || !_gb.block) return;
+      try {
+        var steps = _gbSyncData(_gb.ws);
+        _gb.block.mfmSetSteps(steps);
+        var h = null;
+        _gb.ws.getTopBlocks(true).forEach(function (t) { if (t.type === 'mfm_group_hat') h = t; });
+        if (h) {
+          var nm = (h.getFieldValue('NAME') || '').trim();
+          if (nm) { try { _gb.block.setFieldValue(nm, 'NAME'); } catch (e) {} }
+        }
+      } catch (e) { try { console.warn('group live-sync failed', e); } catch (e2) {} }
+    }
+    function _gbSyncSoon(pushToo) {
+      if (_gbLive && _gbLive.tgt) return;   // mid live-drag: sync at drop instead
+      if (_gbSyncTimer) return;
+      _gbSyncTimer = setTimeout(function () {
+        _gbSyncTimer = null;
+        _gbSyncNow();
+        if (pushToo) schedulePush();
+      }, 350);
+    }
+
+    // ── LIVE cross-window drag ─────────────────────────────────────
+    // The moment a drag crosses the window boundary the chain is REBORN
+    // in the other workspace and follows the pointer until you release —
+    // you see exactly where it will land, the whole time you hold it.
+    // The source block stays put (hidden) while its original gesture
+    // runs out; on release it is disposed and the copy is the real one.
+    // Drag back over the source area and the copy is swapped back again.
+    // resolve the grabbed head block of a drag event — this build's
+    // BLOCK_DRAG carries block OBJECTS in ev.blocks (getById fails), while
+    // ev.blockId is the head's id
+    function _gbDragHead(ws, ev) {
+      if (ev && ev.blockId) { var h = ws.getBlockById(ev.blockId); if (h) return h; }
+      var arr = (ev && ev.blocks) || [];
+      for (var i = 0; i < arr.length; i++) {
+        var x = arr[i];
+        var h = (x && x.id) ? ws.getBlockById(x.id) : ws.getBlockById(x);
+        if (h && !h.isShadow()) return h;
+      }
+      return null;
+    }
+    // dragged head vs window rect — the BLOCK is what the user aims, not
+    // the pointer. Auto-pan (scrolling a long chain inside the small group
+    // window) pushes the POINTER off-window while the head stays in; that
+    // must never arm a drag-out or hijack an inside drop. m = hysteresis
+    // margin in px: positive = head must be m px beyond the edge to count
+    // as out, negative = still counts as out up to |m| px back inside.
+    function _gbHeadOut(L, w, m) {
+      try {
+        var r = L.src.getSvgRoot().getBoundingClientRect();
+        if (r && r.width) {
+          return r.right < w.left + m || r.left > w.right - m ||
+                 r.bottom < w.top + m || r.top > w.bottom - m;
+        }
+      } catch (e) {}
+      return _gbPointer.x < w.left + m || _gbPointer.x > w.right - m ||
+             _gbPointer.y < w.top + m || _gbPointer.y > w.bottom - m;
+    }
+    function _gbLiveStart(src, srcWs, tgtWs, fromPopup) {
+      if (!_gb || !src || src.isShadow()) return;
+      if (src.type === 'mfm_hat' || src.type === 'mfm_group_hat') return;
+      var r = null;
+      try { r = src.getSvgRoot().getBoundingClientRect(); } catch (e) {}
+      if (!r || !r.width) r = _gbBlockRect(src);
+      if (!r) return;
+      // This Blockly build fires BLOCK_DRAG(start) BEFORE un-plugging the
+      // grabbed block, so a block lifted out of the middle of a chain still
+      // has its parent at drag start. Bailing on getParent() here is what
+      // broke mid-chain drags: the live preview never armed, no copy ever
+      // followed the pointer, and the cross-window machinery was skipped.
+      // Instead: mark the drag PENDING and let _gbLiveUpdate arm it on the
+      // first pointer move AFTER the unplug (events fire in startDrag's
+      // disconnectBlock_ step, before the next pointermove arrives).
+      _gbLive = { src: src, srcWs: srcWs, tgtWs: tgtWs, fromPopup: !!fromPopup, tgt: null,
+                  pending: !!src.getParent(),
+                  grabDx: _gbPointer.x - r.left, grabDy: _gbPointer.y - r.top };
+      _gbLiveUpdate();
+    }
+    function _gbLiveUpdate() {
+      var L = _gbLive;
+      if (!L) return;
+      if (L.finishing) return;   // drop in flight: no new copies
+      if (!L.src || !L.src.workspace) { _gbLive = null; return; }
+      if (!_gb || !_gb.bubble) { _gbLive = null; return; }
+      if (L.pending) {
+        if (L.src.getParent()) return;   // unplug still on its way
+        L.pending = false;
+        // the unplug translates the block — recompute the grab offset so
+        // the copy keeps following the pointer exactly, not the old spot
+        var r0 = null;
+        try { r0 = L.src.getSvgRoot().getBoundingClientRect(); } catch (e) {}
+        if ((!r0 || !r0.width) ) r0 = _gbBlockRect(L.src);
+        if (r0) { L.grabDx = _gbPointer.x - r0.left; L.grabDy = _gbPointer.y - r0.top; }
+      }
+      var w = _gb.bubble.getBoundingClientRect();
+      if (!w || !w.width) return;
+      // arm only when the head is clearly past the edge (16px); once armed,
+      // keep it until the head is 8px back inside — no boundary flicker.
+      var out = _gbHeadOut(L, w, L.tgt ? -8 : 16);
+      var overTarget = L.fromPopup ? out : !out;   // dragging OUT: target is the canvas
+      if (overTarget) {
+        if (!L.tgt) {
+          try {
+            var dom = Blockly.Xml.blockToDom(L.src);
+            if (!dom) return;
+            try { L.src.getSvgRoot().style.display = 'none'; } catch (e2) {}
+            var nb = Blockly.Xml.domToBlock(dom, L.tgtWs);
+            try { nb.getSvgRoot().style.opacity = '0.8'; } catch (e2) {}
+            L.tgt = nb;
+          } catch (e) { _gbLiveReset(L); return; }
+        }
+        var p = _gbScreenToWs(L.tgtWs, _gbPointer.x - L.grabDx, _gbPointer.y - L.grabDy);
+        try { L.tgt.moveTo(p); } catch (e) {}
+      } else if (L.tgt) {
+        try { L.tgt.dispose(false, false); } catch (e) {}
+        L.tgt = null;
+        try { L.src.getSvgRoot().style.display = ''; } catch (e) {}
+      }
+    }
+    function _gbLiveReset(L) {   // cancel: block back home, copy gone
+      if (!L) return;
+      if (L.tgt) { try { L.tgt.dispose(false, false); } catch (e) {} }
+      try { if (L.src && L.src.getSvgRoot()) L.src.getSvgRoot().style.display = ''; } catch (e) {}
+      _gbLive = null;
+    }
+    function _gbLiveFinish() {
+      var L = _gbLive;
+      if (!L || !L.tgt) return;
+      // The copy landed. Keep the live state alive (as a gate) until the
+      // deferred work runs: right after the drag ends, Blockly moves the
+      // hidden source block to its drop position — that MOVE must not be
+      // mistaken for a real "drop over the window" by the old heuristics,
+      // or the block would be copied a SECOND time.
+      var copy = L.tgt;
+      L.tgt = null;
+      L.finishing = true;
+      setTimeout(function () {
+        _gbLive = null;
+        try {
+          if (L.src && L.src.workspace) {
+            Blockly.Events.disable();
+            try { L.src.dispose(false, false); } catch (e) {}
+            Blockly.Events.enable();
+          }
+        } catch (e) {}
+        try { if (copy.getSvgRoot()) copy.getSvgRoot().style.opacity = ''; } catch (e) {}
+        _gbSnapConnect(copy);
+        if (L.fromPopup && _gb && _gb.ws) {   // reset the popup's auto-pan scroll
+          try { _gb.ws.scrollX = 0; _gb.ws.scrollY = 0; if (_gb.ws.translate) _gb.ws.translate(0, 0); } catch (e) {}
+        }
+        _gbAfterTransfer();
+      }, 0);
+    }
+
+    // ── global pointer position: the drag system clamps a dragged chain
+    // to the workspace's edge (auto-pan), so a block dragged out of the
+    // window can never cross the boundary visually — the DROP POINT is
+    // what tells us the user meant "outside". We track the pointer.
+    var _gbPointer = { x: 0, y: 0, t: 0 };
+    var _gbLive = null;   // LIVE cross-window drag state (see below)
+    if (!window._mfmPointerHookInstalled) {
+      window._mfmPointerHookInstalled = true;
+      var _gbTrackPtr = function (e) {
+        _gbPointer.x = e.clientX; _gbPointer.y = e.clientY;
+        _gbPointer.t = Date.now();
+        if (_gbLive) _gbLiveUpdate();
+      };
+      document.addEventListener('pointermove', _gbTrackPtr, { passive: true });
+      document.addEventListener('pointerdown', _gbTrackPtr, true);
+    }
+    function _gbPointerOutside() {
+      if (!_gb || !_gb.bubble) return false;
+      var now = Date.now();
+      if (now - _gbPointer.t > 400) return false;   // stale pointer: no drag just ended
+      var w = _gb.bubble.getBoundingClientRect();
+      if (!w || !w.width) return false;
+      return _gbPointer.x < w.left || _gbPointer.x > w.right || _gbPointer.y < w.top || _gbPointer.y > w.bottom;
+    }
+
+    // ── DRAG IN/OUT between the main canvas and this window ──────────────
+    // Drop a block ON the open window → it moves in. Drag a block OUT of
+    // the window and drop it on the canvas → it moves out. Same gesture
+    // as moving between flyout and canvas — no buttons involved.
+    // a block's screen rect COMPUTED from its xy — getBoundingClientRect of
+    // the svg can lag behind moveBy at BLOCK_MOVE event time (the visual
+    // translate happens after the event fires), and culled blocks report a
+    // zero rect. xy + scale + origin is always current.
+    function _gbBlockRect(b) {
+      try {
+        var ws = b.workspace;
+        var cont = ws.getInjectionDiv().getBoundingClientRect();
+        var sc = ws.scale || 1;
+        var xy = b.getRelativeToSurfaceXY();
+        // screen = injectionDiv + (absoluteLeft + scrollX) + xy*scale —
+        // abs offsets and scroll are UNSCALED screen px (Blockly's scroll()
+        // adds both before translating the canvas); the old code subtracted
+        // scrollX and scaled it, which only worked while scroll was 0.
+        var mm = (ws.getMetrics && ws.getMetrics()) || {};
+        var ox = (mm.absoluteLeft || 0) + (ws.scrollX || 0);
+        var oy = (mm.absoluteTop || 0) + (ws.scrollY || 0);
+        var r = {
+          left: cont.left + ox + xy.x * sc,
+          top: cont.top + oy + xy.y * sc,
+          width: (b.width || 0) * sc,
+          height: (b.height || 0) * sc,
+        };
+        r.right = r.left + r.width; r.bottom = r.top + r.height;
+        return r;
+      } catch (e) { return null; }
+    }
+    function _gbRects(b) {
+      if (!b || !b.getSvgRoot) return null;
+      var r = _gbBlockRect(b);
+      if (!r || !r.width) return null;
+      if (!_gb || !_gb.bubble) return null;
+      var w = _gb.bubble.getBoundingClientRect();
+      if (!w || !w.width) return null;
+      return { block: r, win: w };
+    }
+    function _gbOver(b) {   // block screen rect over the window?
+      var rr = _gbRects(b);
+      if (!rr) return false;
+      var r = rr.block, w = rr.win;
+      return r.left < w.right && r.right > w.left && r.top < w.bottom && r.bottom > w.top;
+    }
+    function _gbScreenToWs(ws, sx, sy) {
+      try {
+        return Blockly.utils.svgMath.screenToWsCoordinates(ws, { x: sx, y: sy });
+      } catch (e) {}
+      try {   // manual fallback
+        var cont = ws.getInjectionDiv().getBoundingClientRect();
+        var mm = (ws.getMetrics && ws.getMetrics()) || {};
+        var ox = (mm.absoluteLeft || 0) + (ws.scrollX || 0);
+        var oy = (mm.absoluteTop || 0) + (ws.scrollY || 0);
+        return { x: (sx - cont.left - ox) / ws.scale, y: (sy - cont.top - oy) / ws.scale };
+      } catch (e) { return { x: 40, y: 40 }; }
+    }
+    // move one top-level stack across workspaces
+    function _gbTransfer(block, fromWs, toWs, sx, sy) {
+      if (!block || block.isShadow() || block.getParent()) return false;
+      if (block.type === 'mfm_hat' || block.type === 'mfm_group_hat') return false;
+      var dom = null;
+      Blockly.Events.disable();
+      try {
+        dom = Blockly.Xml.blockToDom(block);
+        block.dispose(false, false);
+        var nb = Blockly.Xml.domToBlock(dom, toWs);
+        var p = _gbScreenToWs(toWs, sx, sy);
+        try {
+          // moveTo takes a coordinate OBJECT in this Blockly build — two
+          // numbers give translate(NaN,NaN); moveBy is signature-stable
+          var cur = nb.getRelativeToSurfaceXY();
+          nb.moveBy(Math.max(4, p.x) - cur.x, Math.max(4, p.y) - cur.y);
+        } catch (e) { try { nb.moveBy(40, 40); } catch (e2) {} }
+      } catch (e) {
+        try { console.warn('group transfer failed', e); } catch (e2) {}
+        return false;
+      } finally { Blockly.Events.enable(); }
+      // outside the disabled-events region: let the snap connect loudly
+      _gbSnapConnect(nb);
+      return true;
+    }
+    // after a cross-window landing, snap the landed stack's head onto the
+    // nearest OPEN compatible connection (a chain tail or the hat's DO) when
+    // it was dropped close to it — so a chain dragged back into the window
+    // re-attaches where the gap is, instead of floating as a stray.
+    function _gbSnapConnect(block) {
+      try {
+        if (!block || block.isShadow() || block.getParent() || !block.previousConnection) return;
+        var ws = block.workspace;
+        if (!ws || !ws.getAllBlocks) return;
+        var xy = block.getRelativeToSurfaceXY();
+        var hx = xy.x + (block.width || 0) / 2, hy = xy.y;
+        var best = null, bestD = 1e9;
+        ws.getAllBlocks(false).forEach(function (b) {
+          if (b === block || b.isShadow()) return;
+          // skip the landed stack itself (its own tail would loop)
+          var t = b;
+          while (t) { if (t === block) return; t = t.getParent(); }
+          var cands = [];
+          if (b.nextConnection && !b.nextConnection.targetConnection) cands.push(b.nextConnection);
+          var inp = b.getInput && b.getInput('DO');
+          if (inp && inp.connection && !inp.connection.targetConnection) cands.push(inp.connection);
+          if (!cands.length) return;
+          var bxy = b.getRelativeToSurfaceXY();
+          var cx = bxy.x + (b.width || 0) / 2, cy = bxy.y + (b.height || 0);
+          var d = Math.sqrt((cx - hx) * (cx - hx) + (cy - hy) * (cy - hy));
+          if (d < bestD) { bestD = d; best = cands[0]; }
+        });
+        var snapR = 90 / (ws.scale || 1);   // workspace units, so zoom keeps the same hand-feel
+        if (best && bestD < snapR) {
+          Blockly.Events.disable();
+          try { best.connect(block.previousConnection); } catch (e2) { best = null; }
+          Blockly.Events.enable();
+        }
+      } catch (e) {}
+    }
+    function _gbAfterTransfer() {
+      try { if (window._mfmMainWs && mainCull) { mainCull.indexSoon(); } } catch (e) {}
+      if (_gb && _gb.cull) _gb.cull.indexSoon();
+      _gbSyncNow();
+      schedulePush();
+    }
+    // main-ws drop over the window → transfer IN (registered once)
+    // real mouse drags in this build fire 'drag' (a UI event) — the block
+    // is already at its final position when isStart=false arrives — so we
+    // react to BOTH: drag-end for the mouse, 'move' for programmatic moves.
+    var _gbMainHook = false;
+    function _gbTryTransferIn(headId) {
+      if (_gbLive) return;   // live drag owns this gesture
+      var b = window._mfmMainWs.getBlockById(headId);
+      if (!b || b.isShadow() || b.getParent()) return;
+      if (!_gbOver(b)) return;
+      var r = b.getSvgRoot().getBoundingClientRect();
+      if (_gbTransfer(b, window._mfmMainWs, _gb.ws, r.left + r.width / 2, r.top + 12)) _gbAfterTransfer();
+    }
+    function _gbMainMoveHook(ev) {
+      if (!_gb || !ev) return;
+      if (ev.type === 'drag') {           // Blockly.Events.BLOCK_DRAG
+        if (ev.isStart) {                 // drag START on the canvas: arm live drag-in
+          _gbLiveStart(_gbDragHead(window._mfmMainWs, ev), window._mfmMainWs, _gb.ws, false);
+          return;
+        }
+        if (_gbLive && _gbLive.tgt) { _gbLiveFinish(); return; }   // live copy already landed
+        // fast flick with no intermediate pointermove: fall back to drop-point check
+        var _dh = _gbDragHead(window._mfmMainWs, ev);
+        if (_dh && _dh.id) _gbTryTransferIn(_dh.id);
+        return;
+      }
+      if (_gbLive) return;                // ignore programmatic moves of a live-drag copy
+      if (ev.type !== 'move' && ev.type !== Blockly.Events.BLOCK_MOVE) return;
+      if (ev.workspaceId && window._mfmMainWs && ev.workspaceId !== window._mfmMainWs.id) return;
+      _gbTryTransferIn(ev.blockId);
+    }
+    function _gbBindPopup(gws, cull, gb) {
+      // any edit inside → live-sync the group data
+      gws.addChangeListener(function (ev) {
+        if (!ev) return;
+          if (ev.type === 'drag') {
+          // un-clip the window while a drag runs so the chain stays visible
+          // when you drag it past the window edge (drag OUT needs eyes)
+          var wsEl = document.getElementById('gbWs');
+          if (wsEl) wsEl.style.overflow = ev.isStart ? 'visible' : 'hidden';
+          if (ev.isStart) {
+            // drag START inside the window: arm the live drag-out
+            _gbLiveStart(_gbDragHead(gws, ev), gws, window._mfmMainWs, true);
+            return;
+          }
+          if (ev.blocks && ev.blocks.length) {
+            if (_gbLive && _gbLive.tgt) { _gbLiveFinish(); return; }   // live copy already landed
+            // fast flick with no intermediate pointermove: fall back
+            var b = _gbDragHead(gws, ev);
+            if (_gbLive) { _gbLiveReset(_gbLive); }
+            if (b && !b.isShadow() && !b.getParent() && b.type !== 'mfm_group_hat') {
+              if (!_gbOver(b)) {
+                // dropped OUTSIDE the window → move the stack to the canvas
+                var r = b.getSvgRoot().getBoundingClientRect();
+                if (_gbTransfer(b, gws, window._mfmMainWs, r.left + r.width / 2, r.top + 12)) {
+                  _gbAfterTransfer();
+                  return;
+                }
+              }
+            }
+          }
+          return;
+        }
+        if (ev.type === 'move' || ev.type === Blockly.Events.BLOCK_MOVE) {
+          if (_gbLive) return;             // live drag owns this gesture
+          if (ev.workspaceId && gws.id !== ev.workspaceId) return;
+          var b = gws.getBlockById(ev.blockId);
+          if (b && !b.isShadow() && !b.getParent() && b.type !== 'mfm_group_hat') {
+            // "outside" = the block itself is past the window edge (program-
+            // matic moves), OR the pointer was outside when the drop landed
+            // (real mouse drags — the auto-pan keeps the block inside, but
+            // the pointer tells us where the user aimed)
+            var r = b.getSvgRoot().getBoundingClientRect();
+            var outside = !_gbOver(b);
+
+            if (!outside && _gbPointerOutside()) {
+              // pointer off-window + head INSIDE = auto-pan of a long
+              // chain, not a drag-out — only steal the drop when the head
+              // is at the window edge or beyond (user aimed it out)
+              if (r && r.width) {
+                var wr = _gb && _gb.bubble ? _gb.bubble.getBoundingClientRect() : null;
+                outside = !wr || !wr.width || r.right < wr.left + 24 || r.left > wr.right - 24 ||
+                          r.bottom < wr.top + 24 || r.top > wr.bottom - 24;
+              } else {
+                outside = true; r = null;
+              }
+              if (outside) r = null;
+            }
+            if (outside) {
+              var sx = r ? r.left + r.width / 2 : _gbPointer.x;
+              var sy = r ? r.top + 12 : _gbPointer.y;
+              if (_gbTransfer(b, gws, window._mfmMainWs, sx, sy)) {
+                // the drag's auto-pan left the popup ws scrolled — recenter
+                try {
+                  gws.scrollX = 0; gws.scrollY = 0;
+                  if (gws.translate) gws.translate(0, 0);
+                } catch (e2) {}
+                _gbAfterTransfer();
+                return;
+              }
+            }
+          }
+        }
+        if (ev.type !== 'ui') _gbSyncSoon(true);
+      });
+      // main-ws hook: install once, when the first group window opens
+      if (!_gbMainHook && window._mfmMainWs) {
+        _gbMainHook = true;
+        window._mfmMainWs.addChangeListener(_gbMainMoveHook);
+      }
+    }
+
+    function _gbClose() {
+      if (_gbLive) _gbLiveReset(_gbLive);   // drag still running: put it back home
+      var gb = _gb; _gb = null;
+      if (!gb) return;
+      // the window was live-syncing all along — one final sync covers the
+      // last 350ms debounce window, then we just stop looking
+      if (gb.ws && gb.block) {
+        var keep = _gbSyncTimer; _gbSyncTimer = null;
+        if (keep) { clearTimeout(keep); }
+        try {
+          gb.block.mfmSetSteps(_gbSyncData(gb.ws));
+          var h = null;
+          gb.ws.getTopBlocks(true).forEach(function (t) { if (t.type === 'mfm_group_hat') h = t; });
+          if (h) {
+            var nm = (h.getFieldValue('NAME') || '').trim();
+            if (nm) { try { gb.block.setFieldValue(nm, 'NAME'); } catch (e) {} }
+          }
+          schedulePush();
+        } catch (e) { try { console.warn('group close-sync failed', e); } catch (e2) {} }
+      }
+      window._mfmPopupWs = null;
+      try { if (gb.cull) gb.cull.dispose(); } catch (e) {}
+      try { if (gb.ws) gb.ws.dispose(); } catch (e) {}
+      try { document.getElementById('gbWs').innerHTML = ''; } catch (e) {}
+      gb.bubble.classList.remove('open');
+      document.getElementById('gbLoading').style.display = 'none';
+    }
+
+    document.getElementById('gbClose').onclick = function () { _gbClose(); };
+    (function () {   // drag the window by the thin top strip (mutators move too)
+      var bubble = document.getElementById('mfmGroupBubble');
+      var strip = document.getElementById('gbDrag');
+      var sx = 0, sy = 0, bl = 0, bt = 0, on = false;
+      strip.addEventListener('pointerdown', function (e) {
+        on = true; sx = e.clientX; sy = e.clientY;
+        bl = parseFloat(bubble.style.left) || 0; bt = parseFloat(bubble.style.top) || 0;
+        strip.setPointerCapture(e.pointerId);
+        e.preventDefault();
+      });
+      strip.addEventListener('pointermove', function (e) {
+        if (!on) return;
+        bubble.style.left = (bl + e.clientX - sx) + 'px';
+        bubble.style.top = (bt + e.clientY - sy) + 'px';
+      });
+      strip.addEventListener('pointerup', function () { on = false; });
+    })();
+    (function () {   // resize the window from any edge/corner
+      var bubble = document.getElementById('mfmGroupBubble');
+      var MINW = 360, MINH = 260;
+      document.querySelectorAll('#mfmGroupBubble .gb-rz').forEach(function (h) {
+        var d = h.getAttribute('data-d') || 'se';
+        var sx = 0, sy = 0, sl = 0, st = 0, sw = 0, sh = 0, on = false;
+        var raf = 0;
+        function resizeWs() {
+          raf = 0;
+          try { if (_gb && _gb.ws) Blockly.svgResize(_gb.ws); } catch (e) {}
+        }
+        h.addEventListener('pointerdown', function (e) {
+          on = true; sx = e.clientX; sy = e.clientY;
+          sl = parseFloat(bubble.style.left) || 0; st = parseFloat(bubble.style.top) || 0;
+          sw = bubble.offsetWidth; sh = bubble.offsetHeight;
+          h.classList.add('active');
+          h.setPointerCapture(e.pointerId);
+          e.preventDefault(); e.stopPropagation();
+        });
+        h.addEventListener('pointermove', function (e) {
+          if (!on) return;
+          var dx = e.clientX - sx, dy = e.clientY - sy;
+          var L = sl, T = st, W = sw, H = sh;
+          if (d.indexOf('e') >= 0) W = Math.max(MINW, sw + dx);
+          if (d.indexOf('s') >= 0) H = Math.max(MINH, sh + dy);
+          if (d.indexOf('w') >= 0) { W = Math.max(MINW, sw - dx); L = sl + (sw - W); }
+          if (d.indexOf('n') >= 0) { H = Math.max(MINH, sh - dy); T = st + (sh - H); }
+          bubble.style.left = L + 'px'; bubble.style.top = T + 'px';
+          bubble.style.width = W + 'px'; bubble.style.height = H + 'px';
+          if (!raf) raf = requestAnimationFrame(resizeWs);
+        });
+        function stop() {
+          if (!on) return;
+          on = false; h.classList.remove('active');
+          try { if (_gb && _gb.ws) { Blockly.svgResize(_gb.ws); _gb.cull.indexSoon(); } } catch (e) {}
+        }
+        h.addEventListener('pointerup', stop);
+        h.addEventListener('pointercancel', stop);
+      });
+    })();
+    window.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && _gb) { e.stopPropagation(); _gbClose(); }
+    });
+
+    function _mfmHatHasBody() {
+      if (!ws) return false;
+      try {
+        var tops = ws.getTopBlocks(false) || [];
+        for (var i = 0; i < tops.length; i++) {
+          if (tops[i].type === 'mfm_hat') return !!tops[i].getInputTargetBlock('DO');
+        }
+        return tops.some(function (b) { return b && b.type !== 'mfm_hat'; });
+      } catch (e) { return false; }
+    }
+
+    function loadBlocks(blocks, name, blockly, blocklyXml) {
+      loading = true;
+      pushAllowed = false;
+      if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+      // The local-variables rail is DERIVED state: it always starts from
+      // this macro's own VARIABLE steps — never from whatever macro was
+      // open before (the iframe is persistent, so without the reset,
+      // switching files leaked the previous macro's variables into the
+      // next). And for the workspace path the rail must be populated
+      // BEFORE Blockly deserializes the blob: the typed getter/setter
+      // VAR dropdowns draw their options from the rail, and an empty
+      // rail makes Blockly REJECT the saved value ("Cannot set the
+      // dropdown's value to an unavailable option") — silently purging
+      // every ${var} reference on reopen (v2.1.218 bug).
+      window._pcrLocalVars = {};
+      window._pcrGhostVars = {};
+      try {
+        (blocks || []).forEach(function (s) {
+          if (s && s.type === 'VARIABLE') {
+            try {
+              var vd = JSON.parse(s.value || '{}');
+              var vraw = String(vd.var_type || 'number').toLowerCase();
+              var vt = vraw === 'boolean' ? 'logic' : vraw === 'text' ? 'text'
+                : vraw === 'image' ? 'image' : vraw === 'resloc' ? 'resloc'
+                : vraw === 'color' ? 'color' : 'number';
+              if (vd.name) window._pcrLocalVars[vd.name] = vt;
+            } catch (e2) {}
+          }
+        });
+      } catch (e) {}
+      try { lvRefresh(); } catch (e3) {}
+      // blockly = the .macro's embedded workspace (hash-verified by the
+      // server). Exact fidelity: layout, arrangement, group data all
+      // load as saved — no re-layout, no rebuild. Corrupt payload →
+      // fall through to the steps rebuild below.
+      // Getters may reference variables the rail no longer declares
+      // (deleted from the rail while references survive in the file).
+      // During deserialization the field value is still EMPTY, so the
+      // dropdown's "current-value" ghost fallback cannot kick in yet —
+      // without pre-registering these as ghosts, Blockly REJECTS the
+      // saved value and the ${var} reference is silently purged.
+      var _mfmGhostTypes = { number: 'number', text: 'text', logic: 'logic',
+                             image: 'image', color: 'color', resloc: 'resloc' };
+      function _mfmRegisterGhostsJson(nodes) {
+        (nodes || []).forEach(function (n) {
+          if (!n || typeof n !== 'object') return;
+          var t = String(n.type || '');
+          if ((t.indexOf('pcr_get_') === 0 || t.indexOf('pcr_set_') === 0)
+              && n.fields && n.fields.VAR
+              && !Object.prototype.hasOwnProperty.call(window._pcrLocalVars, n.fields.VAR)) {
+            var vt = _mfmGhostTypes[t.slice(8)];
+            if (vt) window._pcrGhostVars[n.fields.VAR] = vt;
+          }
+          var ins = n.inputs || {};
+          for (var ik in ins) {
+            var iv = ins[ik] || {};
+            if (iv.block) _mfmRegisterGhostsJson([iv.block]);
+            if (iv.shadow) _mfmRegisterGhostsJson([iv.shadow]);
+          }
+          if (n.next && n.next.block) _mfmRegisterGhostsJson([n.next.block]);
+        });
+      }
+      function _mfmRegisterGhostsXml(doms) {
+        (doms || []).forEach(function (el) {
+          if (!el || !el.getElementsByTagName) return;
+          var bl = el.getElementsByTagName('block');
+          for (var i = 0; i < bl.length; i++) {
+            var t = bl[i].getAttribute('type') || '';
+            if (t.indexOf('pcr_get_') !== 0 && t.indexOf('pcr_set_') !== 0) continue;
+            var fl = bl[i].getElementsByTagName('field');
+            for (var j = 0; j < fl.length; j++) {
+              if (fl[j].getAttribute('name') !== 'VAR') continue;
+              var v = fl[j].textContent || '';
+              if (v && !Object.prototype.hasOwnProperty.call(window._pcrLocalVars, v)) {
+                var vt = _mfmGhostTypes[t.slice(8)];
+                if (vt) window._pcrGhostVars[v] = vt;
+              }
+            }
+          }
+        });
+      }
+      // blocklyXml: the v3 container's blockly.xaml — the editor's own
+      // saved workspace, exact fidelity. Preferred over the JSON blob
+      // (legacy dual format) when both exist.
+      if (blocklyXml && typeof blocklyXml === 'string' && blocklyXml.replace(/^\s+/, '').charAt(0) === '<') {
+        try {
+          loadBlocklyWorkspaceXml(blocklyXml, name);
+          if (_mfmHatHasBody() || !(blocks || []).length) {
+            pushAllowed = true;
+            send({ type: 'mfm-loaded' });
+            return;
+          }
+          try { console.warn('mfm blockly-xml was hat-only — rebuilding from steps'); } catch (e2) {}
+          loading = true;
+          pushAllowed = false;
+        } catch (e) { try { console.warn('mfm blockly-xml load failed — rebuilding from steps', e); } catch (e2) {} }
+      }
+      if (blockly && typeof blockly === 'object' && blockly.blocks) {
+        try {
+          _mfmRegisterGhostsJson(blockly.blocks.blocks || []);
+          loadBlocklyWorkspace(blockly, name);
+          if (_mfmHatHasBody() || !(blocks || []).length) {
+            pushAllowed = true;
+            send({ type: 'mfm-loaded' });
+            return;
+          }
+          try { console.warn('mfm blockly-json was hat-only — rebuilding from steps'); } catch (e2) {}
+          loading = true;
+          pushAllowed = false;
+        } catch (e) { try { console.warn('mfm blockly-json load failed — rebuilding from steps', e); } catch (e2) {} }
+      }
+
+      var _t0 = Date.now(), _tp = _t0;
+      function _phase(tag) {
+        try { console.info('MFMPHASE ' + tag + ' ' + (Date.now() - _tp) + 'ms'); _tp = Date.now(); } catch (e) {}
+      }
+      loading = true;
+      if (mainCull) mainCull.markAll(true);
+      try {
+        Blockly.Events.disable();
+        try { ws.setResizesEnabled(false); } catch (e2) {}
+        ws.clear();
+        // hat = entry point: created FIRST so a bad line in the .macro list
+        // can never leave the workspace hatless again
+        var hat = mfmEnsureHat(ws, name || '');
+        _phase('clear+hat');
+        var r = mfmListToXml(blocks || []);
+        _phase('listToXml');
+        _mfmRegisterGhostsXml([r.dom]);
+        Blockly.Xml.domToWorkspace(r.dom, ws);
+        _phase('domToWorkspace');
+        // wire every loose top stack under the hat in order
+        var prevTail = null;
+        var tops = ws.getTopBlocks(true).filter(function (b) { return b.type !== 'mfm_hat'; });
+        tops.forEach(function (head) {
+          if (prevTail) {
+            try { prevTail.nextConnection.connect(head.previousConnection); }
+            catch (e) { prevTail = null; }
+          } else if (hat.getInputTargetBlock('DO') == null) {
+            try { hat.getInput('DO').connection.connect(head.previousConnection); }
+            catch (e) {}
+          }
+          var t = head;
+          while (t && t.getNextBlock()) t = t.getNextBlock();
+          prevTail = t;
+        });
+        _phase('wire');
+        // cleanUp is a full O(n) re-layout; the chain under the hat IS the
+        // layout, so skip it for big loads (this alone saves seconds).
+        if ((blocks || []).length <= 400) {
+          try { ws.cleanUp(); } catch (e3) {}
+          _phase('cleanUp');
+        }
+        // hat centered on X — deferred until layout settles (mid-load the
+        // metrics are not real yet, the svg hasn't been resized)
+        setTimeout(function () {
+          try {
+            Blockly.Events.disable();
+            try {
+              var hm = ws.getMetrics();
+              var hvw = (hm && hm.viewWidth ? hm.viewWidth : 800) / (ws.scale || 1);
+              var hxx = hat.getRelativeToSurfaceXY().x;
+              var hdx = Math.round(hvw / 2 - (hat.width || 160) / 2 - hxx);
+              if (hdx) hat.moveBy(hdx, 0);   // the chain follows the hat
+            } finally { Blockly.Events.enable(); }
+            if (mainCull) mainCull.indexSoon();
+          } catch (e4) {}
+        }, 60);
+        lvRefresh();
+        refreshVarDropdowns();
+        _phase('post');
+        send({ type: 'mfm-loaded' });
+      } catch (e) {
+        // a broken line must never take the hat or the other blocks with it
+        try { console.warn('mfm load error', e); } catch (e2) {}
+      } finally {
+        try { ws.setResizesEnabled(true); } catch (e2) {}
+        try { Blockly.Events.enable(); } catch (e) {}
+      }
+      loading = false;
+      pushAllowed = true;
+      if (mainCull) mainCull.markAll(false);
+    }
+
+    // ── embedded-workspace load (.macro dual format) ────────────────────
+    // Same skeleton as loadBlocks' steps path (cull off → events off →
+    // clear → load → refresh → events on), but the workspace JSON is the
+    // editor's OWN saved state: coordinates and arrangement load verbatim
+    // and NO cleanUp runs — re-layout would destroy the fidelity this
+    // path exists for.
+    // legacy conversion: macros saved on 2.1.221/2.1.222 may embed the
+    // now-removed mfm_while_bg block (the duplicate repeat while/until).
+    // Rewrite them to the merged controls_whileUntil — same MODE/BOOL/DO/
+    // BACKGROUND inputs, same hasbg mutation — before deserializing.
+    function _mfmMigrateWhileBg(node) {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) { node.forEach(_mfmMigrateWhileBg); return; }
+      if (node.type === 'mfm_while_bg') {
+        node.type = 'controls_whileUntil';
+        try { delete node.fields.REPEATLBL; } catch (e) {}
+      }
+      if (Array.isArray(node.blocks)) node.blocks.forEach(_mfmMigrateWhileBg);
+      if (node.inputs) {
+        Object.keys(node.inputs).forEach(function (ik) {
+          var iv = node.inputs[ik] || {};
+          if (iv.block) _mfmMigrateWhileBg(iv.block);
+          if (iv.shadow) _mfmMigrateWhileBg(iv.shadow);
+        });
+      }
+      if (node.next && node.next.block) _mfmMigrateWhileBg(node.next.block);
+    }
+
+    function loadBlocklyWorkspace(json, name) {
+      loading = true;
+      if (mainCull) mainCull.markAll(true);
+      try {
+        Blockly.Events.disable();
+        try { ws.setResizesEnabled(false); } catch (e2) {}
+        ws.clear();
+        try { _mfmMigrateWhileBg(json && json.blocks); } catch (e1) {}
+        Blockly.serialization.workspaces.load(json, ws);
+        // safety net: a saved workspace always carries its hat, but a
+        // corrupt blob must never leave the canvas hatless
+        var hat = null;
+        var tops = ws.getTopBlocks(true);
+        for (var i = 0; i < tops.length; i++) {
+          if (tops[i].type === 'mfm_hat') { hat = tops[i]; break; }
+        }
+        if (!hat) hat = mfmEnsureHat(ws, name || '');
+        if (name) { try { hat.setFieldValue(name, 'NAME'); } catch (e3) {} }
+        lvRefresh();
+        refreshVarDropdowns();
+      } finally {
+        try { ws.setResizesEnabled(true); } catch (e2) {}
+        try { Blockly.Events.enable(); } catch (e) {}
+        loading = false;
+        if (mainCull) { mainCull.markAll(false); mainCull.indexSoon(); }
+      }
+    }
+
+    // ── embedded-workspace load, XML flavor (v3 container blockly.xaml) ──
+    // Same fidelity contract as loadBlocklyWorkspace, but the payload is
+    // the editor's own workspace XML — layout, strays, groups, mutators,
+    // notes all round-trip through Blockly's battle-tested Xml format.
+    // legacy conversion (XML flavor): macros saved on 2.1.221/2.1.222 may
+    // embed the removed mfm_while_bg block — rewrite before deserializing.
+    function _mfmMigrateWhileBgXml(dom) {
+      try {
+        var bl = dom.getElementsByTagName('block');
+        for (var i = 0; i < bl.length; i++) {
+          if (bl[i].getAttribute('type') !== 'mfm_while_bg') continue;
+          bl[i].setAttribute('type', 'controls_whileUntil');
+          var fl = bl[i].getElementsByTagName('field');
+          for (var j = fl.length - 1; j >= 0; j--) {
+            if (fl[j].getAttribute('name') === 'REPEATLBL' && fl[j].parentNode) {
+              fl[j].parentNode.removeChild(fl[j]);
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    function loadBlocklyWorkspaceXml(xmlText, name) {
+      loading = true;
+      if (mainCull) mainCull.markAll(true);
+      try {
+        Blockly.Events.disable();
+        try { ws.setResizesEnabled(false); } catch (e2) {}
+        ws.clear();
+        var dom = Blockly.Xml.textToDom(xmlText);
+        _mfmRegisterGhostsXml([dom]);       // before deserialize: empty rail must not purge ${var}s
+        try { _mfmMigrateWhileBgXml(dom); } catch (e1) {}
+        Blockly.Xml.domToWorkspace(dom, ws);
+        var hat = null;
+        var tops = ws.getTopBlocks(true);
+        for (var i = 0; i < tops.length; i++) {
+          if (tops[i].type === 'mfm_hat') { hat = tops[i]; break; }
+        }
+        if (!hat) hat = mfmEnsureHat(ws, name || '');
+        if (name) { try { hat.setFieldValue(name, 'NAME'); } catch (e3) {} }
+        lvRefresh();
+        refreshVarDropdowns();
+      } finally {
+        try { ws.setResizesEnabled(true); } catch (e2) {}
+        try { Blockly.Events.enable(); } catch (e) {}
+        loading = false;
+        if (mainCull) { mainCull.markAll(false); mainCull.indexSoon(); }
+      }
+    }
+    var _lvSel = null;
+    window._pcrLocalVars = window._pcrLocalVars || {};
+
+    // force the typed set/get dropdowns to re-render their options
+    function refreshVarDropdowns() {
+      if (!ws) return;
+      ws.getAllBlocks(false).forEach(function (b) {
+        if (b.type.indexOf('pcr_set_') === 0 || b.type.indexOf('pcr_get_') === 0) {
+          var f = b.getField('VAR');
+          if (f) { try { f.setValue(f.getValue()); } catch (e) {} }
+        }
+      });
+    }
+
+    function lvRefresh() {
+      var list = document.getElementById('lvList');
+      if (!list || !ws) return;
+      var seen = window._pcrLocalVars;
+      list.innerHTML = '';
+      Object.keys(seen).forEach(function (name) {
+        var row = document.createElement('div');
+        row.className = 'lv-item' + (_lvSel === name ? ' sel' : '');
+        row.innerHTML = '<span>' + name + '</span><span class="t">' + (seen[name] || 'number') + '</span>';
+        row.title = 'double-click: jump to the first block using it';
+        row.onclick = function () { _lvSel = name; lvRefresh(); };
+        row.ondblclick = function () {
+          var target = ws.getAllBlocks(false).filter(function (b) {
+            return (b.type.indexOf('pcr_set_') === 0 || b.type.indexOf('pcr_get_') === 0)
+              && String(b.getFieldValue('VAR') || '') === name;
+          })[0];
+          if (target && ws.centerOnBlock) { try { ws.centerOnBlock(target.id); } catch (e) {} }
+        };
+        list.appendChild(row);
+      });
+      if (_lvSel && !seen[_lvSel]) _lvSel = null;
+    }
+
+    if (document.getElementById('lvAdd')) {   // panel removed — macros stay cheap
+    document.getElementById('lvAdd').addEventListener('click', function () {
+      document.getElementById('lvTitle').textContent = 'New local variable';
+      document.getElementById('lvName').value = '';
+      document.getElementById('lvType').value = 'number';
+      document.getElementById('lvType').disabled = false;
+      document.getElementById('lvDialog').classList.add('open');
+      document.getElementById('lvName').focus();
+    });
+    document.getElementById('lvCancel').addEventListener('click', function () {
+      document.getElementById('lvType').disabled = false;
+      document.getElementById('lvDialog').classList.remove('open');
+    });
+    document.getElementById('lvOk').addEventListener('click', function () {
+      var name = document.getElementById('lvName').value.trim().replace(/\s+/g, '_');
+      var vtype = document.getElementById('lvType').value;
+      document.getElementById('lvType').disabled = false;
+      document.getElementById('lvDialog').classList.remove('open');
+      if (!name || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return;
+      window._pcrLocalVars = window._pcrLocalVars || {};
+      window._pcrLocalVars[name] = vtype || 'number';
+      _lvSel = name;
+      lvRefresh();
+      refreshVarDropdowns();
+      schedulePush();
+    });
+    document.getElementById('lvDel').addEventListener('click', function () {
+      if (!_lvSel) return;
+      delete window._pcrLocalVars[_lvSel];
+      _lvSel = null;
+      lvRefresh();
+      refreshVarDropdowns();
+      schedulePush();
+    });
+    }
+
+    var _lastInitJson = null, _lastInitName = null, _lastInitKey = null;
+    window.addEventListener('message', function (ev) {
+      var d = ev.data || {};
+      if (d.type !== 'mfm-init') return;
+      // a rebuild is a full clear + recreate of EVERY block — never do it
+      // when the payload did not change (list scrolls, selection clicks…).
+      // the epoch key covers workspace loads: same steps, fresh workspace.
+      var json = null;
+      try { json = JSON.stringify(d.blocks || []); } catch (e) {}
+      var key = (d.blockly ? 'ws' : 'tx') + ':' + (d.epoch || 0);
+      if (json !== null && json === _lastInitJson && d.name === _lastInitName && key === _lastInitKey) return;
+      _lastInitJson = json;
+      _lastInitName = d.name;
+      _lastInitKey = key;
+      loadBlocks(d.blocks, d.name, d.blockly, d.blocklyXml);
+    });
+
+    // ── boot: editor block defs 1:1 (same source the procedures editor evals) ──
+    function startEditor() {
+      var injectOptions = {
+        toolbox: document.getElementById('mfm-toolbox'),
+        trashcan: true,
+        zoom: { controls: false, wheel: true, startScale: 0.9, maxScale: 2, minScale: 0.4, scaleSpeed: 1.2 },
+        grid: { spacing: 20, length: 3, colour: '#1a1a25', snap: true },
+        move: { scrollbars: true, drag: true, wheel: false },
+        renderer: 'thrasos',
+        media: '/blockly/media/',
+      };
+      var theme = buildDarkTheme();
+      if (theme) injectOptions.theme = theme;
+      ws = Blockly.inject('blockly-div', injectOptions);
+      window._mfmMainWs = ws;      // debug/smoke-test handle
+      mfmEnsureHat(ws, '');
+
+      // Dragging a huge chain (a recorded macro tail can be thousands of
+      // blocks) makes the per-mousemove connection-candidate search crawl:
+      // it collects every connection of the dragged chain. Past ~400
+      // blocks the preview/snap is pointless anyway — skip it.
+      var _BD = Blockly.BlockDragger;
+      if (_BD && _BD.prototype && !_BD.prototype.__mfmPatched) {
+        _BD.prototype.__mfmPatched = true;
+        var _mfmOrigStart = _BD.prototype.startDrag;
+        _BD.prototype.startDrag = function () {
+          try {
+            // resolve the dragged block regardless of the argument shape
+            var blk = null, a = arguments;
+            if (a[0] && a[0].workspace && a[0].getChildren) blk = a[0];
+            if (!blk && this.block && this.block.getChildren) blk = this.block;
+            if (!blk && this.draggingBlock_) blk = this.draggingBlock_;
+            var n = 0;
+            if (blk) {
+              var st = [blk];
+              while (st.length && n <= 401) {
+                var x = st.pop(); n++;
+                if (x.getNextBlock) { var nx = x.getNextBlock(); if (nx) st.push(nx); }
+                var kids = x.getChildren ? x.getChildren(false) : [];
+                for (var ci = 0; ci < kids.length; ci++) st.push(kids[ci]);
+              }
+            }
+            this.__mfmBigChain = n > 400;
+            var wsc = blk ? blk.workspace : this.workspace;
+            this.__mfmNoPreview = this.__mfmBigChain ||
+              !!(wsc && wsc.getAllBlocks && wsc.getAllBlocks(false).length > 2500);
+            // IMPORTANT: never stub getConnectionCandidate / updateConnectionPreview
+            // themselves — Blockly's core only stores the drop target
+            // (this.connectionCandidate, read by endDrag to actually connect)
+            // INSIDE updateConnectionPreview. A prior version of this patch
+            // no-op'd updateConnectionPreview wholesale past the size cutoff,
+            // which silently skipped that assignment — big chains (and any
+            // drag once the workspace itself was large) would glide right
+            // past a wide-open connector and never snap on drop. Instead we
+            // only silence the PREVIEWER's own render calls below — the
+            // expensive part per the original measurement (queueRender +
+            // triggerQueuedRenders building a whole ghost block) — while
+            // candidate detection and this.connectionCandidate keep working
+            // every frame, so the connect-on-drop still fires.
+            var cp = this.connectionPreviewer;
+            if (cp && !cp.__mfmPatched) {
+              cp.__mfmPatched = true;
+              var self = this, origPC = cp.previewConnection, origPR = cp.previewReplacement;
+              if (origPC) cp.previewConnection = function (a2, b2) {
+                if (self.__mfmNoPreview) return;
+                return origPC.call(cp, a2, b2);
+              };
+              if (origPR) cp.previewReplacement = function (a2, b2, c2) {
+                if (self.__mfmNoPreview) return;
+                return origPR.call(cp, a2, b2, c2);
+              };
+            }
+          } catch (e) { this.__mfmBigChain = false; this.__mfmNoPreview = false; }
+          return _mfmOrigStart.apply(this, arguments);
+        };
+      }
+
+      mainCull = new MfmCull(ws);
+      _culls.push(mainCull);
+      mfmBindWs(mainCull);
+      mainCull.onAnyChange = function (ev) {
+        if (loading || ev.isUiEvent) return;
+        schedulePush();
+        if (ev.type === 'create' || ev.type === 'delete' || ev.type === 'change') lvRefresh();
+      };
+      _cullStartLoop();
+      send({ type: 'mfm-ready' });
+    }
+
+    // ── resolution auto-fill (arrow icon on the ratio/scale blocks) ──
+    // 1:1 with the flow editor's MFGet: the ratio block's arrow fills it
+    // with the current monitor resolution; the scale block's arrow fills
+    // the ratio wired into its DEFAULT socket (creating one if empty).
+    function _mfToast(text) {
+      var old = document.getElementById('mfm-toast');
+      if (old) old.remove();
+      var t = document.createElement('div');
+      t.id = 'mfm-toast';
+      t.textContent = text;
+      document.body.appendChild(t);
+      setTimeout(function () { t.remove(); }, 2600);
+    }
+
+    function _mfSetNum(block, inputName, val) {
+      var input = block.getInput(inputName);
+      if (!input || !input.connection) return;
+      var child = input.connection.targetBlock();
+      if (child && child.type === 'math_number') { child.setFieldValue(String(val), 'NUM'); return; }
+      if (child) { try { child.unplug(); } catch (e) {} }
+      var nb = block.workspace.newBlock('math_number');
+      nb.setFieldValue(String(val), 'NUM');
+      try { nb.initSvg(); } catch (e) {}
+      nb.outputConnection.connect(input.connection);
+    }
+
+    window.MFGet = {
+      request: function (block, target) {
+        if (!block || block.isDeadOrDying()) return;
+        fetch('/blockly/screen_info').then(function (r) { return r.json(); }).then(function (d) {
+          if (!d || !d.ok) { _mfToast('Could not read screen resolution'); return; }
+          var ratio = block;
+          if (target === 'default') {
+            // scale block: fill the ratio block wired into its DEFAULT socket
+            var input = block.getInput('DEFAULT');
+            var child = input && input.connection ? input.connection.targetBlock() : null;
+            if (child && child.type === 'pcr_res_ratio') {
+              ratio = child;
+            } else {
+              ratio = block.workspace.newBlock('pcr_res_ratio');
+              _mfSetNum(ratio, 'RW', 16); _mfSetNum(ratio, 'RH', 9);
+              _mfSetNum(ratio, 'DW', 1920); _mfSetNum(ratio, 'DH', 1080);
+              try { ratio.initSvg(); } catch (e) {}
+              if (input && input.connection) ratio.outputConnection.connect(input.connection);
+            }
+          }
+          _mfSetNum(ratio, 'RW', d.ratio_w);
+          _mfSetNum(ratio, 'RH', d.ratio_h);
+          _mfSetNum(ratio, 'DW', d.width);
+          _mfSetNum(ratio, 'DH', d.height);
+          try { ratio.render(); ratio.bumpNeighbours(); } catch (e) {}
+          _mfToast('Applied ' + d.width + 'x' + d.height + ' (' + d.ratio_w + ':' + d.ratio_h + ')');
+        }).catch(function () { _mfToast('Server unreachable'); });
+      },
+    };
+
+    fetch('/blockly/blocks_data').then(function (r) { return r.json(); }).then(function (d) {
+      (d.blocks || []).forEach(function (f) {
+        try { (0, eval)(f.code); } catch (e) { /* block file broken — skip */ }
+      });
+      // pcr_image_from_res 1:1 — but the preview resolves via the macro
+      // images dir (recorder paths), not a procedure workspace's resources.
+      var imgDef = Blockly.Blocks['pcr_image_from_res'];
+      if (imgDef) {
+        imgDef.mfRefreshPreview = function () {
+          if (this.isInFlyout || !this.rendered) return;
+          this.mfPreviewTries = 0;
+          var self = this;
+          var path = self.mfPathText();
+          if (!path) { self.mfSetPreviewField(MF_PLACEHOLDER_IMG, 120, 28); return; }
+          var src = '/me/api/image_preview?path=' + encodeURIComponent(path) + '&v=' + Date.now();
+          if (self.mfLastSrc === src) return;
+          self.mfLastSrc = src;
+          var probe = new Image();
+          probe.onload = function () {
+            var maxW = 120, maxH = 28;
+            var scale = Math.min(maxW / probe.naturalWidth, maxH / probe.naturalHeight, 1);
+            self.mfSetPreviewField(src, Math.max(8, Math.round(probe.naturalWidth * scale)),
+                                          Math.max(8, Math.round(probe.naturalHeight * scale)));
+          };
+          probe.onerror = function () { self.mfSetPreviewField(MF_MISSING_IMG, 120, 28); };
+          probe.src = src;
+        };
+      }
+      startEditor();
+    }).catch(function () { startEditor(); });
+  })();
+  </script>
+</body>
+</html>

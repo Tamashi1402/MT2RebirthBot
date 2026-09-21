@@ -451,9 +451,34 @@ CONFIG_EDITABLE = [
     ("USE_DRILL_ON_A5_METEOR",   "bool",  "Use Drill on A5 Meteor"),
     ("USE_DRILL_ON_ROCK",        "bool",  "Use Drill on Rock"),
     ("USE_DRILL_ON_BASEROCK",    "bool",  "Use Drill on Baserock"),
-    ("MENU_RESUME_JOIN_WAIT",     "int",   "Menu resume: join wait (seconds)"),
-    ("STONE_ICON_MISSING_WAIT",  "int",   "Stone icon missing: wait before recovery (seconds)"),
-    ("STONE_ICON_THRESH",        "float", "Stone icon detection threshold (0.0-1.0, default 0.15 = 15% of pixels must match orange color)"),
+    ("GAME_DETECT_IMAGE",        "str",   "In-Game image detection: picked template (filename in data/game_detect/)"),
+    ("GAME_DETECT_BOX",          "json",  "In-Game image detection: pick box [x1,y1,x2,y2] (pick-time screen px)"),
+    ("GAME_DETECT_SCREEN",       "json",  "In-Game image detection: screen size the box was picked at [w,h]"),
+    ("GAME_DETECT_DIFF",         "float", "In-Game image detection: max image difference % counted as in-game (default 5)"),
+    ("FORCE_GAME_LOGO_IMAGE",    "str",   "Map search: game logo image (picked template in data/game_detect/)"),
+    ("FORCE_GAME_LOGO_BOX",      "json",  "Map search: game logo pick box [x1,y1,x2,y2] (pick-time screen px)"),
+    ("FORCE_GAME_LOGO_SCREEN",   "json",  "Map search: screen size the logo box was picked at [w,h]"),
+    ("FORCE_NOTINGAME_WAIT",     "int",   "Not in game: wait up to X seconds for HUD/menu before leaving (default 120)"),
+    ("FORCE_MENU_TIMEOUT",       "int",   "Lobby menu search: max seconds to find the PLAY button (default 60)"),
+    ("FORCE_PLAY_SETTLE",        "float", "Wait after MT2 confirmed before pressing PLAY (seconds, default 5)"),
+    ("FORCE_MAP_CODE",           "str",   "Island code typed into Search Discover when the wrong game is selected"),
+    ("FORCE_MAP_SEARCH_TIMEOUT", "int",   "Map search: max seconds to wait for the game logo image (default 30)"),
+    ("FORCE_MAP_SEARCH_ATTEMPTS", "int",  "Map search: full attempts (reset + retype + search) before giving up (default 3)"),
+    ("FORCE_SELECT_TIMEOUT",     "int",   "Map search: max seconds to wait for SELECT after the billboard (default 30)"),
+    ("FORCE_TITLE_TIMEOUT",      "int",   "Map search: max seconds to wait for the MT2 title again (default 30)"),
+    ("FORCE_OCR_PLAY_ALIASES",   "str",   "PLAY button OCR aliases (comma separated, normalized)"),
+    ("FORCE_OCR_TITLE_ALIASES",  "str",   "Selected-game title OCR aliases (comma separated, normalized)"),
+    ("FORCE_OCR_SEARCH_ALIASES", "str",   "Search Discover OCR aliases (comma separated, normalized)"),
+    ("FORCE_OCR_SELECT_ALIASES", "str",   "SELECT button OCR aliases (comma separated, normalized)"),
+    ("FORCE_PLAY_OCR_REGION",    "json",  "PLAY button OCR region [x1,y1,x2,y2] (1920x1080 base, scaled at runtime)"),
+    ("FORCE_GAME_TITLE_REGION",  "json",  "Selected-game title OCR region [x1,y1,x2,y2] (1920x1080 base)"),
+    ("FORCE_SEARCH_DISCOVER_REGION", "json", "Search Discover OCR region [x1,y1,x2,y2] (1920x1080 base)"),
+    ("FORCE_SELECT_OCR_REGION",   "json",  "SELECT button OCR region [x1,y1,x2,y2] (1920x1080 base)"),
+    ("FORCE_SEARCH_CLICK",       "json",  "Search Discover click [x,y] (1920x1080 base, scaled at runtime)"),
+    ("FORCE_GAME_BILLBOARD_CLICK", "json", "Map search billboard click [x,y] (1920x1080 base, scaled at runtime)"),
+    ("FORCE_SELECT_CLICK",       "json",  "SELECT button click [x,y] (1920x1080 base, scaled at runtime)"),
+    ("MENU_RESUME_JOIN_WAIT",     "int",   "Menu resume: join wait after PLAY (seconds, default 120 — a join can take up to 2min)"),
+    ("STONE_ICON_MISSING_WAIT",  "int",   "In-game HUD missing: wait before recovery (seconds)"),
     ("MENU_PLAY_COLOR_THRESH",   "float", "PLAY button color detection threshold (0.0-1.0, default 0.08 = 8% of region must match yellow)"),
     ("MENU_PLAY_HUE_TOL",        "int",   "PLAY button HSV hue tolerance (default 15)"),
     ("MENU_PLAY_SAT_TOL",        "int",   "PLAY button HSV saturation tolerance (default 60)"),
@@ -488,10 +513,7 @@ CONFIG_EDITABLE = [
     ("MANUAL_STR_CLOSE_YELLOW_THRESH", "float", "Close button sensitivity (0.0-1.0)"),
     ("UI_CLICK_SETTLE", "float", "Wait after UI clicks (seconds)"),
     ("UI_BTN_SETTLE", "float", "Wait after menu clicks (seconds)"),
-    ("MAP_LOAD_SETTLE", "float", "Wait after opening map (seconds)"),
-    ("DETECT_MAP_LOADING", "bool", "Detect map loading (base / A5 / A6 box colors)"),
-    ("MAP_LOAD_FIXED_SECONDS", "float", "Fixed map load wait (seconds) — used only when Detect Map Loading is off"),
-    ("DEST_FIXED_SETTLE", "float", "Teleport confirm wait, Area 7/8 (seconds)"),
+    ("MAP_LOAD_FIXED_SECONDS", "float", "Map load settle (seconds) — fixed wait after every teleport"),
     ("LOBBY_SETTLE", "float", "Lobby: wait after shard (seconds)"),
     ("LOBBY_READY_SETTLE", "float", "Lobby: wait before clicking Ready (seconds)"),
     ("LOBBY_STEP_DELAY", "float", "Lobby: delay between clicks (seconds)"),
@@ -518,17 +540,15 @@ CONFIG_EDITABLE = [
     ("RECORDER_RECORD_BINDING", "str", "Recorder Record"),
     ("RECORDER_PLAY_BINDING", "str", "Recorder Play / Stop"),
     ("RECORDER_SMOOTH_MOVE_KEY", "str", "Recorder Smooth Move (hold)"),
-    ("KRAKEN_POST_KILL_WAIT_SECONDS", "float", "Kraken: wait after boss killed before post-fight walk (seconds)"),
     ("KRAKEN_HB_CONFIRM_WINDOW_SECONDS", "float", "Kraken: kill-confirm watch after health bar gone (seconds)"),
-    ("KRAKEN_HB_EXTENDED_WINDOW_SECONDS", "float", "Kraken: extended kill-confirm watch (seconds)"),
     ("KRAKEN_POST_HB_LOSS_SHOOT_SECONDS", "float", "Kraken: keep firing after health bar gone (seconds)"),
     ("KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS", "float", "Kraken: max wait for boss health bar to appear (seconds)"),
     ("KRAKEN_DEATH_WAIT_SECONDS", "float", "Kraken: wait for respawn after death (seconds)"),
     ("KRAKEN_MENU_WAIT_SECONDS", "float", "Kraken: settle after opening the boss menu (seconds)"),
     ("KRAKEN_JOIN_CLICK_GAP_SECONDS", "float", "Kraken: gap between the two Join clicks (seconds)"),
     ("KRAKEN_POST_JOIN_WAIT_SECONDS", "float", "Kraken: settle after joining (seconds)"),
-    ("KRAKEN_REWARD_WALK_SECONDS", "float", "Kraken: max walk looking for CLOSE button (seconds)"),
     ("KRAKEN_REWARD_OPEN_WAIT_SECONDS", "float", "Kraken: wait for reward window to open (seconds)"),
+    ("KRAKEN_REWARD_WALK_SECONDS", "float", "Kraken: reward walk forward time (seconds)"),
     ("KRAKEN_ROUTE_ATTEMPTS", "int", "Kraken: route retries before failing"),
     ("KRAKEN_SHOOT_POLL_SECONDS", "float", "Kraken: shoot-loop poll interval (seconds)"),
     ("KRAKEN_SHOOT_REASSERT_SECONDS", "float", "Kraken: re-assert left mouse down every N seconds"),
@@ -609,6 +629,21 @@ def _apply_config_to_module(updates: dict):
             state_updates[state_key] = updates[cfg_key]
     if state_updates:
         update_state(**state_updates)
+    # Game Detection: keep state.game_detect_set in sync (bot gate + widget)
+    if any(k in updates for k in ("GAME_DETECT_IMAGE", "GAME_DETECT_BOX", "GAME_DETECT_SCREEN")):
+        try:
+            import game_detect as _gd_mod
+            with _lock:
+                _state["game_detect_set"] = bool(_gd_mod.is_game_detect_set())
+        except Exception as _gd_e:
+            log.debug(f"game_detect_set sync failed: {_gd_e}")
+    if any(k in updates for k in ("FORCE_GAME_LOGO_IMAGE", "FORCE_GAME_LOGO_BOX", "FORCE_GAME_LOGO_SCREEN")):
+        try:
+            import game_detect as _gd_mod
+            with _lock:
+                _state["game_logo_set"] = bool(_gd_mod.is_game_logo_set())
+        except Exception as _gd_e:
+            log.debug(f"game_logo_set sync failed: {_gd_e}")
 
 def _save_config_to_file(updates: dict):
     """Persist config changes to config.json via the config module helper."""
@@ -655,6 +690,8 @@ _state = {
     "pause_on_lag": False,
     "missing_loadouts": [],
     "loadout_block_seq": 0,
+    "game_detect_set": False,
+    "game_detect_block_seq": 0,
     "kraken_drill": False,
     "kraken_movement_mode": "linear",
     "zytos_movement_mode": "linear",
@@ -725,6 +762,13 @@ try:
 except Exception:
     pass
 _sync_state_from_stats(force=True)
+
+# Game Detection boot sync: was an In-Game image already picked?
+try:
+    import game_detect as _gd_init
+    _state["game_detect_set"] = bool(_gd_init.is_game_detect_set())
+except Exception as _gd_boot_e:
+    log.debug(f"game_detect boot sync failed: {_gd_boot_e}")
 
 # Session start timestamp ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â set once when dashboard module is loaded (= bot launch)
 _SESSION_START_TIME: float = __import__('time').time()
@@ -821,6 +865,11 @@ def _guard_local_post():
     # Recorder engine lives at /me and uses its own POSTs (no dashboard CSRF header).
     if (request.path or "").startswith("/me"):
         return None
+    # The blockly macro editor iframe (served at /editor/) posts to the
+    # picker endpoints directly and has no access to the dashboard CSRF
+    # token — same-origin, local-only server.
+    if (request.path or "").startswith("/blockly/"):
+        return None
     origin = request.headers.get("Origin")
     if origin and origin not in _ALLOWED_ORIGINS:
         return jsonify({"ok": False, "error": "Bad request origin."}), 403
@@ -828,6 +877,402 @@ def _guard_local_post():
     if not hmac.compare_digest(token, _CSRF_TOKEN):
         return jsonify({"ok": False, "error": "Bad request token."}), 403
     return None
+
+# ── Blockly macro editor assets ─────────────────────────────────────────────
+# The visual macro editor (code/editor/) runs inside the recorder tab's
+# iframe; it loads the blockly core from code/blockly/ and its block
+# definitions through /blockly/blocks_data. The .macro files it edits stay
+# plain v1 text — see macro_engine/app.py.
+
+_CODE_DIR = os.path.dirname(os.path.abspath(__file__))
+_BLOCKLY_DIR = os.path.join(_CODE_DIR, "blockly")
+_EDITOR_DIR = os.path.join(_CODE_DIR, "editor")
+
+
+def _blockly_safe_path(*parts):
+    base = os.path.normpath(_BLOCKLY_DIR)
+    path = os.path.normpath(os.path.join(base, *parts))
+    if path != base and not path.startswith(base + os.sep):
+        return None
+    return path
+
+
+@app.route("/editor/<path:filename>")
+def editor_assets(filename):
+    root = os.path.normpath(_EDITOR_DIR)
+    path = os.path.normpath(os.path.join(root, filename))
+    if path != root and not path.startswith(root + os.sep):
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    if not os.path.isfile(path):
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    return send_file(path)
+
+
+@app.route("/blockly/lib/<path:filename>")
+def blockly_lib(filename):
+    path = _blockly_safe_path("lib", filename)
+    if not path or not os.path.isfile(path):
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    return send_file(path)
+
+
+@app.route("/blockly/media/<path:filename>")
+def blockly_media(filename):
+    path = _blockly_safe_path("lib", "media", filename)
+    if not path or not os.path.isfile(path):
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    return send_file(path)
+
+
+@app.route("/blockly/<path:filename>")
+def blockly_file(filename):
+    path = _blockly_safe_path(filename)
+    if not path or not os.path.isfile(path):
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    return send_file(path)
+
+
+_BLOCKS_DATA_CACHE = None
+
+
+def _blockly_scan_blocks():
+    # Scan block .js definitions (code/blockly/blocks/**.block.js) for the
+    # editor to eval — {name, code, category} per file.
+    blocks_dir = os.path.join(_BLOCKLY_DIR, "blocks")
+    result = []
+    seen_paths = set()
+    if not os.path.isdir(blocks_dir):
+        return result
+    for category in sorted(os.listdir(blocks_dir)):
+        cat_path = os.path.join(blocks_dir, category)
+        if not os.path.isdir(cat_path):
+            continue
+        for fname in sorted(os.listdir(cat_path)):
+            if not fname.endswith(".block.js"):
+                continue
+            fpath = os.path.join(cat_path, fname)
+            if fpath in seen_paths:
+                continue
+            seen_paths.add(fpath)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    code = f.read()
+                result.append({"name": fname, "code": code, "category": category})
+            except Exception:
+                pass
+    return result
+
+
+@app.route("/blockly/blocks_data")
+def blockly_blocks_data():
+    global _BLOCKS_DATA_CACHE
+    if _BLOCKS_DATA_CACHE is None:
+        _BLOCKS_DATA_CACHE = {"blocks": _blockly_scan_blocks()}
+    return jsonify(_BLOCKS_DATA_CACHE)
+
+
+@app.route("/blockly/screen_info")
+def blockly_screen_info():
+    w, h = 1920, 1080
+    try:
+        import ctypes
+        w = int(ctypes.windll.user32.GetSystemMetrics(0))
+        h = int(ctypes.windll.user32.GetSystemMetrics(1))
+    except Exception:
+        pass
+    try:
+        g = math.gcd(int(w), int(h))
+        rw, rh = (int(w) // g, int(h) // g) if g else (16, 9)
+    except Exception:
+        rw, rh = 16, 9
+    return jsonify({"ok": True, "width": int(w), "height": int(h), "ratio_w": rw, "ratio_h": rh})
+
+
+# ── F2 screen picker (shared by the blockly macro editor) ───────────────────
+# Arm F2 → capture the full screen → the editor crops a region from the
+# frozen shot into the macro's images folder.
+
+_PICKER_LOCK = threading.Lock()
+_PICKER = {"state": "idle", "mode": None, "error": None, "f2_armed": False,
+           "shot_path": None, "screen": None, "armed_at": 0.0}
+
+
+def _picker_reset(state="idle"):
+    _PICKER.update({"state": state, "mode": None, "error": None,
+                    "shot_path": None, "screen": None, "armed_at": 0.0})
+
+
+def _picker_disarm_f2():
+    if not _PICKER.get("f2_armed"):
+        return
+    try:
+        import keyboard
+        keyboard.unhook_key("f2")
+    except Exception:
+        pass
+
+
+def _picker_launch(mode):
+    # runs on the keyboard module's hook thread — one shot, then disarm.
+    with _PICKER_LOCK:
+        if _PICKER["state"] != "armed":
+            return
+        _PICKER["state"] = "capturing"
+        _picker_disarm_f2()
+    try:
+        import time as _time
+        _time.sleep(0.15)  # let the F2 keypress / window settle
+        import cv2
+        import tempfile
+        from screen import grab_full_screen
+        arr = grab_full_screen()
+        if arr is None or arr.size == 0:
+            raise RuntimeError("empty screenshot")
+        shot_path = os.path.join(tempfile.gettempdir(), "mf_picker_shot.png")
+        if not cv2.imwrite(shot_path, arr):
+            raise RuntimeError("could not save screenshot")
+        with _PICKER_LOCK:
+            _PICKER.update({
+                "state": "captured",
+                "shot_path": shot_path,
+                "screen": [int(arr.shape[1]), int(arr.shape[0])],
+            })
+    except Exception as exc:
+        with _PICKER_LOCK:
+            _picker_reset("error")
+            _PICKER["error"] = str(exc)
+
+
+@app.route("/blockly/picker/prepare", methods=["POST"])
+def blockly_picker_prepare():
+    body = request.get_json(silent=True) or {}
+    mode = "box" if str(body.get("mode") or "").lower() == "box" else "point"
+    with _PICKER_LOCK:
+        _picker_disarm_f2()
+        _picker_reset("armed")
+        _PICKER["mode"] = mode
+        try:
+            import time as _time
+            _PICKER["armed_at"] = _time.time()
+            import keyboard
+            keyboard.on_press_key("f2", lambda e: _picker_launch(mode))
+            _PICKER["f2_armed"] = True
+        except Exception as exc:
+            _picker_reset("error")
+            _PICKER["error"] = "F2 hotkey unavailable (keyboard module): %s" % exc
+        ok = _PICKER["state"] == "armed"
+        state = _PICKER["state"]
+        error = _PICKER["error"]
+    return jsonify({"ok": ok, "state": state, "error": error})
+
+
+@app.route("/blockly/picker/status")
+def blockly_picker_status():
+    with _PICKER_LOCK:
+        # housekeeping: an armed popup that was never closed/captured
+        # (tab crash etc.) expires after 10 minutes and disarms F2.
+        if _PICKER["state"] == "armed" and _PICKER.get("armed_at"):
+            if time.time() - _PICKER["armed_at"] > 600:
+                _picker_disarm_f2()
+                _picker_reset("idle")
+        return jsonify({
+            "state": _PICKER["state"],
+            "mode": _PICKER["mode"],
+            "error": _PICKER["error"],
+            "screen": _PICKER["screen"],
+            "has_shot": bool(_PICKER["shot_path"]),
+        })
+
+
+@app.route("/blockly/picker/shot")
+def blockly_picker_shot():
+    with _PICKER_LOCK:
+        shot = _PICKER.get("shot_path")
+    if not shot or not os.path.exists(shot):
+        return jsonify({"ok": False, "error": "no screenshot"}), 404
+    return send_file(shot, mimetype="image/png", max_age=0)
+
+
+@app.route("/blockly/picker/crop_to_file", methods=["POST"])
+def blockly_picker_crop_to_file():
+    """Crop the armed F2 screenshot into the macro's images folder."""
+    body = request.get_json(silent=True) or {}
+    box = body.get("box") or []
+    dest_dir = str(body.get("dir") or "").strip()
+    if not isinstance(box, (list, tuple)) or len(box) != 4:
+        return jsonify({"ok": False, "error": "box[x1,y1,x2,y2] required"}), 400
+    if not dest_dir or not os.path.isabs(dest_dir):
+        return jsonify({"ok": False, "error": "absolute dir required"}), 400
+    with _PICKER_LOCK:
+        shot = _PICKER.get("shot_path") or ""
+        screen = _PICKER.get("screen") or []
+    if not shot or not os.path.isfile(shot):
+        return jsonify({"ok": False, "error": "no screenshot to crop — press F2 first"}), 400
+    try:
+        from PIL import Image
+        x1, y1, x2, y2 = (int(round(float(v))) for v in box)
+        if x2 < x1:
+            x1, x2 = x2, x1
+        if y2 < y1:
+            y1, y2 = y2, y1
+        if x2 - x1 < 1 or y2 - y1 < 1:
+            return jsonify({"ok": False, "error": "empty region"}), 400
+        os.makedirs(dest_dir, exist_ok=True)
+        with Image.open(shot) as im:
+            im = im.convert("RGB")
+            W, H = im.size
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(W, x2 or W), min(H, y2 or H)
+            crop = im.crop((x1, y1, max(x1 + 1, x2), max(y1 + 1, y2)))
+        # 1:1 recorder naming: {screenW}x{screenH}_f2_<ts>.png — the size
+        # prefix is what the image loader reads back for scaling.
+        sw = int(screen[0]) if len(screen) > 0 and screen[0] else W
+        sh = int(screen[1]) if len(screen) > 1 and screen[1] else H
+        fname = "%dx%d_f2_%s.png" % (sw, sh, time.strftime("%H%M%S"))
+        dest = os.path.join(dest_dir, fname)
+        crop.save(dest)
+        # remember where on the screen this crop came from
+        try:
+            from macro_engine.image_meta import write_meta
+            meta = write_meta(dest, (x1, y1, x2, y2), (sw, sh))
+        except Exception:
+            meta = None
+        return jsonify({"ok": True, "path": "images/" + fname, "meta": meta})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/blockly/picker/cancel", methods=["POST"])
+def blockly_picker_cancel():
+    with _PICKER_LOCK:
+        _picker_disarm_f2()
+        _picker_reset("idle")
+    return jsonify({"ok": True})
+
+
+# ── Game Detection (In-Game image detection, Force Restart tab) ─────────────
+# Same F2 pipette flow as the MacroForge pickers: the screenshot stays in
+# _PICKER["shot_path"], the user drags a box in the dashboard overlay, the
+# crop lands in data/game_detect/game_detect.png with the pick box/point
+# embedded in the PNG (mfmeta tEXt chunk) + mirrored into config.json.
+@app.route("/game_detect/info")
+def game_detect_info():
+    import config as _cfg_gd
+    import game_detect as _gd
+    name = str(getattr(_cfg_gd, "GAME_DETECT_IMAGE", "") or "")
+    try:
+        meta = _gd.meta_json_for_dashboard()
+        is_set = _gd.is_game_detect_set()
+    except Exception:
+        meta, is_set = None, False
+    try:
+        diff = float(getattr(_cfg_gd, "GAME_DETECT_DIFF", 5.0))
+    except Exception:
+        diff = 5.0
+    try:
+        logo_set = _gd.is_game_logo_set()
+    except Exception:
+        logo_set = False
+    try:
+        logo_name = str(getattr(_cfg_gd, "FORCE_GAME_LOGO_IMAGE", "") or "")
+    except Exception:
+        logo_name = ""
+    return jsonify({
+        "ok": True,
+        "set": bool(is_set),
+        "image": name,
+        "meta": meta,
+        "diff": diff,
+        "game_logo_set": bool(logo_set),
+        "game_logo_image": logo_name,
+        "dir": _gd.game_detect_dir(),
+    })
+
+
+@app.route("/game_detect/preview")
+def game_detect_preview():
+    import game_detect as _gd
+    tmpl = str(request.args.get("tmpl", "in_game") or "in_game").strip().lower()
+    path = _gd.game_detect_image_path(tmpl) if tmpl != "game_logo" else _gd.game_logo_image_path()
+    if not path:
+        return jsonify({"ok": False, "error": "no image picked"}), 404
+    return send_file(path, mimetype="image/png", max_age=0)
+
+
+@app.route("/game_detect/crop", methods=["POST"])
+def game_detect_crop():
+    """Crop the armed F2 screenshot into data/game_detect/game_detect.png
+    and persist GAME_DETECT_IMAGE/BOX/SCREEN. Overwrites the previous pick
+    (the Pick button doubles as Change)."""
+    body = request.get_json(silent=True) or {}
+    tmpl = str(body.get("tmpl", "in_game") or "in_game").strip().lower()
+    if tmpl not in ("in_game", "game_logo"):
+        return jsonify({"ok": False, "error": "tmpl must be in_game or game_logo"}), 400
+    box = body.get("box") or []
+    if not isinstance(box, (list, tuple)) or len(box) != 4:
+        return jsonify({"ok": False, "error": "box[x1,y1,x2,y2] required"}), 400
+    with _PICKER_LOCK:
+        shot = _PICKER.get("shot_path") or ""
+        screen = _PICKER.get("screen") or []
+    if not shot or not os.path.isfile(shot):
+        return jsonify({"ok": False, "error": "no screenshot to crop \u2014 press F2 first"}), 400
+    try:
+        from PIL import Image
+        x1, y1, x2, y2 = (int(round(float(v))) for v in box)
+        if x2 < x1: x1, x2 = x2, x1
+        if y2 < y1: y1, y2 = y2, y1
+        if x2 - x1 < 1 or y2 - y1 < 1:
+            return jsonify({"ok": False, "error": "empty region"}), 400
+        import game_detect as _gd
+        dest_dir = _gd.game_detect_dir()
+        os.makedirs(dest_dir, exist_ok=True)
+        dest = os.path.join(dest_dir, "game_logo.png" if tmpl == "game_logo" else "game_detect.png")
+        with Image.open(shot) as im:
+            im = im.convert("RGB")
+            W, H = im.size
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(W, x2 or W), min(H, y2 or H)
+            im.crop((x1, y1, max(x1 + 1, x2), max(y1 + 1, y2))).save(dest)
+        sw = int(screen[0]) if len(screen) > 0 and screen[0] else W
+        sh = int(screen[1]) if len(screen) > 1 and screen[1] else H
+        # box + point travel INSIDE the PNG (mfmeta tEXt chunk), same as
+        # MacroForge image-block crops — plus the config mirror below.
+        meta = None
+        try:
+            from macro_engine.image_meta import write_meta
+            meta = write_meta(dest, (x1, y1, x2, y2), (sw, sh))
+        except Exception:
+            meta = None
+        _gd.save_pick(dest, [x1, y1, x2, y2], [sw, sh], tmpl=tmpl)
+        with _lock:
+            if tmpl == "game_logo":
+                _state["game_logo_set"] = True
+            else:
+                _state["game_detect_set"] = True
+        log.info(f"[GAME_DETECT] picked ({tmpl}) {os.path.basename(dest)} box={(x1, y1, x2, y2)} screen={(sw, sh)}")
+        return jsonify({"ok": True, "path": os.path.basename(dest), "meta": meta})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/game_detect/clear", methods=["POST"])
+def game_detect_clear():
+    body = request.get_json(silent=True) or {}
+    tmpl = str(body.get("tmpl", "in_game") or "in_game").strip().lower()
+    import game_detect as _gd
+    try:
+        if tmpl == "game_logo":
+            _gd.clear_game_logo()
+        else:
+            _gd.clear_game_detect()
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    with _lock:
+        if tmpl == "game_logo":
+            _state["game_logo_set"] = False
+        else:
+            _state["game_detect_set"] = False
+    return jsonify({"ok": True})
 
 @app.route("/")
 def index():
@@ -1427,6 +1872,22 @@ def action():
                 }), 400
         except Exception as _lo_e:
             log.debug(f"loadout start gate failed: {_lo_e}")
+        try:
+            import bot as _bot_gd
+            if _bot_gd.missing_game_detection():
+                with _lock:
+                    _state["game_detect_block_seq"] = int(_state.get("game_detect_block_seq") or 0) + 1
+                    _state["waiting_for_start"] = True
+                    _state["run_active"] = False
+                    _state["status"] = "ERROR"
+                    _state["goal"] = "In-Game image detection not set!"
+                return jsonify({
+                    "ok": False,
+                    "error": "In-Game image detection not set! Pick an image in Config (top gear) \u2192 Force Restart.",
+                    "game_detect_block_seq": _state.get("game_detect_block_seq"),
+                }), 400
+        except Exception as _gd_e:
+            log.debug(f"game-detect start gate failed: {_gd_e}")
         with _lock:
             _state["waiting_for_start"] = False
             _state["status"] = "STARTING"
@@ -2627,6 +3088,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
   }
 
   .live-att-preview { display: none; }
+  @keyframes mfpulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
   @keyframes fadeDown {
     from { opacity:0; transform:translateY(-6px); }
     to   { opacity:1; transform:translateY(0); }
@@ -2774,6 +3236,64 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
   }
   body.tab-builder #topbar-run, body.tab-recorder #topbar-run { display: none !important; }
   body.tab-builder #page-run, body.tab-recorder #page-run { top: 52px !important; }
+
+  /* === RECORDER CONTROL ISLAND (topbar, recorder tab) === */
+  #topbar-recorder {
+    display: none; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto;
+  }
+  body.tab-recorder #topbar-recorder { display: flex; }
+  .rec-control {
+    width: 38px; height: 38px; border-radius: 8px; border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    background: #252530; color: var(--text); cursor: pointer;
+    font-size: 15px; font-weight: 900; line-height: 1; flex-shrink: 0;
+    transition: opacity .15s, transform .08s, background .15s, border-color .15s;
+  }
+  .rec-control:hover { border-color: var(--accent); background: #2e2e3e; }
+  .rec-control:active { transform: scale(.95); }
+  .rec-control:disabled { opacity: .42; cursor: not-allowed; }
+  .rec-control.on { background: rgba(124,106,247,.18); border-color: var(--accent); color: var(--accent); }
+  .rec-control.rec-on { background: rgba(204,68,85,.18); border-color: var(--red); color: #ff91a2; }
+  #rec-play-mode { width: 120px; min-width: 0; font-size: 12px; font-weight: 600; height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: #1c1c26; color: var(--text); cursor: pointer; outline: none; }
+  #rec-play-mode:hover, #rec-play-mode:focus { border-color: var(--accent); }
+  #rec-play-times {
+    width: 52px; height: 34px; padding: 0 8px; border-radius: 8px;
+    border: 1px solid var(--border); background: #1c1c26; color: var(--text);
+    font-size: 12px; font-weight: 700; outline: none;
+  }
+  #rec-play-times:hover, #rec-play-times:focus { border-color: var(--accent); }
+  #rec-play-times[hidden] { display: none !important; }
+  .rec-menu-wrap { position: relative; }
+  .rec-menu-btn {
+    height: 34px; border-radius: 8px; border: 1px solid transparent;
+    background: transparent; color: var(--text); padding: 0 10px;
+    font-size: 13px; font-weight: 800; cursor: pointer;
+  }
+  .rec-menu-btn:hover, .rec-menu-wrap.open .rec-menu-btn {
+    background: #1c1c26; border-color: var(--border); color: #fff;
+  }
+  .rec-menu-pop {
+    position: absolute; top: calc(100% + 6px); left: 0; min-width: 152px;
+    display: none; flex-direction: column; padding: 6px;
+    background: #15151d; border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 12px 30px rgba(0,0,0,.45); z-index: 700;
+  }
+  .rec-menu-wrap.open .rec-menu-pop { display: flex; }
+  .rec-menu-item {
+    height: 32px; border: none; border-radius: 6px; background: transparent;
+    color: var(--text); padding: 0 10px; text-align: left;
+    font-size: 13px; font-weight: 650; cursor: pointer;
+  }
+  .rec-menu-item:hover { background: rgba(124,106,247,.14); color: #fff; }
+  .rec-menu-sep { height: 1px; background: var(--border); margin: 4px 6px; }
+  #rec-macro-label {
+    min-width: 0; max-width: 160px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+    color: var(--muted); font-size: 12px; font-weight: 700; padding: 0 6px;
+  }
+  @media (max-width: 1100px) {
+    #rec-macro-label, .rec-macro-sep { display: none !important; }
+  }
   
   /* App tabs */
   .app-tabs { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
@@ -3114,6 +3634,18 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
   </div>
 </div>
 
+<div class="lo-block-bg" id="modal-gamedetect-block">
+  <div class="lo-block">
+    <h3>In-Game image detection not set!</h3>
+    <p>Force Restart is ON, so the bot needs to know what the in-game HUD looks like. Pick an always-visible element (Miner Tycoon 2 logo, stone icon or shard icon) once in the global Config (top gear) &rarr; Force Restart. The bot will not start without it.</p>
+    <p style="color:var(--muted);font-size:12px;">Pick it while in-game: press Pick, then F2, then drag a box around the element. Box and point save automatically.</p>
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:14px;">
+      <button type="button" style="background:var(--accent);border:none;border-radius:8px;color:#fff;padding:8px 16px;font:600 13px 'Segoe UI',sans-serif;cursor:pointer" onclick="takeMeToGameDetect()">Take me there</button>
+      <button type="button" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 16px;font:13px 'Segoe UI',sans-serif;cursor:pointer" onclick="closeGameDetectBlock()">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="fs-modal-bg" id="modal-first-steps">
   <div class="fs-modal" role="dialog" aria-labelledby="fs-title">
     <div class="fs-head">
@@ -3155,6 +3687,31 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>
       Recorder
     </button>
+  </div>
+  <div id="topbar-recorder">
+    <div class="topbar-sep"></div>
+    <button type="button" class="rec-control" id="rec-play-btn" onclick="recCmd('play')" title="Play / Stop (F6)">&#9654;</button>
+    <button type="button" class="rec-control" id="rec-record-btn" onclick="recCmd('record')" title="Record (F5)">&#9679;</button>
+    <select id="rec-play-mode" title="Playback" onchange="recCmd('playMode', {value:this.value})">
+      <option value="once">Play Once</option>
+      <option value="loop">Loop</option>
+      <option value="times">Loop xTimes</option>
+    </select>
+    <input id="rec-play-times" type="number" min="1" step="1" value="5" hidden title="Loop count" onchange="recCmd('playTimes', {value:this.value})">
+    <div class="topbar-sep"></div>
+    <div class="rec-menu-wrap" id="rec-file-wrap">
+      <button type="button" class="rec-menu-btn" onclick="toggleRecMenu('file')">File</button>
+      <div class="rec-menu-pop">
+        <button type="button" class="rec-menu-item" onclick="recCmd('new')">New Macro</button>
+        <button type="button" class="rec-menu-item" onclick="recCmd('open')">Open</button>
+        <button type="button" class="rec-menu-item" onclick="recCmd('import')">Import</button>
+        <div class="rec-menu-sep"></div>
+        <button type="button" class="rec-menu-item" onclick="recCmd('save')">Save</button>
+        <button type="button" class="rec-menu-item" onclick="recCmd('saveAs')">Save As</button>
+      </div>
+    </div>
+    <div class="topbar-sep rec-macro-sep"></div>
+    <span id="rec-macro-label">No macro</span>
   </div>
   <div class="topbar-spacer"></div>
   <div class="topbar-right">
@@ -3234,7 +3791,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
   <!-- LEFT SIDEBAR -->
   <div id="left-sidebar">
     <div class="sb-body">
-      <button class="sb-item" id="sb-force-restart-btn" onclick="sbToggleForceRestart()" title="On failure, run force_restart.macro (engine) and restart automatically. Works for Rebirth, Kraken, Zytos and Crater.">
+      <button class="sb-item" id="sb-force-restart-btn" onclick="sbToggleForceRestart()" title="On failure, recover automatically: three-state check (in game? GUI open? clearly not in game?), then leave to the lobby, verify Miner Tycoon 2 is selected (wrong game -> island-code map search) and rejoin. Works for Rebirth, Kraken, Zytos, Crater and Farm Meteor. Settings: global Config (top gear) &rarr; Force Restart. Needs the In-Game image detection picked once.">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
         <span class="sb-label">Force Restart</span>
       </button>
@@ -3376,6 +3933,17 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
     <div id="delve-main">ToDo</div>
     <div id="meteor-main">
       <div class="mode-empty-msg">This mode doesn't have anything yet.</div>
+      <div id="meteor-mode-settings" class="mode-settings" style="margin-top:18px;">
+        <div class="mode-settings-head">
+          <div class="sec-label">Mode Settings</div>
+          <div class="mode-settings-cats" id="meteor-mode-settings-cats"></div>
+        </div>
+        <div class="mode-settings-body" id="meteor-mode-settings-body"></div>
+        <div class="mode-settings-foot">
+          <span class="mode-settings-status" id="meteor-mode-settings-status"></span>
+          <button class="btn-primary" type="button" onclick="saveModeSettings()">Save & Apply</button>
+        </div>
+      </div>
     </div>
     <div id="crater-main">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:6px;">
@@ -4180,6 +4748,237 @@ function closeLoadoutBlock() {
   if (bg) bg.classList.remove('open');
   _loadoutBlockAckSeq = Number((_lastPollState && _lastPollState.loadout_block_seq) || 0);
 }
+// ── Game Detection: block widget + F2 pipette picker (MacroForge flow) ─────
+let _gameDetectBlockAckSeq = 0;
+function showGameDetectBlock() {
+  const bg = document.getElementById('modal-gamedetect-block');
+  if (bg) bg.classList.add('open');
+}
+function closeGameDetectBlock() {
+  const bg = document.getElementById('modal-gamedetect-block');
+  if (bg) bg.classList.remove('open');
+  _gameDetectBlockAckSeq = Number((_lastPollState && _lastPollState.game_detect_block_seq) || 0);
+}
+async function takeMeToGameDetect() {
+  closeGameDetectBlock();
+  try { await switchAppTab('run'); } catch (e) {}
+  const panel = document.getElementById('config-panel');
+  const wasOpen = !!(panel && panel.classList.contains('open'));
+  if (!wasOpen) togglePanel('config');   // opens the global config + loads it
+  _cfgActiveTab = 'forcerestart';       // renderConfigForm keeps this tab
+  setTimeout(function () { setConfigTab('forcerestart'); }, wasOpen ? 0 : 350);
+  showToast('Config → Force Restart → Game Detection');
+}
+function gameDetectPickImage() {
+  dashPickBox(function (box) {
+    if (!box) return;
+    postJson('/game_detect/crop', {box: box}).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.ok) { showToast(d.error || 'Crop failed'); return; }
+      const name = d.path || 'game_detect.png';
+      const img = document.getElementById('gd_preview');
+      if (img) { img.src = '/game_detect/preview?v=' + Date.now(); img.style.visibility = 'visible'; }
+      const nm = document.getElementById('gd_name');
+      if (nm) nm.textContent = name;
+      const hid = document.getElementById('cfg_GAME_DETECT_IMAGE');
+      if (hid) hid.value = name;
+      _cfgValues.GAME_DETECT_IMAGE = name;
+      _cfgValues.GAME_DETECT_BOX = (d.meta && d.meta.box) || box.slice();
+      _cfgValues.GAME_DETECT_SCREEN = (d.meta && d.meta.screen) || [];
+      const pickBtn = document.getElementById('gd_pick_btn');
+      if (pickBtn && pickBtn.textContent.trim() === 'Pick') pickBtn.textContent = 'Change';
+      if (!document.getElementById('gd_clear_btn') && pickBtn) {
+        const clr = document.createElement('button');
+        clr.type = 'button'; clr.id = 'gd_clear_btn';
+        clr.setAttribute('style', pickBtn.getAttribute('style'));
+        clr.textContent = 'Clear';
+        clr.onclick = gameDetectClearImage;
+        pickBtn.insertAdjacentElement('afterend', clr);
+      }
+      _lastPollState = Object.assign({}, _lastPollState || {}, {game_detect_set: true});
+      showToast('Picked ' + name + ' \u2014 box + point saved');
+    }).catch(function () { showToast('Server unreachable'); });
+  });
+}
+function gameLogoPickImage() {
+  dashPickBox(function (box) {
+    if (!box) return;
+    postJson('/game_detect/crop', {box: box, tmpl: 'game_logo'}).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.ok) { showToast(d.error || 'Crop failed'); return; }
+      const name = d.path || 'game_logo.png';
+      const img = document.getElementById('glogo_preview');
+      if (img) { img.src = '/game_detect/preview?tmpl=game_logo&v=' + Date.now(); img.style.visibility = 'visible'; }
+      const nm = document.getElementById('glogo_name');
+      if (nm) nm.textContent = name;
+      const hid = document.getElementById('cfg_FORCE_GAME_LOGO_IMAGE');
+      if (hid) hid.value = name;
+      _cfgValues.FORCE_GAME_LOGO_IMAGE = name;
+      _cfgValues.FORCE_GAME_LOGO_BOX = (d.meta && d.meta.box) || box.slice();
+      _cfgValues.FORCE_GAME_LOGO_SCREEN = (d.meta && d.meta.screen) || [];
+      _lastPollState = Object.assign({}, _lastPollState || {}, {game_logo_set: true});
+      showToast('Picked ' + name + ' — box + point saved');
+      renderModeSettings();
+    }).catch(function () { showToast('Server unreachable'); });
+  });
+}
+function gameLogoClearImage() {
+  postJson('/game_detect/clear', {tmpl: 'game_logo'}).then(function (r) { return r.json(); }).then(function (d) {
+    if (!d.ok) { showToast(d.error || 'Clear failed'); return; }
+    _cfgValues.FORCE_GAME_LOGO_IMAGE = '';
+    _cfgValues.FORCE_GAME_LOGO_BOX = [];
+    _cfgValues.FORCE_GAME_LOGO_SCREEN = [];
+    _lastPollState = Object.assign({}, _lastPollState || {}, {game_logo_set: false});
+    renderModeSettings();
+    showToast('Game logo image cleared');
+  }).catch(function () { showToast('Server unreachable'); });
+}
+function gameDetectClearImage() {
+  postJson('/game_detect/clear', {}).then(function (r) { return r.json(); }).then(function (d) {
+    if (!d.ok) { showToast(d.error || 'Clear failed'); return; }
+    _cfgValues.GAME_DETECT_IMAGE = '';
+    _cfgValues.GAME_DETECT_BOX = [];
+    _cfgValues.GAME_DETECT_SCREEN = [];
+    _lastPollState = Object.assign({}, _lastPollState || {}, {game_detect_set: false});
+    renderModeSettings();
+    showToast('In-Game image detection cleared');
+  }).catch(function () { showToast('Server unreachable'); });
+}
+
+// ── Dashboard-side screen box picker: F2 screenshot → drag a rectangle ────
+// 1:1 with MacroForge's dashPickBox — same endpoints, same flow, same look.
+// Returns [x1, y1, x2, y2] (real screenshot pixels) via the callback, or
+// null when cancelled.
+let _dashPicker = null;
+function _dashPickerClose(cancelServer) {
+  if (!_dashPicker) return;
+  var st = _dashPicker;
+  _dashPicker = null;
+  try { clearInterval(st.timer); } catch (e) {}
+  try { window.removeEventListener('resize', st.fit); } catch (e) {}
+  try { document.removeEventListener('keydown', st.keys); } catch (e) {}
+  try { st.root.remove(); if (st.overlay) st.overlay.remove(); } catch (e) {}
+  if (cancelServer !== false) { try { postJson('/blockly/picker/cancel', {}); } catch (e) {} }
+}
+function _dashPickerStatus(el, text) {
+  if (!el) return;
+  el.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:8px;animation:mfpulse 1s infinite"></span>' + text;
+}
+function dashPickBox(onDone) {
+  if (_dashPicker) { _dashPickerClose(true); }
+  var root = document.createElement('div');
+  root.style.cssText = 'position:fixed;inset:0;background:rgba(12,12,16,.62);z-index:12000;display:flex;align-items:center;justify-content:center';
+  root.innerHTML =
+    '<div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:22px 26px;max-width:560px;color:var(--text);box-shadow:0 18px 44px rgba(0,0,0,.55)">'
+    + '<div style="font:700 15px \'Segoe UI\',sans-serif;margin-bottom:10px">Pick a box from the screen</div>'
+    + '<ol style="margin:0 0 12px 20px;font:13px \'Segoe UI\',sans-serif;line-height:1.55;color:var(--text)">'
+    + '<li>Open the game <b>the way the bot will see it</b> — fullscreen, or the exact window size you play at.</li>'
+    + '<li>Press <b>F2</b> there. It works only while this popup is open — a screenshot is taken instantly.</li>'
+    + '<li>The screenshot opens fullscreen here. Drag a rectangle around what you want, then <b>Accept</b>.</li>'
+    + '</ol>'
+    + '<div id="dash-pick-status" style="font:12.5px \'Segoe UI\',sans-serif;color:var(--muted);margin-bottom:14px"></div>'
+    + '<button type="button" id="dash-pick-cancel" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 16px;font:13px \'Segoe UI\',sans-serif;cursor:pointer">Cancel</button>'
+    + '</div>';
+  document.body.appendChild(root);
+  var st = { root: root, overlay: null, timer: null, map: null, box: null, fit: null, keys: null };
+  _dashPicker = st;
+  var statusEl = root.querySelector('#dash-pick-status');
+  _dashPickerStatus(statusEl, 'Arming F2 …');
+  root.querySelector('#dash-pick-cancel').addEventListener('click', function () { _dashPickerClose(true); onDone(null); });
+  root.addEventListener('mousedown', function (e) { if (e.target === root) { _dashPickerClose(true); onDone(null); } });
+  st.keys = function (e) {
+    if (e.key === 'Escape') { _dashPickerClose(true); onDone(null); }
+  };
+  document.addEventListener('keydown', st.keys);
+  postJson('/blockly/picker/prepare', { mode: 'box' }).then(function (r) { return r.json(); }).then(function (d) {
+    if (!_dashPicker) return;
+    if (!d.ok) { _dashPickerStatus(statusEl, 'Error: ' + (d.error || 'could not arm F2')); return; }
+    _dashPickerStatus(statusEl, 'Waiting for F2 — press it in your game');
+  }).catch(function () { if (_dashPicker) _dashPickerStatus(statusEl, 'Server unreachable'); });
+
+  st.timer = setInterval(function () {
+    if (!_dashPicker) return;
+    fetch('/blockly/picker/status').then(function (r) { return r.json(); }).then(function (d) {
+      if (!_dashPicker) return;
+      if (d.state === 'armed') _dashPickerStatus(statusEl, 'Waiting for F2 — press it in your game');
+      else if (d.state === 'capturing') _dashPickerStatus(statusEl, 'Taking screenshot …');
+      else if (d.state === 'captured' && d.has_shot) {
+        clearInterval(st.timer);
+        _dashPickerOpenShot('/blockly/picker/shot?v=' + Date.now(), d.screen || null, onDone);
+      } else if (d.state === 'error') {
+        showToast('Picker error: ' + (d.error || 'unknown'));
+        _dashPickerClose(true); onDone(null);
+      }
+    }).catch(function () {});
+  }, 350);
+}
+function _dashPickerOpenShot(shotUrl, screenInfo, onDone) {
+  var st = _dashPicker;
+  if (!st) return;
+  st.root.remove();
+  var ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:#0a0a0e;z-index:12001';
+  ov.innerHTML =
+    '<img id="dash-shot-img" alt="screenshot" style="position:absolute;user-select:none;cursor:crosshair">'
+    + '<div id="dash-shot-sel" style="position:absolute;display:none;border:2px solid #7c6af7;background:rgba(124,106,247,.18);pointer-events:none"></div>'
+    + '<div id="dash-shot-bar" style="position:fixed;left:0;right:0;bottom:0;height:44px;display:flex;align-items:center;gap:18px;padding:0 16px;background:#12121a;border-top:1px solid #262633;color:#e0e0e8;font:12.5px \'Segoe UI\',sans-serif;justify-content:center;z-index:12002">'
+    + '<span>Drag a rectangle' + (screenInfo ? ' · ' + screenInfo[0] + '×' + screenInfo[1] : '') + '</span>'
+    + '<span id="dash-shot-coords" style="min-width:150px;color:#9a9ab0"></span>'
+    + '<button type="button" id="dash-shot-ok" style="background:#7c6af7;border:none;border-radius:7px;color:#fff;padding:7px 18px;font:12.5px \'Segoe UI\',sans-serif;cursor:pointer">Accept</button>'
+    + '<button type="button" id="dash-shot-cancel" style="background:#262633;border:1px solid #262633;color:#e0e0e8;border-radius:7px;padding:7px 14px;font:12.5px \'Segoe UI\',sans-serif;cursor:pointer">Cancel</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+  st.overlay = ov;
+  var img = ov.querySelector('#dash-shot-img');
+  var sel = ov.querySelector('#dash-shot-sel');
+  var coords = ov.querySelector('#dash-shot-coords');
+  var box = null;
+  function fit() {
+    var w = img.naturalWidth, h = img.naturalHeight;
+    if (!w || !h) return;
+    var availW = window.innerWidth, availH = window.innerHeight - 44;
+    var scale = Math.min(availW / w, availH / h, 1);
+    img.style.width = (w * scale) + 'px';
+    img.style.height = (h * scale) + 'px';
+    var x = (availW - w * scale) / 2, y = (availH - h * scale) / 2;
+    img.style.left = x + 'px';
+    img.style.top = y + 'px';
+    st.map = { x: x, y: y, scale: scale };
+  }
+  st.fit = fit;
+  img.addEventListener('load', fit);
+  window.addEventListener('resize', fit);
+  img.src = shotUrl;
+  function toReal(cx, cy) { return [Math.round((cx - st.map.x) / st.map.scale), Math.round((cy - st.map.y) / st.map.scale)]; }
+  function mark(b) {
+    if (!b || !st.map) { sel.style.display = 'none'; coords.textContent = ''; return; }
+    var x1 = st.map.x + b[0] * st.map.scale, y1 = st.map.y + b[1] * st.map.scale;
+    sel.style.display = 'block';
+    sel.style.left = x1 + 'px'; sel.style.top = y1 + 'px';
+    sel.style.width = Math.max(2, (b[2] - b[0]) * st.map.scale) + 'px';
+    sel.style.height = Math.max(2, (b[3] - b[1]) * st.map.scale) + 'px';
+    coords.textContent = '(' + b.join(', ') + ')';
+  }
+  var start = null, dragging = false;
+  ov.addEventListener('mousedown', function (e) {
+    if (e.target.closest('#dash-shot-bar')) return;
+    e.preventDefault();
+    start = toReal(e.clientX, e.clientY); dragging = true; box = null; mark(null);
+  });
+  window.addEventListener('mousemove', function (e) {
+    if (!dragging || !st.map) return;
+    var p = toReal(e.clientX, e.clientY);
+    box = [Math.min(start[0], p[0]), Math.min(start[1], p[1]), Math.max(start[0], p[0]), Math.max(start[1], p[1])];
+    mark(box);
+  });
+  window.addEventListener('mouseup', function () { dragging = false; });
+  ov.querySelector('#dash-shot-ok').addEventListener('click', function () {
+    if (!box || box[2] - box[0] < 1 || box[3] - box[1] < 1) { showToast('Drag a rectangle first'); return; }
+    var b = box.slice();
+    _dashPickerClose(false); // keep the shot server-side: cropping needs it
+    onDone(b);
+  });
+  ov.querySelector('#dash-shot-cancel').addEventListener('click', function () { _dashPickerClose(true); onDone(null); });
+}
+
 function toggleStartStop() {
   if(_botRunning){ if(!confirm('Stop the current run?'))return; _markPending('running', false, 2500); post('stop'); _botRunning=false; _updateStartStopBtn(false); }
   else {
@@ -4192,10 +4991,16 @@ function toggleStartStop() {
       showLoadoutBlock(_missingLo);
       return;
     }
+    if(_lastPollState && _lastPollState.force_restart && !_lastPollState.game_detect_set){
+      _botRunning=false; _updateStartStopBtn(false);
+      showGameDetectBlock();
+      return;
+    }
     post('start').then(r=>r.json()).then(d=>{
       if(d && d.ok===false){
         _botRunning=false; _updateStartStopBtn(false);
         if (d.missing_loadouts && d.missing_loadouts.length) showLoadoutBlock(d.missing_loadouts);
+        else if (d.game_detect_block_seq) showGameDetectBlock();
         else alert(_repairMojibake(d.error || 'Cannot start.'));
       }
     }).catch(()=>{ /* server error — leave running, poll will catch it */ });
@@ -4287,6 +5092,10 @@ async function poll() {
     const missSeq = Number(s.loadout_block_seq || 0);
     if (missLo.length && missSeq > _loadoutBlockAckSeq) {
       showLoadoutBlock(missLo);
+    }
+    const gdSeq = Number(s.game_detect_block_seq || 0);
+    if (gdSeq > _gameDetectBlockAckSeq && !s.game_detect_set) {
+      showGameDetectBlock();
     }
     // Sync Start/Stop button with actual server state
     let serverRunning = !!s.run_active || (!s.waiting_for_start && s.status !== 'STOPPED' && s.status !== 'WAITING' && s.status !== 'INIT');
@@ -4590,10 +5399,31 @@ const CFG_TOOLTIPS = {
   MANUAL_STR_CLICK_HOLD_MS: 'Manual Strength: hold time between mouse down and mouse up for each click, in milliseconds. Default 1ms, minimum 1ms (0ms makes the game merge and eat clicks entirely; the bot forces 1ms even if you enter 0). Compat clicking mode overrides this to 12ms.',
   HATCH_CLOSE_MIN_PCT: 'Daily Quests: yellow-pixel percentage needed to consider the hatch GUI (and its close button) detected. The hatch button is thinner than the quest board close, reading ~0.27 when open, so the default is 0.20.',
   DAILY_QUEST_ALIASES: 'Daily Quests: OCR aliases per quest type. Pick the quest type in the dropdown (Break N Star Rocks / Open Chests / Hatch Pets / Combine Pets / Hatch GUI: Area 1 Egg), then add translated names with +. For rocks, {$NUMBER} marks where the rock-count digit sits (BREAK {$NUMBER} STAR ROCKS). Matching is case-insensitive and ignores spaces.',
-  MENU_RESUME_JOIN_WAIT: 'Seconds to wait after pressing PLAY before checking if the new game has loaded (stone icon check).',
+  GAME_DETECT_IMAGE: 'Pick an always-visible in-game HUD element as proof we are in the MT2 map: the Miner Tycoon 2 logo, the stone icon or the shard icon. Press Pick, then F2 in-game, drag a box around it. The box and point are recorded with the image and save immediately. Nothing is shipped by default — Force Restart refuses to start until this is picked (global Config, top gear). The image is NOT searched for on screens where the HUD is hidden (menus, Manual Strength overlays) — those paths already skip the stone/shard checks.',
+  GAME_DETECT_DIFF: 'Image difference tolerance in percent (default 5). The bot grabs the live screen at the picked box and compares it with your picked image: a mean difference above this percent means we are NOT looking at the MT2 in-game HUD (wrong map, menu, loading screen) and Force Restart / recovery treats it as out-of-game. Raise it if the check fails while you are in game; lower it to be stricter.',
+  FORCE_GAME_LOGO_IMAGE: 'Pick the Miner Tycoon 2 billboard from the map-search results (the game card shown after searching the island code). Press Pick, then F2 in-game while the search results are open, drag a box around the billboard/logo. Nothing is shipped by default: if the bot drifts onto a wrong game and this image is not picked, the map search cannot finish and the bot STOPS with an error instead of clicking random things. Box and point are recorded with the image and save immediately.',
+  FORCE_NOTINGAME_WAIT: 'Three-state recovery, state 3: after every known GUI is closed and the in-game image is still missing, wait up to this many seconds for the HUD image or the lobby menu before giving up and leaving to the lobby. A join can legitimately take 30s-2min, so the default is 120s.',
+  FORCE_MENU_TIMEOUT: 'Max seconds to search for the lobby menu (PLAY button OCR, scroll-up drift protection) before the join is considered failed.',
+  FORCE_PLAY_SETTLE: 'Pause between confirming Miner Tycoon 2 is selected and pressing PLAY, in seconds (default 5). Fresh UI is not clickable instantly.',
+  FORCE_MAP_CODE: 'The Fortnite island code typed into Search Discover when the lobby selected the wrong game (default 2311-7649-8274 = Miner Tycoon 2).',
+  FORCE_MAP_SEARCH_TIMEOUT: 'Wrong-game recovery: max seconds to wait for the picked game-logo billboard image in the search results, checked every 0.1s (default 30).',
+  FORCE_MAP_SEARCH_ATTEMPTS: 'Wrong-game recovery: if a search comes up empty, the flow scrolls up to reset it and runs the whole search again — this is how many full attempts before it gives up (default 3).',
+  FORCE_SELECT_TIMEOUT: 'Wrong-game recovery: max seconds to wait for the SELECT button after clicking the billboard (default 30).',
+  FORCE_TITLE_TIMEOUT: 'Wrong-game recovery: max seconds to wait for the selected-game title to read Miner Tycoon 2 again after SELECT (default 30).',
+  FORCE_OCR_PLAY_ALIASES: 'Lobby detection reads the PLAY button with OCR. Aliases are matched case/punctuation-insensitive as substrings (comma separated). Dropped-char reads like PAY/PLY/LAY always count too.',
+  FORCE_OCR_TITLE_ALIASES: 'The selected-game title (bottom-left of the lobby) is OCR-read and matched against these aliases. If it reads anything else, the wrong-game map search starts. Default: miner tycoon 2, minertycoon2, miner tycoon, miner.',
+  FORCE_OCR_SEARCH_ALIASES: 'The Search Discover bar is found by OCR before clicking it (default: search discover, search, discover).',
+  FORCE_OCR_SELECT_ALIASES: 'The SELECT button on the map card is found by OCR (default: select).',
+  FORCE_PLAY_OCR_REGION: 'Screen region [x1,y1,x2,y2] the PLAY button is OCR-read from. 1920x1080 base coordinates, scaled automatically to your resolution.',
+  FORCE_GAME_TITLE_REGION: 'Screen region [x1,y1,x2,y2] the selected-game title (Miner Tycoon 2) is OCR-read from. 1920x1080 base coordinates.',
+  FORCE_SEARCH_DISCOVER_REGION: 'Screen region [x1,y1,x2,y2] the Search Discover bar is OCR-read from. 1920x1080 base coordinates.',
+  FORCE_SELECT_OCR_REGION: 'Screen region [x1,y1,x2,y2] the SELECT button is OCR-read from. 1920x1080 base coordinates.',
+  FORCE_SEARCH_CLICK: 'Click point [x,y] of the Search Discover bar. 1920x1080 base coordinates, scaled automatically.',
+  FORCE_GAME_BILLBOARD_CLICK: 'Click point [x,y] of the Miner Tycoon 2 billboard in the search results. 1920x1080 base coordinates, scaled automatically.',
+  FORCE_SELECT_CLICK: 'Click point [x,y] of the SELECT button on the map card. 1920x1080 base coordinates, scaled automatically.',
+  MENU_RESUME_JOIN_WAIT: 'Seconds to wait after pressing PLAY for the new game to load (in-game image check). A join can take 30s-2min — too short and the bot thinks it failed while you are still on the loading screen and starts recovery mid-join. Default 120.',
   REBIRTH_POST_CONFIRM_WAIT: 'Seconds to wait after a rebirth is confirmed before teleporting back to base. Gives the game time to fully load.',
-  STONE_ICON_MISSING_WAIT: 'Seconds to wait after the stone icon disappears (game crash/disconnect) before Force Restart recovery.',
-  STONE_ICON_THRESH: 'Fraction of pixels in the stone icon region that must match the orange color (0.0ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“1.0). Higher = stricter. Default 0.15. If the bot falsely detects the icon in menus, raise this.',
+  STONE_ICON_MISSING_WAIT: 'Seconds the in-game HUD (your picked In-Game image detection) must stay missing (crash/disconnect/wrong map) before Force Restart recovery starts.',
   MENU_PLAY_COLOR_THRESH: 'Fraction of MENU_PLAY_REGION pixels that must match the yellow PLAY button color (0.0ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“1.0). Default 0.08. Raise if menu is falsely detected.',
   MENU_PLAY_HUE_TOL: 'Hue tolerance for PLAY button yellow color detection (default 15).',
   MENU_PLAY_SAT_TOL: 'Saturation tolerance for PLAY button color detection (default 60).',
@@ -4609,12 +5439,9 @@ const CFG_TOOLTIPS = {
   PAUSE_ON_LAG: 'When Windows goes offline or 1.1.1.1 / 8.8.8.8 fail, freeze the current action and wait until the connection is back. Does not force restart.',
   UI_CLICK_SETTLE: 'Pause after UI clicks (teleport, map, loadout, rebirth menus) before the next action. Raise if menus eat clicks. Default 0.1s (100ms).',
   UI_BTN_SETTLE: 'Pause after a menu button click before the next screen check. Default 0.1s.',
-  MAP_LOAD_SETTLE: 'Pause between opening the map and reading it. Default 0.55s (fast 0.3, slow 1.05).',
-  DETECT_MAP_LOADING: 'ON: before playing the next action/macro after a teleport, the bot reads the base / A5 / A6 map box colors to confirm the area actually loaded. OFF: skip detection and wait a fixed delay instead (fixed wait setting appears). Default ON.',
-  MAP_LOAD_FIXED_SECONDS: 'Fixed wait instead of map-load color detection — only used when Detect Map Loading is OFF. Default 1s, minimum 0.01s (10ms).',
+  MAP_LOAD_FIXED_SECONDS: 'The single map-load wait: after every teleport the bot just settles this many seconds, then continues. Default 0.5s. Raise it if actions ever run on a map that is still loading.',
   METEOR_HEALTH_CHECK: 'ON: watch the A5 Meteor health bar and stop the grind as soon as the red bar disappears. OFF: skip the health bar and use the Fixed A5 hit hold below instead. Default ON.',
   FIXED_A5_HIT_TIME: 'Used only when Check A5 Meteor health is OFF. One left-mouse hold instead of the meteor_hit macro: 0 = a single 100ms tap; 1 = hold 200ms + 1s (1.2s total); 5 = 5.2s total — then it stops and continues to base + rebirth.',
-  DEST_FIXED_SETTLE: 'How long to wait for the teleport landing check in Area 7/8 (no color sample there). Default 0.55s.',
   LOBBY_SETTLE: 'After the shard is seen in lobby, wait this long before continuing the run. Default 5s.',
   LOBBY_READY_SETTLE: 'After the Ready button is seen, wait this long before clicking it. Default 10s.',
   LOBBY_STEP_DELAY: 'Pause after ESC / each lobby click before the next check. Default 0.5s.',
@@ -4631,17 +5458,15 @@ const CFG_TOOLTIPS = {
   MANUAL_STR_BOTTOM_RIGHT_CLICKS: 'Bottom-row spam: how many RIGHT-side buys per cycle (default 5). With Left clicks = 1 this is the classic 5-right/1-left pattern.',
   MANUAL_STR_BOTTOM_LEFT_CLICKS: 'Bottom-row spam: how many LEFT (unlock) clicks per cycle (default 1). Set Right=1 and Left=1 for plain alternation.',
   MANUAL_STR_STONE_TARGET: 'Stone detection: stop buying when stone reaches this amount. Default 1.36e152 (the standard base-rock threshold). Applies everywhere the baserock grinds with manual strength on (start gate, meteor shortcut, boss A1) - it replaces the per-route thresholds.',
-  KRAKEN_POST_KILL_WAIT_SECONDS: 'Wait after the boss-killed detection before starting the post-fight walk. 0 = walk immediately. You observed ~5-8s of settle in-game — set what feels right.',
-  KRAKEN_HB_CONFIRM_WINDOW_SECONDS: 'After the boss health bar disappears, watch this many seconds: black screen = death (you died), no black screen = probably killed. Default 2.5s.',
-  KRAKEN_HB_EXTENDED_WINDOW_SECONDS: 'Extra confirm window after the first one passes with no black screen — still no black screen = kill confirmed. Default 5s.',
+  KRAKEN_HB_CONFIRM_WINDOW_SECONDS: 'After the boss health bar disappears, watch this many seconds: black screen = death (you died), no black screen = boss killed. The reward walk also keeps checking for the death screen while it runs. Default 1.5s.',
   KRAKEN_POST_HB_LOSS_SHOOT_SECONDS: 'Keep the left mouse held this long after the health bar disappears, so a flicker does not stop DPS. Default 1.5s.',
   KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS: 'Max seconds to wait for the boss health bar to appear after clicking Join. Default 8s.',
   KRAKEN_DEATH_WAIT_SECONDS: 'Wait this long for respawn after a death before continuing the loop. Default 5s.',
   KRAKEN_MENU_WAIT_SECONDS: 'Settle wait after opening the boss menu (F4 → Area 7 → kraken macro). Default 0.5s.',
   KRAKEN_JOIN_CLICK_GAP_SECONDS: 'Gap between the two Join button clicks. Default 0.5s.',
   KRAKEN_POST_JOIN_WAIT_SECONDS: 'Settle wait after joining the fight, before weapon prep. Default 0.5s.',
-  KRAKEN_REWARD_WALK_SECONDS: 'Max seconds to walk around looking for the CLOSE button after the fight. Default 5s.',
-  KRAKEN_REWARD_OPEN_WAIT_SECONDS: 'Wait for the reward window to open before walking. Default 1s.',
+  KRAKEN_REWARD_OPEN_WAIT_SECONDS: 'Short settle after the reward walk before checking for the CLOSE button. Default 0.5s.',
+  KRAKEN_REWARD_WALK_SECONDS: 'How long to walk forward after the boss dies (spamming E) until the reward menu opens. Default 4.0s.',
   KRAKEN_ROUTE_ATTEMPTS: 'How many times to retry the route to the kraken (F4 teleport + area7_to_kraken macro + menu check) before failing. Default 10.',
   KRAKEN_SHOOT_POLL_SECONDS: 'Shoot-loop tick interval — how often the loop checks health bar / black screen. Default 0.1s. Keep >= 0.03.',
   KRAKEN_SHOOT_REASSERT_SECONDS: 'Re-assert left mouse down every N seconds during the fight (guard against lost input). Default 0.5s.',
@@ -4749,13 +5574,19 @@ const CFG_TABS = [
   ]},
   {id:'finetuning', label:'Fine-Tuning', sections:[
     {title:'Run',keys:['ROUTE_REDO_LIMIT','REBIRTH_BTN2_TIMEOUT','TELEPORT_MENU_SHIFT_DX']},
-    {title:'Performance',keys:['UI_CLICK_SETTLE','UI_BTN_SETTLE','MAP_LOAD_SETTLE','DETECT_MAP_LOADING','MAP_LOAD_FIXED_SECONDS','DEST_FIXED_SETTLE','LOBBY_SETTLE','LOBBY_READY_SETTLE','LOBBY_STEP_DELAY','STARTUP_SETTLE_SECONDS']},
+    {title:'Performance',keys:['UI_CLICK_SETTLE','UI_BTN_SETTLE','MAP_LOAD_FIXED_SECONDS','LOBBY_SETTLE','LOBBY_READY_SETTLE','LOBBY_STEP_DELAY','STARTUP_SETTLE_SECONDS']},
   ]},
   {id:'loadout', label:'Loadout', sections:[
     {title:'Loadouts',keys:['BOSS_FIGHT_A1_LOADOUT_FIGHTING','BOSS_FIGHT_A1_LOADOUT_FARMING','CRATER_LOADOUT_METEOR_REWARDS','FARM_METEOR_LOADOUT']},
   ]},
   {id:'tracker', label:'Data', sections:[
     {title:'Debug',keys:['SAVE_DEBUG_CROPS']},
+  ]},
+  {id:'forcerestart', label:'Force Restart', sections:[
+    {title:'Game Detection',keys:['GAME_DETECT_IMAGE','GAME_DETECT_DIFF']},
+    {title:'Three-State Recovery',keys:['FORCE_NOTINGAME_WAIT','FORCE_MENU_TIMEOUT','STONE_ICON_MISSING_WAIT','MENU_RESUME_JOIN_WAIT','FORCE_PLAY_SETTLE']},
+    {title:'Wrong Game / Map Search',keys:['FORCE_GAME_LOGO_IMAGE','FORCE_MAP_CODE','FORCE_MAP_SEARCH_TIMEOUT','FORCE_MAP_SEARCH_ATTEMPTS','FORCE_SELECT_TIMEOUT','FORCE_TITLE_TIMEOUT']},
+    {title:'Lobby OCR Aliases',keys:['FORCE_OCR_PLAY_ALIASES']},
   ]},
 ];
 const MODE_SETTINGS_TABS = {
@@ -4785,10 +5616,9 @@ const MODE_SETTINGS_TABS = {
   ],
   kraken: [
     {id:'finetuning', label:'Fine-Tuning', sections:[
-      {title:'Post Fight',keys:['KRAKEN_POST_KILL_WAIT_SECONDS']},
-      {title:'Kill Detection',keys:['KRAKEN_HB_CONFIRM_WINDOW_SECONDS','KRAKEN_HB_EXTENDED_WINDOW_SECONDS','KRAKEN_POST_HB_LOSS_SHOOT_SECONDS','KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS']},
+      {title:'Kill Detection',keys:['KRAKEN_HB_CONFIRM_WINDOW_SECONDS','KRAKEN_POST_HB_LOSS_SHOOT_SECONDS','KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS']},
       {title:'Death',keys:['KRAKEN_DEATH_WAIT_SECONDS']},
-      {title:'Navigation & Join',keys:['KRAKEN_MENU_WAIT_SECONDS','KRAKEN_JOIN_CLICK_GAP_SECONDS','KRAKEN_POST_JOIN_WAIT_SECONDS','KRAKEN_REWARD_WALK_SECONDS','KRAKEN_REWARD_OPEN_WAIT_SECONDS','KRAKEN_ROUTE_ATTEMPTS']},
+      {title:'Navigation & Join',keys:['KRAKEN_MENU_WAIT_SECONDS','KRAKEN_JOIN_CLICK_GAP_SECONDS','KRAKEN_POST_JOIN_WAIT_SECONDS','KRAKEN_REWARD_OPEN_WAIT_SECONDS','KRAKEN_REWARD_WALK_SECONDS','KRAKEN_ROUTE_ATTEMPTS']},
       {title:'Shooting',keys:['KRAKEN_SHOOT_POLL_SECONDS','KRAKEN_SHOOT_REASSERT_SECONDS']},
     ]},
   ],
@@ -4804,8 +5634,10 @@ const MODE_SETTINGS_TABS = {
       {title:'Shooting',keys:['ZYTOS_SHOOT_POLL_SECONDS','ZYTOS_SHOOT_REASSERT_SECONDS']},
     ]},
   ],
-  crater: [],
-  farm_meteor: [],
+  crater: [
+  ],
+  farm_meteor: [
+  ],
 };
 let _modeSettingsTab = {};
 let _modeSettingsMode = '';
@@ -4933,6 +5765,79 @@ function _questAliasArr(values){
   return Array.isArray(v) ? v.map(String).map(x=>x.trim()).filter(Boolean)
        : String(v||'').split('|').map(x=>x.trim()).filter(Boolean);
 }
+// ── Force Restart lobby OCR aliases — same dropdown + rows + add UI as
+// the quest aliases. Stored as comma-separated strings in config
+// (FORCE_OCR_*_ALIASES), rendered as editable rows per kind.
+const FORCE_ALIAS_KINDS = [
+  ['play',  'PLAY button'],
+  ['title', 'Game title'],
+  ['search','Search Discover'],
+  ['select','SELECT button'],
+];
+const FORCE_ALIAS_KIND_META = {
+  play:  { key:'FORCE_OCR_PLAY_ALIASES' },
+  title: { key:'FORCE_OCR_TITLE_ALIASES' },
+  search:{ key:'FORCE_OCR_SEARCH_ALIASES' },
+  select:{ key:'FORCE_OCR_SELECT_ALIASES' },
+};
+let _forceAliasKind = 'play';
+function _forceAliasKey(){ return (FORCE_ALIAS_KIND_META[_forceAliasKind]||FORCE_ALIAS_KIND_META.play).key; }
+function _forceAliasArr(values){
+  const v = values[_forceAliasKey()];
+  return Array.isArray(v) ? v.map(String).map(x=>x.trim()).filter(Boolean)
+       : String(v||'').split(',').map(x=>x.trim()).filter(Boolean);
+}
+function renderForceAliasField(values) {
+  const kind = FORCE_ALIAS_KINDS.some(([v])=>v===_forceAliasKind) ? _forceAliasKind : 'play';
+  const opts = FORCE_ALIAS_KINDS.map(([v,l])=>`<option value="${v}" ${v===kind?'selected':''}>${l}</option>`).join('');
+  const aliases = _forceAliasArr(values);
+  const rows = aliases.map((a,i)=>`
+    <div class="ocr-alias-row">
+      <input class="cfg-input ocr-alias-input" data-idx="${i}" value="${_escapeHtml(a)}" onchange="forceAliasEdit(${i}, this.value)">
+      <button type="button" class="ocr-alias-btn minus" title="Remove" onclick="forceAliasRemove(${i})">-</button>
+    </div>`).join('');
+  const tip = CFG_TOOLTIPS[_forceAliasKey()] || 'Lobby OCR aliases.';
+  return `<div class="cfg-group" id="force-alias-field">
+    <div class="cfg-label-row"><span class="cfg-label">Lobby OCR aliases</span><span class="cfg-info-icon tip-anchor" data-tip="${_escapeHtml(tip)}" tabindex="0">${INFO_ICON}</span></div>
+    <select class="cfg-input" id="force_alias_kind" onchange="forceAliasKindChanged(this.value)">${opts}</select>
+    <div id="force-alias-list">${rows}</div>
+    <div class="ocr-add-row">
+      <input class="cfg-input" id="force-alias-add" placeholder="Add alias">
+      <button type="button" class="ocr-alias-btn" title="Add" onclick="forceAliasAdd()">+</button>
+    </div>
+  </div>`;
+}
+function forceAliasKindChanged(kind) {
+  _forceAliasKind = kind;
+  const host = document.getElementById('force-alias-field');
+  if (!host) return;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = renderForceAliasField(_cfgValues);
+  host.replaceWith(wrap.firstElementChild);
+  _bindFloatingTooltips(document.getElementById('force-alias-field'));
+}
+function forceAliasEdit(idx, value) {
+  const k = _forceAliasKey();
+  const arr = _forceAliasArr(_cfgValues);
+  if (arr[idx] === undefined) return;
+  arr[idx] = String(value||'').trim();
+  _cfgValues[k] = arr.join(',');
+}
+function forceAliasRemove(idx) {
+  const k = _forceAliasKey();
+  _cfgValues[k] = _forceAliasArr(_cfgValues).filter((_,i)=>i!==idx).join(',');
+  forceAliasKindChanged(_forceAliasKind);
+}
+function forceAliasAdd() {
+  const inp = document.getElementById('force-alias-add');
+  const val = inp ? String(inp.value||'').trim() : '';
+  if (!val) return;
+  const k = _forceAliasKey();
+  const arr = _forceAliasArr(_cfgValues);
+  arr.push(val);
+  _cfgValues[k] = arr.join(',');
+  forceAliasKindChanged(_forceAliasKind);
+}
 function renderQuestAliasField(values) {
   if(!QUEST_ALIAS_KINDS.some(([v])=>v===_questAliasKind)) _questAliasKind='rocks';
   const kind = _questAliasKind;
@@ -5053,7 +5958,6 @@ function renderConfigField(key, values) {
     const cur = values[key]===true || String(values[key]).toLowerCase()==='true';
     let onchange = '';
     if(key==='METEOR_HEALTH_CHECK') onchange = ' onchange="onMeteorHealthCheckChange(this.checked)"';
-    else if(key==='DETECT_MAP_LOADING') onchange = ' onchange="onDetectMapLoadingChange(this.checked)"';
     return `<div class="cfg-group"><div class="cfg-check-row"><input class="cfg-input" type="checkbox" id="cfg_${key}" ${cur?'checked':''}${onchange}><label for="cfg_${key}" style="font-size:12px;">${shortLabel}</label><span class="cfg-info-icon tip-anchor" style="margin-left:2px;" data-tip="${tipEsc}" tabindex="0">${INFO_ICON}</span></div></div>`;
   }
   if(CFG_SLIDERS[key]){
@@ -5100,16 +6004,45 @@ function renderConfigField(key, values) {
     const showHC = values['METEOR_HEALTH_CHECK']===false;
     return `<div id="cfg_dep_FIXED_A5_HIT_TIME" style="display:${showHC?'':'none'};"><div class="cfg-group">${labelHtml}<input class="cfg-input" id="cfg_${key}" value="${values[key]??''}"></div></div>`;
   }
-  if(key==='MAP_LOAD_FIXED_SECONDS'){
-    const showML = values['DETECT_MAP_LOADING']===false;
-    return `<div id="cfg_dep_MAP_LOAD_FIXED_SECONDS" style="display:${showML?'':'none'};"><div class="cfg-group">${labelHtml}<input class="cfg-input" id="cfg_${key}" value="${values[key]??''}"></div></div>`;
-  }
   if(key==='BOSS_FIGHT_A1_MODE_OCR') return '';
+  if(key==='GAME_DETECT_IMAGE'){
+    const v = String(values[key]||'').trim();
+    const set = !!v;
+    const prev = set ? '/game_detect/preview' : '';
+    const btnStyle = "padding:5px 12px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;font:12px 'Segoe UI',sans-serif";
+    return `<div class="cfg-group">${labelHtml}<div style="display:flex;align-items:center;gap:8px">`
+      + `<img id="gd_preview" src="${prev}" style="width:44px;height:32px;object-fit:contain;border:1px solid var(--border);border-radius:5px;background:#14141c" onerror="this.style.visibility='hidden'">`
+      + `<span id="gd_name" style="flex:1;font:11.5px 'Segoe UI',sans-serif;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${set?_escapeHtml(v):'not set'}</span>`
+      + `<button type="button" id="gd_pick_btn" style="${btnStyle}" onclick="gameDetectPickImage()" title="Pick this image from the screen (F2). The box and point are recorded with it and save immediately.">${set?'Change':'Pick'}</button>`
+      + (set?`<button type="button" id="gd_clear_btn" style="${btnStyle}" onclick="gameDetectClearImage()">Clear</button>`:'')
+      + `</div><input type="hidden" id="cfg_GAME_DETECT_IMAGE" value="${_escapeHtml(v)}"></div>`;
+  }
+  if(key==='GAME_DETECT_BOX'||key==='GAME_DETECT_SCREEN') return '';
+  if(key==='FORCE_GAME_LOGO_IMAGE'){
+    const v = String(values[key]||'').trim();
+    const set = !!v;
+    const prev = set ? '/game_detect/preview?tmpl=game_logo' : '';
+    const btnStyle = "padding:5px 12px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;font:12px 'Segoe UI',sans-serif";
+    return `<div class="cfg-group">${labelHtml}<div style="display:flex;align-items:center;gap:8px">`
+      + `<img id="glogo_preview" src="${prev}" style="width:44px;height:32px;object-fit:contain;border:1px solid var(--border);border-radius:5px;background:#14141c" onerror="this.style.visibility='hidden'">`
+      + `<span id="glogo_name" style="flex:1;font:11.5px 'Segoe UI',sans-serif;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${set?_escapeHtml(v):'not set'}</span>`
+      + `<button type="button" id="glogo_pick_btn" style="${btnStyle}" onclick="gameLogoPickImage()" title="Pick the Miner Tycoon 2 billboard from the map-search results (F2). The box and point are recorded with the image and save immediately.">${set?'Change':'Pick'}</button>`
+      + (set?`<button type="button" id="glogo_clear_btn" style="${btnStyle}" onclick="gameLogoClearImage()">Clear</button>`:'')
+      + `</div><input type="hidden" id="cfg_FORCE_GAME_LOGO_IMAGE" value="${_escapeHtml(v)}"></div>`;
+  }
+  if(key==='FORCE_GAME_LOGO_BOX'||key==='FORCE_GAME_LOGO_SCREEN') return '';
   if(key==='DAILY_QUEST_ALIASES'){
     return renderQuestAliasField(values);
   }
   if(key==='QUEST_MIMIC_ALIASES') return '';
   if(key==='QUEST_HATCH_ALIASES'||key==='QUEST_COMBINE_ALIASES'||key==='HATCH_AREA1_ALIASES') return '';
+  if(key==='FORCE_OCR_PLAY_ALIASES') return renderForceAliasField(values);
+  if(key==='FORCE_OCR_TITLE_ALIASES'||key==='FORCE_OCR_SEARCH_ALIASES'||key==='FORCE_OCR_SELECT_ALIASES') return '';
+  if(s.type==='json'){
+    let jv = values[key] ?? [];
+    if (typeof jv !== 'string') { try { jv = JSON.stringify(jv); } catch (e) { jv = '[]'; } }
+    return `<div class="cfg-group">${labelHtml}<input class="cfg-input" id="cfg_${key}" value="${_escapeHtml(jv)}"></div>`;
+  }
   return `<div class="cfg-group">${labelHtml}<input class="cfg-input" id="cfg_${key}" value="${values[key]??''}"></div>`;
 }
 function onManualStrDetectionChange(val){
@@ -5121,10 +6054,6 @@ function onManualStrDetectionChange(val){
 }
 function onMeteorHealthCheckChange(checked){
   const wrap = document.getElementById('cfg_dep_FIXED_A5_HIT_TIME');
-  if (wrap) wrap.style.display = checked ? 'none' : '';
-}
-function onDetectMapLoadingChange(checked){
-  const wrap = document.getElementById('cfg_dep_MAP_LOAD_FIXED_SECONDS');
   if (wrap) wrap.style.display = checked ? 'none' : '';
 }
 function renderConfigForm(values) {
@@ -5203,6 +6132,10 @@ async function saveConfig() {
       updates[s.key] = Array.isArray(v) ? v.map(String).map(x=>x.trim()).filter(Boolean) : String(v||'');
       continue;
     }
+    if(s.key==='FORCE_OCR_PLAY_ALIASES'||s.key==='FORCE_OCR_TITLE_ALIASES'||s.key==='FORCE_OCR_SEARCH_ALIASES'||s.key==='FORCE_OCR_SELECT_ALIASES'){
+      updates[s.key] = String(_cfgValues[s.key]||'');
+      continue;
+    }
     if(s.key==='WEAPON_2_BINDING'){
       const mon=document.getElementById('cfg_MONITOR_ITEM_BINDING');
       if(mon){ updates[s.key]=mon.value; continue; }
@@ -5248,13 +6181,20 @@ function _currentBotMode() {
 function setModeSettingsTab(tabId) {
   const mode = _currentBotMode();
   _modeSettingsTab[mode] = tabId;
-  const host = mode === 'crater' ? document.getElementById('crater-mode-settings') : document.getElementById('mode-settings');
+  const host = mode === 'crater' ? document.getElementById('crater-mode-settings') : (mode === 'farm_meteor' ? document.getElementById('meteor-mode-settings') : document.getElementById('mode-settings'));
   if (!host) return;
   host.querySelectorAll('.cfg-tab-btn').forEach(btn=>btn.classList.toggle('active', btn.dataset.tab===tabId));
   host.querySelectorAll('.cfg-tab-panel').forEach(panel=>panel.classList.toggle('active', panel.dataset.tab===tabId));
 }
 function _modeSettingsTargets() {
   const mode = _currentBotMode();
+  if (mode === 'farm_meteor') {
+    return {
+      cats: document.getElementById('meteor-mode-settings-cats'),
+      body: document.getElementById('meteor-mode-settings-body'),
+      status: document.getElementById('meteor-mode-settings-status'),
+    };
+  }
   if (mode === 'crater') {
     return {
       cats: document.getElementById('crater-mode-settings-cats'),
@@ -5731,6 +6671,69 @@ function preloadRecorder() {
   if (!src || src === 'about:blank') frame.src = '/me/';
 }
 
+function recCmd(cmd, extra) {
+  extra = extra || {};
+  closeRecMenus();
+  const frame = document.getElementById('recorder-frame');
+  if (frame && frame.contentWindow) {
+    try { frame.contentWindow.postMessage(Object.assign({type:'recorder-cmd', cmd: cmd}, extra), '*'); } catch (e) {}
+  }
+}
+function toggleRecMenu(which) {
+  const fileWrap = document.getElementById('rec-file-wrap');
+  const recIsland = document.getElementById('topbar-recorder');
+  if (fileWrap) fileWrap.classList.toggle('open');
+  if (recIsland) recIsland.classList.toggle('menu-open', !!(fileWrap && fileWrap.classList.contains('open')));
+}
+function closeRecMenus() {
+  document.querySelectorAll('#topbar-recorder .rec-menu-wrap.open').forEach(function(w){ w.classList.remove('open'); });
+  const recIsland = document.getElementById('topbar-recorder');
+  if (recIsland) recIsland.classList.remove('menu-open');
+}
+function applyRecorderUi(data) {
+  if (!data) return;
+  const playBtn = document.getElementById('rec-play-btn');
+  const recBtn = document.getElementById('rec-record-btn');
+  const modeSel = document.getElementById('rec-play-mode');
+  const times = document.getElementById('rec-play-times');
+  const label = document.getElementById('rec-macro-label');
+  if (playBtn) {
+    playBtn.textContent = data.running ? '\u25A0' : '\u25B6';
+    playBtn.title = data.running ? 'Stop (F6)' : 'Play (F6)';
+    playBtn.classList.toggle('on', !!data.running);
+    playBtn.disabled = !!data.playDisabled;
+  }
+  if (recBtn) {
+    recBtn.textContent = data.recording ? '\u25A0' : '\u25CF';
+    recBtn.title = data.recording ? 'Stop recording (F5)' : 'Record (F5)';
+    recBtn.classList.toggle('rec-on', !!data.recording);
+    recBtn.disabled = !!data.recordDisabled;
+  }
+  if (modeSel && data.playMode) modeSel.value = data.playMode;
+  if (times) {
+    times.hidden = data.playMode !== 'times';
+    if (data.playTimes != null) times.value = String(data.playTimes);
+  }
+  if (label && data.macroName) {
+    label.textContent = data.macroName;
+    label.title = data.macroName;
+  }
+}
+window.addEventListener('message', function(e) {
+  if (!e.data) return;
+  if (e.data.type === 'recorder-ui') { applyRecorderUi(e.data); return; }
+  // pointerdown inside the recorder iframe (blockly editor, macro list):
+  // its clicks never reach this document, so the iframe reports them
+  if (e.data.type === 'rec-close-menus') closeRecMenus();
+});
+document.addEventListener('click', function(e) {
+  const rec = document.getElementById('topbar-recorder');
+  if (rec && !rec.contains(e.target)) closeRecMenus();
+});
+// clicking into ANY iframe (recorder, builder) moves focus off this
+// window — close the File / Play-mode menus then too
+window.addEventListener('blur', closeRecMenus);
+
 function _setAppTabsBusy(busy) {
   if (busy) {
     document.querySelectorAll('.app-tab').forEach(btn => {
@@ -5798,6 +6801,7 @@ async function switchAppTab(tab) {
         const frame = document.getElementById('recorder-frame');
         if (frame) {
           try { frame.contentWindow.postMessage({type:'recorder-arm', active:true}, '*'); } catch (e) {}
+          try { frame.contentWindow.postMessage({type:'recorder-cmd', cmd:'sync'}, '*'); } catch (e) {}
         }
       }
       if (tab === 'builder') {

@@ -345,11 +345,8 @@ def _dest_ready_pct(xy: tuple[int, int]) -> float:
 
 def _wait_dest_ready(destination: str, shift_dx: float = 0.0) -> bool:
     if destination in _DEST_FIXED_DELAY:
-        try:
-            wait = float(_cfg.dest_fixed_delay())
-        except Exception:
-            wait = _DEST_FIXED_DELAY[destination]
-        log.info(f"[TELEPORT] {destination}: no color sample yet — wait {wait*1000:.0f}ms (TODO pick A7/A8)")
+        wait = max(0.0, float(getattr(_cfg, "MAP_LOAD_FIXED_SECONDS", 0.5) or 0.5))
+        log.info(f"[TELEPORT] {destination}: no color sample yet — fixed settle {wait*1000:.0f}ms")
         return _sleep_with_kill_abort(wait)
     attr = _DEST_SAMPLE_ATTR.get(destination)
     if not attr:
@@ -737,132 +734,20 @@ def select_loadout(slot: int, attempts: int | None = None) -> bool:
     return False
 
 
-def _normalize_map_key(area: str) -> str:
-    key = str(area or "").strip().lower().replace(" ", "")
-    if key in ("5", "a5"):
-        return "area5"
-    if key in ("6", "a6"):
-        return "area6"
-    return key
-
-
-def _map_sample(key: str) -> tuple[bool, str, tuple[int, int, int, int], tuple[int, int]]:
-    """One frame: (hit, tag, region, sample_xy)."""
-    if key == "base":
-        region = _region("MAP_BASE_REGION", (1450, 61, 1556, 145))
-        last = _base_glass_pct()
-        hit = last >= 0.18
-        tag = f"glass={last:.0%} need>=18%"
-    elif key == "area5":
-        region = _region("MAP_A5_REGION", (935, 328, 1128, 392))
-        sky = tuple(int(x) for x in getattr(_cfg, "MAP_A5_SKY_RGB", (227, 91, 156)))
-        sky_pct = _sky_pct(region, sky, tol=85)
-        rock_pct = _a5_rock_pct(region)
-        hit = (rock_pct >= 0.12) and (sky_pct < 0.25)
-        tag = f"rock={rock_pct:.0%} sky={sky_pct:.0%} need rock>=12% sky<25%"
-    else:
-        region = _region("MAP_A6_REGION", (1339, 410, 1566, 511))
-        sky = tuple(int(x) for x in getattr(_cfg, "MAP_A6_SKY_RGB", (0, 175, 219)))
-        last = _sky_pct(region, sky, tol=75)
-        # Require SEEING A6 blue sky. "sky gone" matches base/baserock too
-        # and used to instant-confirm after P1, then F4-A5 looped locked.
-        hit = last >= 0.12
-        tag = f"sky={last:.0%} need>=12%"
-    sample_xy = ((region[0] + region[2]) // 2, (region[1] + region[3]) // 2)
-    return hit, tag, region, sample_xy
-
-
-def peek_map_loaded(area: str, *, samples: int = 3, need: int = 2, interval: float = 0.10) -> bool:
-    """Fast check used after P1 even when Detect Map Loading is OFF.
-
-    Detect-off skips the 5s wait after F4. It must NOT skip 'are we in A6?'
-    or F4-A5 dead-loops on a locked dest button.
-    """
-    key = _normalize_map_key(area)
-    if key not in ("base", "area5", "area6"):
-        return True
-    hits = 0
-    tag = ""
-    region = (0, 0, 0, 0)
-    sample_xy = (960, 540)
-    for i in range(max(1, int(samples))):
-        if _is_killed():
-            return False
-        hit, tag, region, sample_xy = _map_sample(key)
-        if hit:
-            hits += 1
-        if hits >= need:
-            log.info(f"[MAP] {key} peek ok ({tag}  n={hits}/{need})")
-            return True
-        if i + 1 < samples and not _sleep_with_kill_abort(interval):
-            return False
-    got = _read_rgb(sample_xy)
-    log.warning(
-        f"[MAP] {key} peek miss ({tag}  n={hits}/{need}) "
-        f"region={region} {_fmt_rgb(got)} — not in {key}"
-    )
-    return False
-
-
 def wait_map_loaded(area: str, timeout: float | None = None) -> bool:
-    """Wait until the destination map is visible. Max 5s.
+    """Single fixed settle after a teleport / map load.
 
-    A5: teal rock present AND pink sky down (same as before).
-    A6: blue sky PRESENT in the A6 box (sky-missing used to match base).
-    Base: top-glass hue, 3 hits.
-
-    DETECT_MAP_LOADING OFF: skip this wait (fixed delay). Callers that must
-    know 'did P1 actually enter A6' should use peek_map_loaded instead.
+    The old per-area load detection (base / A5 / A6 box colors, 5s timeout,
+    Detect Map Loading toggle) is gone - every area now gets the same short
+    MAP_LOAD_FIXED_SECONDS settle (default 0.5s).
     """
-    key = _normalize_map_key(area)
-    if key not in ("base", "area5", "area6"):
-        settle = 1.5
-        log.info(f"[MAP] {key} no load detect — {settle:.1f}s settle")
-        return _sleep_with_kill_abort(settle)
-
-    if not bool(getattr(_cfg, "DETECT_MAP_LOADING", True)):
-        fixed = max(0.01, float(getattr(_cfg, "MAP_LOAD_FIXED_SECONDS", 1.0) or 1.0))
-        log.info(f"[MAP] {key} load detect OFF — fixed wait {fixed:.2f}s")
-        return _sleep_with_kill_abort(fixed)
-    timeout = float(getattr(_cfg, "MAP_LOAD_TIMEOUT_SECONDS", 5.0) if timeout is None else timeout)
+    key = str(area or "").strip().lower().replace(" ", "") or "map"
     try:
-        settle = float(_cfg.map_load_settle())
+        settle = max(0.0, float(getattr(_cfg, "MAP_LOAD_FIXED_SECONDS", 0.5) or 0.5))
     except Exception:
-        settle = float(getattr(_cfg, "MAP_LOAD_SETTLE_SECONDS", 0.50))
-    deadline = time.time() + max(0.2, timeout)
-    hits = 0
-    last_log = 0.0
-    need = 3
-    region = (0, 0, 0, 0)
-    sample_xy = (960, 540)
-    tag = ""
-    while True:
-        if _is_killed():
-            return False
-        hit, tag, region, sample_xy = _map_sample(key)
-        if time.time() - last_log >= 0.45:
-            got = _read_rgb(sample_xy)
-            log.info(
-                f"[MAP] waiting {key}  {tag}  n={hits}/{need}  "
-                f"region={region}  sample={sample_xy} {_fmt_rgb(got)}"
-            )
-            last_log = time.time()
-        if hit:
-            hits += 1
-            if hits >= need:
-                log.info(f"[MAP] {key} loaded ({tag}  n={hits})")
-                return _sleep_with_kill_abort(settle)
-        else:
-            hits = 0
-        if time.time() >= deadline:
-            got = _read_rgb(sample_xy)
-            log.warning(
-                f"[MAP] {key} not confirmed in {timeout:.1f}s ({tag}) "
-                f"region={region} {_fmt_rgb(got)} — not loaded"
-            )
-            return False
-        if not _sleep_with_kill_abort(0.10):
-            return False
+        settle = 0.5
+    log.info(f"[MAP] {key} settle {settle:.2f}s")
+    return _sleep_with_kill_abort(settle)
 
 
 def _black_screen_pct(*, wide: bool) -> float:
@@ -951,66 +836,6 @@ def wait_black_screen_gone(timeout: float = 8.0, settle: float = 1.0) -> bool:
             return _sleep_with_kill_abort(settle)
         if not _sleep_with_kill_abort(0.08):
             return False
-
-
-def _base_glass_pct() -> float:
-    """% of top-glass pixels (H 216-230, ignore black space / white stars)."""
-    region = _region("MAP_BASE_REGION", (1450, 61, 1556, 145))
-    try:
-        x1, y1, x2, y2 = [int(v) for v in region]
-        if x2 <= x1 or y2 <= y1:
-            return 0.0
-        img = grab_region((x1, y1, x2, y2))
-    except Exception:
-        return 0.0
-    if img is None or getattr(img, "size", 0) == 0:
-        return 0.0
-    sample = img[::2, ::2]
-    hsv = cv2.cvtColor(sample, cv2.COLOR_BGR2HSV)
-    h = hsv[:, :, 0].astype(np.float32) * 2.0   # 0-360
-    s = hsv[:, :, 1].astype(np.float32) * (100.0 / 255.0)
-    v = hsv[:, :, 2].astype(np.float32) * (100.0 / 255.0)
-    mask = (h >= 214.0) & (h <= 237.0) & (s >= 22.0) & (v >= 28.0)
-    return float(np.mean(mask))
-
-
-def _a5_rock_pct(region) -> float:
-    """Teal/cyan boundary rock in the A5 load box (H ~161-227)."""
-    try:
-        x1, y1, x2, y2 = [int(v) for v in region]
-        if x2 <= x1 or y2 <= y1:
-            return 0.0
-        img = grab_region((x1, y1, x2, y2))
-    except Exception:
-        return 0.0
-    if img is None or getattr(img, "size", 0) == 0:
-        return 0.0
-    sample = img[::2, ::2]
-    hsv = cv2.cvtColor(sample, cv2.COLOR_BGR2HSV)
-    h = hsv[:, :, 0].astype(np.float32) * 2.0
-    s = hsv[:, :, 1].astype(np.float32) * (100.0 / 255.0)
-    v = hsv[:, :, 2].astype(np.float32) * (100.0 / 255.0)
-    mask = (h >= 150.0) & (h <= 240.0) & (s >= 12.0) & (v >= 18.0)
-    return float(np.mean(mask))
-
-
-def _sky_pct(region, rgb: tuple[int, int, int], tol: int) -> float:
-    try:
-        x1, y1, x2, y2 = [int(v) for v in region]
-        if x2 <= x1 or y2 <= y1:
-            return 1.0
-        img = grab_region((x1, y1, x2, y2))
-    except Exception:
-        return 1.0
-    if img is None or getattr(img, "size", 0) == 0:
-        return 1.0
-    sample = img[::2, ::2]
-    tr, tg, tb = int(rgb[0]), int(rgb[1]), int(rgb[2])
-    b = sample[:, :, 0].astype(np.int16)
-    g = sample[:, :, 1].astype(np.int16)
-    r = sample[:, :, 2].astype(np.int16)
-    dist = np.abs(r - tr) + np.abs(g - tg) + np.abs(b - tb)
-    return float(np.mean(dist <= int(tol)))
 
 
 def confirm_rebirth_ui() -> tuple[bool, str]:

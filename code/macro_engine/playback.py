@@ -12,16 +12,38 @@ _CODE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _CODE_DIR not in sys.path:
     sys.path.append(_CODE_DIR)
 
-from macro_logic import (
+from macro_engine.macro_logic import (
     branch_active,
     define_variable,
+    scan_loop_background,
+    handle_else,
     handle_else_if,
     handle_end_if,
+    handle_end_while,
     handle_if,
+    handle_while,
     parse_payload,
+    run_grab_image,
     run_image_check,
     set_variable,
+    start_background_loop,
+    start_watcher,
+    stop_all_watchers,
+    stop_watcher,
 )
+from macro_engine.macro_text import canonicalize_lines
+
+
+def _print_console(text: str, vars_state: dict, bot_root: str = "",
+                   macro_dir: str | None = None) -> None:
+    """PRINT:<text> — the ${} substitution and console routing live in
+    macro_runner (one implementation for both interpreters). Imported
+    lazily: macro_runner sets up the full playback environment at import."""
+    try:
+        from macro_engine.macro_runner import _print_console as _runner_print
+        _runner_print(text, vars_state, bot_root, macro_dir)
+    except Exception:
+        log.info("[MACRO] %s", text)
 
 try:
     from win_dpi import enable_dpi_awareness
@@ -54,6 +76,10 @@ INPUT_KEYBOARD         = 1
 MOUSEEVENTF_MOVE       = 0x0001
 MOUSEEVENTF_LEFTDOWN   = 0x0002
 MOUSEEVENTF_LEFTUP     = 0x0004
+MOUSEEVENTF_RIGHTDOWN  = 0x0008
+MOUSEEVENTF_RIGHTUP    = 0x0010
+MOUSEEVENTF_MIDDLEDOWN = 0x0020
+MOUSEEVENTF_MIDDLEUP   = 0x0040
 MOUSEEVENTF_MOVE_NOCOALESCE = 0x2000
 MOUSEEVENTF_ABSOLUTE   = 0x8000
 MOUSEEVENTF_MOVE_ABS   = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE
@@ -76,6 +102,11 @@ WM_SYSKEYUP            = 0x0105
 WM_MOUSEMOVE           = 0x0200
 WM_LBUTTONDOWN         = 0x0201
 WM_LBUTTONUP           = 0x0202
+WM_RBUTTONDOWN         = 0x0204
+WM_RBUTTONUP           = 0x0205
+WM_MBUTTONDOWN         = 0x0207
+WM_MBUTTONUP           = 0x0208
+CURSOR_SHOWING         = 0x00000001
 LLMHF_INJECTED         = 0x00000001
 LLKHF_INJECTED         = 0x00000010
 PM_REMOVE              = 0x0001
@@ -93,6 +124,24 @@ ULONG_PTR = ctypes.c_size_t
 
 class POINT(ctypes.Structure):
     _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+class RECT(ctypes.Structure):
+    _fields_ = [
+        ("left",   ctypes.c_long),
+        ("top",    ctypes.c_long),
+        ("right",  ctypes.c_long),
+        ("bottom", ctypes.c_long),
+    ]
+
+
+class CURSORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize",     ctypes.c_ulong),
+        ("flags",      ctypes.c_ulong),
+        ("hCursor",    ctypes.c_void_p),
+        ("ptScreenPos", POINT),
+    ]
 
 
 class MOUSEINPUT(ctypes.Structure):
@@ -287,6 +336,8 @@ _DestroyWindow = ctypes.windll.user32.DestroyWindow
 _DefWindowProcW = ctypes.windll.user32.DefWindowProcW
 _RegisterRawInputDevices = ctypes.windll.user32.RegisterRawInputDevices
 _GetRawInputData = ctypes.windll.user32.GetRawInputData
+_GetCursorInfo  = ctypes.windll.user32.GetCursorInfo
+_GetClipCursor  = ctypes.windll.user32.GetClipCursor
 
 _GetCursorPos.argtypes = [ctypes.POINTER(POINT)]
 _GetCursorPos.restype = ctypes.wintypes.BOOL
@@ -430,7 +481,7 @@ def _resolve_macro_number(value, vars_state: dict) -> tuple[float, bool]:
 
 def _mouse_move_rel(dx: int, dy: int) -> None:
     try:
-        from macro_runner import _raw_mouse_move_rel
+        from macro_engine.macro_runner import _raw_mouse_move_rel
         _raw_mouse_move_rel(int(dx), int(dy))
         return
     except Exception:
@@ -442,10 +493,38 @@ def _mouse_move_rel(dx: int, dy: int) -> None:
         _send_input(_make_mouse(MOUSEEVENTF_MOVE, int(dx), int(dy)))
 
 
-def _mouse_left_down()  -> None: _send_input(_make_mouse(MOUSEEVENTF_LEFTDOWN))
-def _mouse_left_up()    -> None: _send_input(_make_mouse(MOUSEEVENTF_LEFTUP))
+# Click pacing lives in macro_runner._send_mouse_event (shared state):
+# every synthesized DOWN waits 1ms after the last UP of that button, every
+# UP waits until the button was held >= 1ms — the Fortnite-tested rule.
+# .macro playback routes ALL its button events through that guard so the
+# pacing state is shared with mouse_click()/mouse_down() blocks.
+def _mr_send_mouse(flags: int, data: int = 0) -> None:
+    try:
+        from macro_engine.macro_runner import _send_mouse_event as _guarded
+        _guarded(flags, data)
+    except Exception:
+        _send_input(_make_mouse(flags))
+
+
+def _mouse_left_down()  -> None: _mr_send_mouse(MOUSEEVENTF_LEFTDOWN)
+def _mouse_left_up()    -> None: _mr_send_mouse(MOUSEEVENTF_LEFTUP)
+_CLICK_PRESS_S = 0.001   # down→up gap: 1ms (was 50ms — game macros felt laggy)
+
+
 def _mouse_left_click() -> None:
-    _mouse_left_down(); time.sleep(0.05); _mouse_left_up()
+    _mouse_left_down(); time.sleep(_CLICK_PRESS_S); _mouse_left_up()
+
+
+def _mouse_right_down()  -> None: _mr_send_mouse(MOUSEEVENTF_RIGHTDOWN)
+def _mouse_right_up()    -> None: _mr_send_mouse(MOUSEEVENTF_RIGHTUP)
+def _mouse_right_click() -> None:
+    _mouse_right_down(); time.sleep(_CLICK_PRESS_S); _mouse_right_up()
+
+
+def _mouse_middle_down()  -> None: _mr_send_mouse(MOUSEEVENTF_MIDDLEDOWN)
+def _mouse_middle_up()    -> None: _mr_send_mouse(MOUSEEVENTF_MIDDLEUP)
+def _mouse_middle_click() -> None:
+    _mouse_middle_down(); time.sleep(_CLICK_PRESS_S); _mouse_middle_up()
 
 
 def _key_down(vk: int)  -> None: _send_input(_make_key(vk, False))
@@ -456,12 +535,7 @@ def _key_press(vk: int) -> None:
 
 def _release_all_keys() -> None:
     """Release common held keys — called immediately on F6 stop."""
-    vks = [0xA0, 0xA1, 0xA2, 0xA3, 0x57, 0x41, 0x53, 0x44, 0x20]
-    try:
-        from macro_runner import remapped_movement_vks
-        vks = list(dict.fromkeys(vks + remapped_movement_vks()))
-    except Exception:
-        pass
+    vks = [0xA0, 0xA1, 0xA2, 0xA3, 0x10, 0x11, 0x57, 0x41, 0x53, 0x44, 0x20]
     for vk in vks:
         try:
             _key_up(vk)
@@ -473,6 +547,32 @@ def _release_all_keys() -> None:
         pass
 
 
+def _cursor_visible() -> bool:
+    """True when the mouse cursor is on screen (CURSOR_SHOWING)."""
+    ci = CURSORINFO()
+    ci.cbSize = ctypes.sizeof(CURSORINFO)
+    try:
+        if _GetCursorInfo(ctypes.byref(ci)):
+            return bool(ci.flags & CURSOR_SHOWING)
+    except Exception:
+        pass
+    return True  # assume visible on failure — never falsely trigger game mode
+
+
+def _clip_confined_tiny() -> bool:
+    """True when ClipCursor confines the pointer to a tiny rect — games do
+    this to grab relative camera control. Desktop/RDP use the full screen."""
+    rc = RECT()
+    try:
+        if _GetClipCursor(ctypes.byref(rc)):
+            w = rc.right - rc.left
+            h = rc.bottom - rc.top
+            return 0 <= w <= 8 and 0 <= h <= 8
+    except Exception:
+        pass
+    return False
+
+
 def _get_cursor_pos() -> tuple[int, int]:
     pt = POINT()
     if _GetCursorPos(ctypes.byref(pt)):
@@ -481,6 +581,16 @@ def _get_cursor_pos() -> tuple[int, int]:
 
 
 _PLAY_MACRO_MAX_DEPTH = 16
+
+def _read_macro_lines(path: str) -> list[str]:
+    """Read a .macro's canonical lines — v3 container OR legacy text."""
+    from macro_engine import container as _c
+    with open(path, "rb") as f:
+        data = f.read()
+    if _c.is_container_bytes(data):
+        data = _c.read_generated_text(data).encode("utf-8", errors="replace")
+    return [ln.strip() for ln in data.decode("utf-8", errors="replace").splitlines()]
+
 
 
 _DRIVE_LETTER_RE = re.compile(r"^[A-Za-z]:[\\/]")
@@ -555,6 +665,7 @@ class MacroEngine:
         self._record_lock = threading.Lock()
         self._record_events: list[tuple[float, str, str]] = []
         self._record_keys_down: set[int] = set()
+        self._record_buttons_down: set[str] = set()
         self._record_mouse_down = False
         self._record_start = 0.0
         self._record_sensitivity = Sensitivity()
@@ -601,6 +712,7 @@ class MacroEngine:
         self._record_events = []
         self._record_keys_down = set()
         self._record_mouse_down = False
+        self._record_buttons_down = set()
         self._record_start = time.perf_counter()
         self._record_sensitivity = sensitivity or Sensitivity()
         self.current_macro = macro_name
@@ -668,10 +780,41 @@ class MacroEngine:
         raw_hwnd = None
         raw_cb = None
 
+        # ── smooth (scaled) vs absolute move auto-detection ──────────────
+        # game_mode: the foreground game has hidden the cursor and/or
+        # confined it with ClipCursor → record raw deltas as SMOOTH_MOVE
+        # (sensitivity-scaled camera moves). Otherwise (desktop, apps,
+        # in-game GUIs with a visible pointer) record MOUSE_MOVE_ABS —
+        # absolute coordinates replay identically regardless of sensitivity.
+        game_mode = [False]           # box — read inside hook callbacks
+        _hidden_since = [None]        # when the cursor first vanished
+        _visible_since = [time.perf_counter()]  # when it was last visible
+        _last_mode_check = [0.0]
+        ENTER_GAME_MS = 0.35          # hidden this long → game
+        EXIT_GAME_MS = 0.15           # visible this long → desktop again
+        ABS_MIN_DIST = 4              # px — abs move throttle distance
+        ABS_MIN_DT = 0.04             # s  — abs move throttle interval
+        abs_x, abs_y = _get_cursor_pos()
+        abs_last_x, abs_last_y = abs_x, abs_y   # last EMITTED abs position
+        abs_last_t = 0.0
+
+        def _emit_abs(x: int, y: int, force: bool = False) -> None:
+            nonlocal abs_last_x, abs_last_y, abs_last_t
+            now = time.perf_counter()
+            moved = (abs(x - abs_last_x) >= ABS_MIN_DIST) or (abs(y - abs_last_y) >= ABS_MIN_DIST)
+            if not force and not (moved and now - abs_last_t >= ABS_MIN_DT):
+                return
+            self._append_record_event("MOUSE_MOVE_ABS", f"{x},{y}")
+            abs_last_x, abs_last_y, abs_last_t = x, y, now
+
         def raw_wnd_proc(hwnd, msg, w_param, l_param):
             if msg == WM_INPUT:
                 dx, dy = _raw_mouse_delta(l_param)
-                if dx or dy:
+                # raw deltas are only meaningful as camera/sensitivity-scaled
+                # moves while the game has grabbed the pointer. On the desktop
+                # they're just the same movement the low-level hook already
+                # reports — recording both would double-apply.
+                if (dx or dy) and game_mode[0]:
                     self._append_record_event("SMOOTH_MOVE", f"{dx},{dy}")
                 return 0
             return _DefWindowProcW(hwnd, msg, w_param, l_param)
@@ -706,22 +849,47 @@ class MacroEngine:
             raw_mouse_enabled = False
 
         def mouse_proc(n_code, w_param, l_param):
-            nonlocal last_x, last_y
+            nonlocal last_x, last_y, abs_x, abs_y
             if n_code == HC_ACTION:
                 info = ctypes.cast(l_param, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
                 injected = bool(info.flags & LLMHF_INJECTED)
+                x, y = int(info.pt.x), int(info.pt.y)
+                btn = None
+                down = False
                 if w_param == WM_MOUSEMOVE:
-                    x, y = int(info.pt.x), int(info.pt.y)
                     dx, dy = x - last_x, y - last_y
                     last_x, last_y = x, y
-                    if (dx or dy) and not injected and not raw_mouse_enabled:
-                        self._append_record_event("SMOOTH_MOVE", f"{dx},{dy}")
-                elif not injected and w_param == WM_LBUTTONDOWN:
-                    self._record_mouse_down = True
-                    self._append_record_event("MOUSE_LEFT_DOWN")
-                elif not injected and w_param == WM_LBUTTONUP:
-                    self._record_mouse_down = False
-                    self._append_record_event("MOUSE_LEFT_UP")
+                    if (dx or dy) and not injected:
+                        if game_mode[0]:
+                            # game grabbed the pointer — raw deltas are the
+                            # real signal; hook deltas only as a fallback
+                            # when raw input is unavailable.
+                            if not raw_mouse_enabled:
+                                self._append_record_event("SMOOTH_MOVE", f"{dx},{dy}")
+                        else:
+                            # desktop / visible-cursor context → absolute
+                            abs_x, abs_y = x, y
+                            _emit_abs(x, y)
+                    return _CallNextHookEx(None, n_code, w_param, l_param)
+                elif w_param == WM_LBUTTONDOWN:   btn, down = "LEFT",   True
+                elif w_param == WM_LBUTTONUP:     btn, down = "LEFT",   False
+                elif w_param == WM_RBUTTONDOWN:   btn, down = "RIGHT",  True
+                elif w_param == WM_RBUTTONUP:     btn, down = "RIGHT",  False
+                elif w_param == WM_MBUTTONDOWN:   btn, down = "MIDDLE", True
+                elif w_param == WM_MBUTTONUP:     btn, down = "MIDDLE", False
+                if btn and not injected:
+                    if down and not game_mode[0]:
+                        # exact click position — the throttle may lag behind
+                        _emit_abs(x, y, force=True)
+                    if down:
+                        self._record_buttons_down.add(btn)
+                        if btn == "LEFT":
+                            self._record_mouse_down = True
+                    else:
+                        self._record_buttons_down.discard(btn)
+                        if btn == "LEFT":
+                            self._record_mouse_down = False
+                    self._append_record_event(f"MOUSE_{btn}_{'DOWN' if down else 'UP'}")
             return _CallNextHookEx(None, n_code, w_param, l_param)
 
         def keyboard_proc(n_code, w_param, l_param):
@@ -760,11 +928,30 @@ class MacroEngine:
                 if now - last_state_update >= 0.05:
                     last_state_update = now
                     self._set_state(elapsed=now - self._record_start, progress=0.0)
+                if now - _last_mode_check[0] >= 0.05:
+                    _last_mode_check[0] = now
+                    grabbed = (not _cursor_visible()) or _clip_confined_tiny()
+                    if grabbed:
+                        if _hidden_since[0] is None:
+                            _hidden_since[0] = now
+                        _visible_since[0] = now   # ignore brief flashes
+                    else:
+                        _hidden_since[0] = None
+                        _visible_since[0] = now
+                    was_game = game_mode[0]
+                    if not was_game and (
+                        _hidden_since[0] is not None
+                        and (now - _hidden_since[0]) * 1000.0 >= ENTER_GAME_MS * 1000.0
+                    ):
+                        game_mode[0] = True
+                    elif was_game and (now - _visible_since[0]) * 1000.0 >= EXIT_GAME_MS * 1000.0:
+                        game_mode[0] = False
                 time.sleep(0.001)
         finally:
-            if self._record_mouse_down:
-                self._append_record_event("MOUSE_LEFT_UP")
-                self._record_mouse_down = False
+            for btn in sorted(self._record_buttons_down):
+                self._append_record_event(f"MOUSE_{btn}_UP")
+            self._record_buttons_down.clear()
+            self._record_mouse_down = False
             for vk in sorted(self._record_keys_down):
                 self._append_record_event("KEY_UP", f"0x{vk:02X}")
             self._record_keys_down.clear()
@@ -838,8 +1025,7 @@ class MacroEngine:
                     key = os.path.abspath(inner_path)
                     if key not in visited:
                         try:
-                            with open(inner_path, "r", encoding="utf-8", errors="replace") as f:
-                                inner_lines = [ln.strip() for ln in f]
+                            inner_lines = canonicalize_lines(_read_macro_lines(inner_path))
                             est += self._estimate_runtime_seconds(inner_lines, visited | {key})
                         except Exception:
                             pass
@@ -851,7 +1037,7 @@ class MacroEngine:
             if raw.startswith("KEY_PRESS:"):
                 est += 0.03; continue
             if raw == "MOUSE_LEFT_CLICK":
-                est += 0.05; continue
+                est += _CLICK_PRESS_S; continue
             if raw.startswith("REPEAT:"):
                 try: repeat_stack.append((pc, max(0, int(raw[7:]))))
                 except Exception: pass
@@ -879,11 +1065,21 @@ class MacroEngine:
         sensitivity_override: Sensitivity | None = None,
     ) -> None:
         try:
+            # .macro v3 containers unzip to a clean temp first — macro_dir
+            # then points at the extraction so embedded images/ resolve
+            from macro_engine import container as _c
+            if _c.is_container_file(path):
+                path = _c.extract_for_playback(path)
             with open(path, "r", encoding="utf-8", errors="replace") as f:
                 raw_lines = [ln.strip() for ln in f]
         except Exception:
             self._set_state(running=False)
             return
+        # .macro files come in two on-disk formats: the v1 line format the
+        # engine runs directly, and the v2 pretty format (IF (hp < 20) { … }).
+        # canonicalize_lines accepts both and always yields v1 engine lines
+        # (v1 input passes through byte-for-byte).
+        raw_lines = canonicalize_lines(raw_lines)
 
         # Load sensitivity from macro comments
         for line in raw_lines:
@@ -918,7 +1114,7 @@ class MacroEngine:
         next_due = t0
         last_runtime_update = 0.0
         try:
-            from macro_runner import (
+            from macro_engine.macro_runner import (
                 prime_game_mouse_capture,
                 _prepare_windows_mouse_compatibility,
                 _boost_playback_timing,
@@ -976,6 +1172,24 @@ class MacroEngine:
             pc = 0
             repeat_stack: list[tuple[int, int]] = []
             if_stack: list[dict] = []
+            while_stack: list[int] = []   # body-start pc per active WHILE/UNTIL loop
+            loop_bg: dict = {}             # body-start pc -> BackgroundLoop (WHILE/UNTIL arm)
+            watchers: dict = {}            # var name -> BackgroundWatcher (WATCH lines)
+
+            def _arm_bg(lines: list, body_pc: int, registry: dict) -> None:
+                """WHILE:/UNTIL: entered and the loop has a BACKGROUND arm
+                (lines after its END marker): start the arm's thread once.
+                Pass 2+ re-runs the WHILE:/UNTIL: line — the arm is already
+                running (same body pc key), so nothing re-arms."""
+                if body_pc in registry:
+                    return
+                arm = scan_loop_background(lines, body_pc)
+                if not arm:
+                    return
+                registry[body_pc] = start_background_loop(
+                    arm, vars_state, self._stop_event,
+                    bot_root=bot_root, macro_dir=macro_dir,
+                    print_cb=lambda text, vs: _print_console(text, vs, bot_root, m_dir))
             while pc < len(lines):
                 update_runtime()
 
@@ -986,6 +1200,26 @@ class MacroEngine:
                 pc += 1
                 if not raw or raw.startswith("#"):
                     continue
+                # LOCK { ... } is a re-record envelope, not playback: skip
+                # the markers, the steps inside execute normally
+                if raw == "LOCK:" or raw.startswith("LOCK_END:"):
+                    continue
+                # BACKGROUND arm markers of a WHILE/UNTIL loop — the arm's
+                # steps run on a background thread armed at the WHILE:/UNTIL:
+                # line (scan_loop_background); the main thread never walks
+                # them: jump the whole arm section (arm sits AFTER the loop's
+                # END marker in v1 order)
+                if raw == "BG_BEGIN:":
+                    j = pc
+                    while j < len(lines) and lines[j] != "BG_END:":
+                        j += 1
+                    pc = j + 1   # resume after the arm
+                    continue
+                if raw == "BG_END:" or raw.startswith("BG_END:"):
+                    continue
+                # LOOK is the legacy alias of SMOOTH_MOVE (old recordings)
+                if raw.startswith("LOOK:"):
+                    raw = "SMOOTH_MOVE:" + raw[5:]
 
                 if raw.startswith("VARIABLE:"):
                     if branch_active(if_stack):
@@ -993,20 +1227,70 @@ class MacroEngine:
                     continue
                 if raw.startswith("SET_VARIABLE:"):
                     if branch_active(if_stack):
-                        set_variable(vars_state, parse_payload(raw, "SET_VARIABLE"))
+                        set_variable(vars_state, parse_payload(raw, "SET_VARIABLE"), bot_root, m_dir)
+                    continue
+                # WATCH <var> WHEN (<cond>) EVERY <ms> — standalone condition
+                # watcher: keeps <var> at 1/0 on a background thread until the
+                # macro ends or STOP WATCH runs
+                if raw.startswith("WATCH:"):
+                    if branch_active(if_stack):
+                        start_watcher(parse_payload(raw, "WATCH"), vars_state,
+                                      self._stop_event, watchers, bot_root, m_dir)
+                    continue
+                if raw.startswith("STOP_WATCH:"):
+                    if branch_active(if_stack):
+                        stop_watcher(raw[11:], watchers)
                     continue
                 if raw.startswith("IMAGE:"):
                     if branch_active(if_stack):
                         run_image_check(vars_state, parse_payload(raw, "IMAGE"), bot_root, m_dir)
                     continue
+                if raw.startswith("GRAB_IMAGE:"):
+                    if branch_active(if_stack):
+                        run_grab_image(vars_state, parse_payload(raw, "GRAB_IMAGE"), bot_root, m_dir)
+                    continue
                 if raw.startswith("IF:"):
-                    handle_if(if_stack, vars_state, parse_payload(raw, "IF"))
+                    handle_if(if_stack, vars_state, parse_payload(raw, "IF"), bot_root, m_dir)
                     continue
                 if raw.startswith("ELSE_IF:"):
-                    handle_else_if(if_stack, vars_state, parse_payload(raw, "ELSE_IF"))
+                    handle_else_if(if_stack, vars_state, parse_payload(raw, "ELSE_IF"), bot_root, m_dir)
+                    continue
+                if raw == "ELSE" or raw.startswith("ELSE:"):
+                    # plain ELSE branch — handle_else existed but was never
+                    # dispatched here, so ELSE bodies ran even when an earlier
+                    # branch of the same IF had already been taken
+                    handle_else(if_stack)
                     continue
                 if raw == "END_IF" or raw.startswith("END_IF:"):
                     handle_end_if(if_stack)
+                    continue
+                # --- WHILE / UNTIL loops (same stack as IF branches) ---
+                if raw.startswith("WHILE:"):
+                    handle_while(if_stack, vars_state, parse_payload(raw, "WHILE"), bot_root, m_dir)
+                    if if_stack[-1]["active"]:
+                        while_stack.append(pc)   # body start (pc already past WHILE line)
+                        _arm_bg(lines, pc, loop_bg)
+                    continue
+                if raw.startswith("UNTIL:"):
+                    handle_while(if_stack, vars_state, parse_payload(raw, "UNTIL"), bot_root, m_dir,
+                                 invert=True)
+                    if if_stack[-1]["active"]:
+                        while_stack.append(pc)
+                        _arm_bg(lines, pc, loop_bg)
+                    continue
+                if raw == "END_WHILE" or raw.startswith("END_WHILE:") or raw == "END_UNTIL" or raw.startswith("END_UNTIL:"):
+                    pre_body_pc = while_stack[-1] if while_stack else None
+                    pre_ws = len(while_stack)
+                    jump = handle_end_while(if_stack, while_stack, vars_state, bot_root, m_dir)
+                    if jump is not None:
+                        pc = jump
+                        # fresh DELAY budget for the next pass — a long pass
+                        # (image checks, key holds) must never eat the next
+                        # pass's first DELAY down to 0ms
+                        next_due = time.perf_counter()
+                    elif pre_ws > 0 and len(while_stack) < pre_ws and pre_body_pc in loop_bg:
+                        # the loop ran and exited — retire its BACKGROUND arm
+                        loop_bg.pop(pre_body_pc).stop()
                     continue
                 if not branch_active(if_stack):
                     continue
@@ -1021,6 +1305,16 @@ class MacroEngine:
                     next_due += ms / 1000.0
                     if not sleep_until(next_due):
                         return False
+                    continue
+
+                # --- PRINT (app console) ---
+                # bare "PRINT" (empty text — a hand-edited file or the pretty
+                # printer with an empty value) prints an empty line, never
+                # silently dropped. ${var} and full expressions (grab_at(...),
+                # screen_color(...), comparisons) interpolate at playback.
+                if raw == "PRINT" or raw.startswith("PRINT:"):
+                    _print_console(raw[6:] if raw.startswith("PRINT:") else "",
+                                   vars_state, bot_root, m_dir)
                     continue
 
                 if raw.startswith("REPEAT:"):
@@ -1038,25 +1332,13 @@ class MacroEngine:
                     continue
 
                 if raw.startswith("KEY_DOWN:"):
-                    try:
-                        from macro_runner import remap_macro_vk as _remap_vk
-                        _key_down(_remap_vk(int(raw[9:].strip(), 16)))
-                    except Exception:
-                        _key_down(int(raw[9:].strip(), 16))
+                    _key_down(int(raw[9:].strip(), 16))
                     continue
                 if raw.startswith("KEY_UP:"):
-                    try:
-                        from macro_runner import remap_macro_vk as _remap_vk
-                        _key_up(_remap_vk(int(raw[7:].strip(), 16)))
-                    except Exception:
-                        _key_up(int(raw[7:].strip(), 16))
+                    _key_up(int(raw[7:].strip(), 16))
                     continue
                 if raw.startswith("KEY_PRESS:"):
-                    try:
-                        from macro_runner import remap_macro_vk as _remap_vk
-                        _key_press(_remap_vk(int(raw[10:].strip(), 16)))
-                    except Exception:
-                        _key_press(int(raw[10:].strip(), 16))
+                    _key_press(int(raw[10:].strip(), 16))
                     continue
 
                 if raw.startswith("MOUSE_MOVE_ABS:"):
@@ -1070,6 +1352,18 @@ class MacroEngine:
                     _mouse_left_up();    continue
                 if raw == "MOUSE_LEFT_CLICK":
                     _mouse_left_click(); continue
+                if raw == "MOUSE_RIGHT_DOWN":
+                    _mouse_right_down(); continue
+                if raw == "MOUSE_RIGHT_UP":
+                    _mouse_right_up();   continue
+                if raw == "MOUSE_RIGHT_CLICK":
+                    _mouse_right_click(); continue
+                if raw == "MOUSE_MIDDLE_DOWN":
+                    _mouse_middle_down(); continue
+                if raw == "MOUSE_MIDDLE_UP":
+                    _mouse_middle_up();   continue
+                if raw == "MOUSE_MIDDLE_CLICK":
+                    _mouse_middle_click(); continue
                 if raw.startswith("MOUSE_REL:"):
                     dx, dy = raw[10:].split(",")
                     dxv = int(round(_resolve_macro_number(dx, vars_state)[0]))
@@ -1106,8 +1400,7 @@ class MacroEngine:
                         log.warning(f"[PLAY_MACRO] macro not found: {target!r}")
                         continue
                     try:
-                        with open(inner_path, "r", encoding="utf-8", errors="replace") as f:
-                            inner_lines = [ln.strip() for ln in f]
+                        inner_lines = canonicalize_lines(_read_macro_lines(inner_path))
                     except Exception as e:
                         log.warning(f"[PLAY_MACRO] cannot read {target!r}: {e}")
                         continue
@@ -1137,6 +1430,14 @@ class MacroEngine:
 
         finally:
             _release_all_keys()
+            # nothing outlives the macro: BACKGROUND arms stop with their
+            # loop (or the stop_event); WATCH watchers live until here
+            try:
+                stop_all_watchers(watchers)
+                for bg in list(loop_bg.values()):
+                    bg.stop()
+            except Exception:
+                pass
             elapsed = time.perf_counter() - t0
             self._set_state(running=False, elapsed=elapsed, progress=1.0)
 

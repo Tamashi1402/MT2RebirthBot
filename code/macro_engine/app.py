@@ -17,6 +17,7 @@ import atexit
 import base64
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -25,17 +26,21 @@ import re
 import urllib.parse
 import urllib.request
 
-from flask import Blueprint, Flask, jsonify, render_template, request
+from flask import Blueprint, Flask, jsonify, render_template, request, send_file
 from werkzeug.serving import WSGIRequestHandler
 
 try:
-    from .macro_engine import MacroEngine, Sensitivity
+    from .playback import MacroEngine, Sensitivity
     from .overlay import MacroOverlay
     from .smooth_move import SmoothMoveTracker
 except ImportError:
-    from macro_engine import MacroEngine, Sensitivity
-    from overlay import MacroOverlay
-    from smooth_move import SmoothMoveTracker
+    from macro_engine.playback import MacroEngine, Sensitivity
+    from macro_engine.overlay import MacroOverlay
+    from macro_engine.smooth_move import SmoothMoveTracker
+try:
+    from . import container as _container
+except ImportError:
+    from macro_engine import container as _container
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 
@@ -91,9 +96,7 @@ bp = Blueprint(
 # so the same Blueprint object can mount on the bot dashboard app.
 app = Flask(__name__)
 
-
-
-# ── State ────────────────────────────────────────────────────────────────────
+_AUTH_LOCK = threading.Lock()
 # current_path  = absolute path of the macro file that is open in the editor
 # current_macro = display name (basename without .macro)
 
@@ -145,6 +148,10 @@ def _smooth_is_busy() -> bool:
 
 
 def _restart_smooth_tracker() -> None:
+    if _smooth_pick["active"]:
+        return   # blockly F2 pick armed — must NOT be stomped back to L mid-hold
+    if _macro_editor_focus.get("open") and (time.time() - float(_macro_editor_focus.get("ts") or 0)) < 180:
+        return   # macro editor tab is OPEN (visible or hidden) — L capture stays off
     try:
         smooth_tracker.start(
             _binding_to_vk(smooth_binding, "L"),
@@ -156,10 +163,219 @@ def _restart_smooth_tracker() -> None:
 
 
 def _stop_smooth_tracker() -> None:
+    if _smooth_pick["active"]:
+        return   # blockly F2 pick armed — the editor-focus heartbeat must not kill it mid-hold
     try:
         smooth_tracker.stop()
     except Exception:
         pass
+
+
+# ── Blockly scaled-move picker (hold F2 capture, same raw-input math) ──────
+_smooth_pick: dict = {"seq": 0, "x": 0, "y": 0, "active": False}
+# the /me/ macro editor tab heartbeats its visibility here; while it is
+# open+fresh the smooth tracker must NOT listen (L stays free for typing)
+_macro_editor_focus: dict = {"open": False, "ts": 0.0}
+
+
+def _smooth_pick_result_cb(x: int, y: int, elapsed_ms: int) -> None:
+    """Deliver the F2-hold net movement to the blockly editor.
+
+    Same conversion as _smooth_move_result_cb: the tracker reports raw
+    counts at the user's CURRENT sensitivity; a SMOOTH_MOVE value replays
+    scaled by recorded/user, so raw / ratios() = the recorded-equivalent.
+    """
+    try:
+        rx, ry = engine.sensitivity.ratios()
+        if rx > 0:
+            x = int(round(x / rx))
+        if ry > 0:
+            y = int(round(y / ry))
+    except Exception:
+        pass
+    log.info(f"[SmoothPick] captured -> block value ({x}, {y})")
+    with _state_lock:
+        _smooth_pick["x"] = int(x)
+        _smooth_pick["y"] = int(y)
+        _smooth_pick["seq"] = int(_smooth_pick["seq"]) + 1
+        _smooth_pick["active"] = False
+    _restart_smooth_tracker()   # one-shot done — give the recorder its hold key back
+
+
+@bp.post("/api/editor_focus")
+def editor_focus():
+    """Heartbeat from the /me/ page: while the macro editor tab is visible,
+    the smooth tracker is stopped so L never steals keystrokes."""
+    data = request.get_json(silent=True) or {}
+    open_ = bool(data.get("open"))
+    with _state_lock:
+        _macro_editor_focus["open"] = open_
+        _macro_editor_focus["ts"] = time.time()
+    if open_:
+        _stop_smooth_tracker()
+    else:
+        _restart_smooth_tracker()
+    return jsonify({"ok": True})
+
+
+@bp.post("/api/smooth_pick/arm")
+def smooth_pick_arm():
+    """Arm the smooth-move tracker on F2 for the blockly scaled-move picker."""
+    with _state_lock:
+        if _smooth_pick["active"]:
+            return jsonify({"ok": True, "armed": True})
+        _smooth_pick["active"] = True
+    try:
+        started = smooth_tracker.start(
+            _binding_to_vk("F2", "F2"),
+            _smooth_is_busy,
+            _smooth_pick_result_cb,
+        )
+    except Exception as e:
+        log.warning(f"[SmoothPick] tracker start failed: {e}")
+        started = False
+    if not started:
+        with _state_lock:
+            _smooth_pick["active"] = False
+    return jsonify({"ok": started, "armed": started})
+
+
+@bp.get("/api/smooth_pick/status")
+def smooth_pick_status():
+    with _state_lock:
+        return jsonify({"ok": True, **dict(_smooth_pick)})
+
+
+@bp.get("/api/image_preview")
+def image_preview():
+    """Live thumbnail for pcr_image_from_res blocks on the macro canvas.
+
+    Resolves like the player does: _resolve_image_path knows the shared
+    macros/images dir, so recorder-captured templates preview 1:1.
+    """
+    from flask import request as _req, send_file as _send_file
+    value = str(_req.args.get("path", "")).strip()
+    if not value:
+        return jsonify({"ok": False, "error": "path required"}), 400
+    path = ""
+    try:
+        from macro_engine.macro_logic import _resolve_image_path
+        # search the current macro's own folder first (templates saved next
+        # to a macro stored outside macros/), then the shared images dir
+        md = MACROS_DIR
+        try:
+            if current_path and os.path.isfile(current_path):
+                md = os.path.dirname(os.path.abspath(current_path))
+        except Exception:
+            pass
+        for base in (md, MACROS_DIR):
+            p = _resolve_image_path(value, BOT_ROOT, base)
+            if p and os.path.isfile(p):
+                path = p
+                break
+    except Exception:
+        path = ""
+    if not path or not os.path.isfile(path):
+        return jsonify({"ok": False, "error": "image not found"}), 404
+    return _send_file(path, max_age=0)
+
+
+@bp.get("/api/image_save_dir")
+def image_save_dir():
+    """Where image-block crops for the current macro go:
+    <folder of the .macro>/images (shared macros/images when unsaved)."""
+    return jsonify({"ok": True, "dir": _macro_dir_for_images()})
+
+
+@bp.get("/api/image_meta")
+def image_meta():
+    """Pick-metadata sidecar for an image-block crop (point + box).
+
+    The image block's "get" icon reads this to drop the region the pipette
+    picked back into the editor as point + box blocks. meta=null → the
+    image has no pick data (imported by hand or picked before 2.1.210).
+    """
+    rel = str(request.args.get("path") or "").strip()
+    if not rel:
+        return jsonify({"ok": False, "error": "path required"}), 400
+    from macro_engine.image_meta import read_meta
+    base = _macro_dir_for_images()
+    name = rel.replace("\\", "/").split("/")[-1]
+    if os.path.isabs(rel):
+        meta = read_meta(rel)
+    elif base:
+        meta = read_meta(os.path.join(base, name))
+    else:
+        meta = None
+    return jsonify({"ok": True, "meta": meta})
+
+
+@bp.post("/api/crop_to_image")
+def crop_to_image():
+    """Crop the F2 picker screenshot into the shared macro images dir.
+
+    1:1 with the editor's /blockly/crop_to_resource, but saves to
+    MACRO_IMAGES_DIR so the path resolves exactly like a recorded
+    template (images/<name>, resolved via _resolve_image_path).
+    """
+    body = request.get_json(silent=True) or {}
+    box = body.get("box") or []
+    if not isinstance(box, (list, tuple)) or len(box) != 4:
+        return jsonify({"ok": False, "error": "box[x1,y1,x2,y2] required"}), 400
+    shot = ""
+    try:
+        import sys as _sys
+        # when the dashboard runs as the main script its module name is
+        # __main__ — a plain "import dashboard" builds a SECOND, empty
+        # module whose _PICKER never holds the F2 shot. Use the live one.
+        _dash = _sys.modules.get("dashboard")
+        if _dash is None or not hasattr(_dash, "_PICKER"):
+            _dash = _sys.modules.get("__main__")
+        if _dash is not None and hasattr(_dash, "_PICKER"):
+            with _dash._PICKER_LOCK:
+                shot = _dash._PICKER.get("shot_path") or ""
+    except Exception:
+        shot = ""
+    if not shot or not os.path.isfile(shot):
+        return jsonify({"ok": False, "error": "no screenshot to crop — press F2 first"}), 400
+    try:
+        from PIL import Image
+        x1, y1, x2, y2 = (int(round(float(v))) for v in box)
+        if x2 < x1:
+            x1, x2 = x2, x1
+        if y2 < y1:
+            y1, y2 = y2, y1
+        if x2 - x1 < 1 or y2 - y1 < 1:
+            return jsonify({"ok": False, "error": "empty region"}), 400
+        img_dir = _macro_dir_for_images()
+        os.makedirs(img_dir, exist_ok=True)
+        import time as _time
+        # 1:1 recorder naming: {screenW}x{screenH}_f2_<ts>.png — the size prefix
+        # is what macro_logic._image_base_size_from_filename reads back.
+        dest = os.path.join(
+            img_dir,
+            _image_filename("f2_" + _time.strftime("%H%M%S")),
+        )
+        with Image.open(shot) as im:
+            im = im.convert("RGB")
+            W, H = im.size
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(W, x2 or W), min(H, y2 or H)
+            im.crop((x1, y1, max(x1 + 1, x2), max(y1 + 1, y2))).save(dest)
+        # "images/<name>" resolves BOTH next to the macro (macro_dir/images,
+        # via _resolve_image_path) and in the shared macros/images dir
+        return jsonify({"ok": True, "path": "images/" + os.path.basename(dest)})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@bp.post("/api/smooth_pick/cancel")
+def smooth_pick_cancel():
+    """Disarm the F2 pick and restore the recorder's normal hold key."""
+    with _state_lock:
+        _smooth_pick["active"] = False
+    _restart_smooth_tracker()
+    return jsonify({"ok": True})
 playback_repeat: int = 1
 playback_times: int = 5
 _last_f6_toggle_ts = 0.0
@@ -167,14 +383,41 @@ _last_f5_toggle_ts = 0.0
 _state_lock = threading.Lock()
 _recording_sensitivity: dict = {}
 _record_locked_blocks: list[dict] = []
+# file text captured the moment a recording starts: the safety net that
+# brings LOCK envelopes back if the file got rewritten without them while
+# recording, and the pre-state for Ctrl+Z record undo / Ctrl+Y redo.
+_record_start_text: str | None = None
+_record_history: dict = {"undo": [], "redo": []}
+_RECORD_HISTORY_MAX = 20
+
+
+def _record_snapshot_start() -> None:
+    """Snapshot the on-disk macro the instant recording starts.
+
+    The stop-time rebuild re-reads the file — but between start and stop
+    the editor can rewrite it (the poll flush of pending edits, autosaves
+    of edits made while recording, a stale editor list). A stale rewrite
+    is exactly how LOCK envelopes got purged. Whatever sat in a LOCK at
+    record start comes back at stop; the snapshot is also the state
+    Ctrl+Z restores.
+    """
+    global _record_start_text
+    _record_start_text = None
+    try:
+        # raw bytes: the file may be a v3 container (zip) — the snapshot
+        # and the Ctrl+Z history must restore it byte-exact, either format
+        if current_path and os.path.isfile(current_path):
+            _record_start_text = _read_macro_payload(current_path)
+    except Exception as e:
+        log.warning(f"record snapshot: could not read {current_path}: {e}")
+        _record_start_text = None
 
 
 def _current_locked_blocks() -> list[dict]:
     """Locked blocks of the macro file currently on disk (they survive re-recording)."""
     try:
         if current_path and os.path.isfile(current_path):
-            with open(current_path, "r", encoding="utf-8", errors="replace") as f:
-                parsed = _parse_macro_text(f.read())
+            parsed = _parse_macro_text(_read_macro_text(current_path))
             return [dict(b) for b in parsed.get("blocks", []) if b.get("locked")]
     except Exception:
         pass
@@ -266,6 +509,16 @@ def _macro_name_from_path(path: str) -> str:
 
 
 def _macro_dir_for_images() -> str:
+    # a macro saved somewhere else keeps its templates next to it:
+    # <folder of the .macro>/images — exactly where the player resolves them.
+    # No file yet → the shared macros/images dir.
+    try:
+        if current_path and os.path.isfile(current_path):
+            d = os.path.dirname(os.path.abspath(current_path))
+            if d:
+                return os.path.join(d, "images")
+    except Exception:
+        pass
     os.makedirs(MACRO_IMAGES_DIR, exist_ok=True)
     return MACRO_IMAGES_DIR
 
@@ -341,9 +594,26 @@ def _save_state() -> None:
 # ── Macro list ───────────────────────────────────────────────────────────────
 
 def _list_macros() -> list[dict]:
-    """Return [{name, path, rel, folder}] for every .macro under MACROS_DIR."""
+    """Return [{name, path, rel, folder}] for every .macro under MACROS_DIR
+    plus each workspace's resources/macros (so a recorded grind next to
+    the workspace is visible in the Macro tab and cannot 'disappear')."""
     out = []
+    seen: set[str] = set()
     skip_dirs = {"images", "__pycache__", ".git"}
+
+    def _add(full: str, folder: str, rel_key: str, name: str) -> None:
+        full = os.path.abspath(full)
+        key = os.path.normcase(full)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({
+            "name": name,
+            "rel": rel_key,
+            "folder": folder,
+            "path": full,
+        })
+
     try:
         for root, dirs, files in os.walk(MACROS_DIR):
             dirs[:] = [d for d in dirs if d not in skip_dirs]
@@ -356,15 +626,48 @@ def _list_macros() -> list[dict]:
                     rel_key = rel[:-6]
                 else:
                     rel_key = rel
-                out.append({
-                    "name": os.path.splitext(fn)[0],
-                    "rel": rel_key,
-                    "folder": os.path.dirname(rel).replace("\\", "/"),
-                    "path": full,
-                })
-        out.sort(key=lambda m: str(m.get("rel") or "").lower())
+                _add(full, os.path.dirname(rel).replace("\\", "/"), rel_key, os.path.splitext(fn)[0])
     except Exception:
         pass
+
+    def _scan_ws_macros(ws_name: str, ws_folder: str) -> None:
+        if not ws_folder or not os.path.isdir(ws_folder):
+            return
+        label = "workspace/" + (ws_name or os.path.basename(ws_folder.rstrip("\\/")))
+        for sub in ("resources/macros", "macros"):
+            d = os.path.join(ws_folder, *sub.split("/"))
+            if not os.path.isdir(d):
+                continue
+            try:
+                for fn in os.listdir(d):
+                    if not fn.lower().endswith(".macro"):
+                        continue
+                    full = os.path.join(d, fn)
+                    if not os.path.isfile(full):
+                        continue
+                    stem = os.path.splitext(fn)[0]
+                    _add(full, label, label + "/" + stem, stem)
+            except Exception:
+                continue
+
+    ws_root = os.path.join(BOT_ROOT, "workspaces")
+    try:
+        for e in os.scandir(ws_root):
+            if e.is_dir() and not e.name.startswith("_"):
+                _scan_ws_macros(e.name, e.path)
+    except Exception:
+        pass
+    ext_path = os.path.join(ws_root, "_external.json")
+    try:
+        with open(ext_path, "r", encoding="utf-8") as f:
+            reg = json.load(f) or {}
+        if isinstance(reg, dict):
+            for k, v in reg.items():
+                _scan_ws_macros(str(k), str(v or ""))
+    except Exception:
+        pass
+
+    out.sort(key=lambda m: str(m.get("rel") or "").lower())
     return out
 
 
@@ -423,11 +726,47 @@ def _list_directory(path: str) -> dict:
 
 # ── Macro text helpers ───────────────────────────────────────────────────────
 
+_PRINT_REF_RE = re.compile(r"\$\{([^}]*)\}")
+_PLAIN_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _print_step(val: str) -> dict:
+    """PRINT step for the editor: value stays the composed text, plus the
+    parsed ${...} occurrences that are full expressions (grab_at(...),
+    screen_color(...), comparisons…) as nodes — the blockly loader rebuilds
+    those as real blocks. Plain ${var} refs stay text (the getter path)."""
+    from macro_engine.macro_text import expr_from_str
+    exprs: dict[int, dict] = {}
+    for i, m in enumerate(_PRINT_REF_RE.finditer(val)):
+        try:
+            node = expr_from_str(m.group(1).strip())
+        except Exception:
+            continue
+        if (isinstance(node, dict) and list(node.keys()) == ["get"]
+                and _PLAIN_IDENT_RE.match(str(node.get("get") or ""))):
+            continue   # plain ${var} — the editor's getter path handles it
+        exprs[i] = node
+    step = {"type": "PRINT", "value": val}
+    if exprs:
+        step["exprs"] = exprs
+    return step
+
+
 def _parse_macro_text(text: str) -> dict:
+    """Parse .macro text into blocks.
+
+    Accepts both the v1 legacy format (``IF:{json}`` / ``END_IF``) and the
+    v2 pretty format (``IF (true) {`` … ``}``): everything is normalized to
+    the v1 line list by macro.macro_text.canonicalize_lines first, so old
+    files load unchanged and the mapping below only ever sees v1 lines.
+    """
+    from macro_engine.macro_text import canonicalize_lines
+    raw_lines = text.splitlines()
+    blockly_blob = None
     meta   = {}
     blocks = []
     locked_indices: set[int] = set()
-    for raw in text.splitlines():
+    for raw in canonicalize_lines(raw_lines):
         line = raw.strip()
         if not line:
             continue
@@ -444,22 +783,140 @@ def _parse_macro_text(text: str) -> dict:
             except Exception:
                 pass
             continue
+        if line == "LOCK:" or line.startswith("LOCK:"):
+            blocks.append({"type": "LOCK", "value": ""})
+            continue
+        if line == "LOCK_END:" or line.startswith("LOCK_END:"):
+            blocks.append({"type": "LOCK_END", "value": ""})
+            continue
+        if line == "# GROUP_END" or line.startswith("# GROUP_END"):
+            blocks.append({"type": "GROUP_END", "value": ""})
+            continue
+        if line.startswith("# GROUP:"):
+            blocks.append({"type": "GROUP", "value": line[len("# GROUP:"):].strip()})
+            continue
+        if line == "# SECTION_END" or line.startswith("# SECTION_END"):
+            blocks.append({"type": "SECTION_END", "value": ""})
+            continue
+        if line.startswith("# SECTION:"):
+            blocks.append({"type": "SECTION", "value": line[len("# SECTION:"):].strip()})
+            continue
+        if line.startswith("# Macro:"):
+            continue
+        if line.startswith("# BLOCKLY_V1:"):
+            # the embedded Blockly workspace — extracted, never a comment
+            if blockly_blob is None:
+                blockly_blob = line
+            continue
         if line.startswith("#"):
+            # any other comment line is kept as a COMMENT block so it
+            # survives round-trips (GROUP markers are comments too —
+            # playback skips every # line, engine needs zero changes)
+            comment = line[1:].strip()
+            if comment:
+                blocks.append({"type": "COMMENT", "value": comment})
             continue
         t, _, rest = line.partition(":")
         btype = t.strip()
         val = rest.strip()
+        if btype in ("KEY_DOWN", "KEY_UP", "KEY_PRESS"):
+            # normalize to the editor's 0x display form (engine takes both)
+            try:
+                val = "0x%x" % int(val, 16)
+            except ValueError:
+                pass
         if btype in ("SMOOTH_MOVE", "LOOK"):
             parts = [p.strip() for p in val.split(",")]
             if len(parts) >= 3:
                 val = f"{parts[0]},{parts[1]},{parts[2]}"
             elif len(parts) >= 2:
                 val = f"{parts[0]},{parts[1]}"
+        if btype == "PRINT":
+            blocks.append(_print_step(val))
+            continue
         blocks.append({"type": btype, "value": val})
-    for idx in locked_indices:
-        if 0 <= idx < len(blocks):
-            blocks[idx]["locked"] = True
-    return {"meta": meta, "blocks": blocks}
+    # LOCKED indices count EXECUTABLE blocks only (markers/comments are
+    # skipped) so old files keep their lock positions unchanged.
+    if locked_indices:
+        exe = -1
+        for b in blocks:
+            if b.get("type") in ("GROUP", "GROUP_END", "COMMENT", "SECTION", "SECTION_END", "LOCK", "LOCK_END"):
+                continue
+            exe += 1
+            if exe in locked_indices:
+                b["locked"] = True
+    result = {"meta": meta, "blocks": blocks}
+    if blockly_blob is not None:
+        # hash-verified: present ONLY while the text body is still exactly
+        # the content the workspace was saved against
+        blockly_json = _blockly_unpack(blockly_blob, raw_lines)
+        if blockly_json is not None:
+            result["blockly"] = blockly_json
+    return result
+
+
+def _read_macro_text(path: str) -> str:
+    """A .macro file's canonical text — container (v3 zip) OR legacy text."""
+    return _container.read_macro_text(path)
+
+
+def _text_from_bytes(data: bytes) -> str:
+    """Snapshot bytes (either format) → canonical text."""
+    if isinstance(data, bytes) and _container.is_container_bytes(data):
+        return _container.read_generated_text(data)
+    if isinstance(data, bytes):
+        return data.decode("utf-8", errors="replace")
+    return str(data or "")
+
+
+def _read_macro_payload(entry) -> bytes:
+    """Read a file/snapshot into raw bytes (format-agnostic container)."""
+    if isinstance(entry, bytes):
+        return entry
+    if isinstance(entry, (bytearray, memoryview)):
+        return bytes(entry)
+    with open(str(entry), "rb") as f:
+        return f.read()
+
+
+def _write_macro_payload(path: str, payload) -> None:
+    """Write a text or binary snapshot back to disk (undo/redo history)."""
+    if isinstance(payload, (bytes, bytearray, memoryview)):
+        data = bytes(payload)
+        folder = os.path.dirname(path) or "."
+        os.makedirs(folder, exist_ok=True)
+        tmp_path = os.path.join(folder, f".{os.path.basename(path)}.{os.getpid()}.tmp")
+        with open(tmp_path, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    else:
+        _write_macro_atomic(path, str(payload or ""))
+
+
+def _pack_image_resolver(macro_path: str):
+    """Closure resolving image refs for embedding, relative to this macro."""
+    from macro_engine.macro_logic import _resolve_image_path
+    macro_dir = os.path.dirname(os.path.abspath(macro_path)) if macro_path else MACROS_DIR
+
+    def _resolve(ref: str) -> str:
+        try:
+            hit = _resolve_image_path(ref, BOT_ROOT, macro_dir)
+            return hit if hit and os.path.isfile(hit) else ""
+        except Exception:
+            return ""
+    return _resolve
+
+
+def _playback_source(path: str) -> str:
+    """Container → clean-extract to temp, return the playable text path."""
+    try:
+        if path and os.path.isfile(path) and _container.is_container_file(path):
+            return _container.extract_for_playback(path)
+    except Exception as e:
+        log.warning(f"container extract failed — playing raw file: {e}")
+    return path
 
 
 def _normalize_blocks(blocks: list[dict]) -> list[dict]:
@@ -468,6 +925,10 @@ def _normalize_blocks(blocks: list[dict]) -> list[dict]:
         btype = str(block.get("type", "")).strip()
         val = str(block.get("value", "")).strip()
         if not btype:
+            continue
+        if btype in ("GROUP", "GROUP_END", "COMMENT", "SECTION", "SECTION_END", "LOCK", "LOCK_END"):
+            # structural markers — order-preserving pass-through, no value munging
+            normalized.append({"type": btype, "value": val, "locked": bool(block.get("locked"))})
             continue
         if btype in ("SMOOTH_MOVE", "LOOK"):
             parts = [p.strip() for p in val.split(",")]
@@ -494,21 +955,138 @@ def _normalize_sensitivity(sensitivity: dict) -> dict:
     return out
 
 
-def _build_macro_text(name: str, sensitivity: dict, blocks: list[dict]) -> str:
+# ── embedded Blockly workspace (.macro v2 dual format) ────────────────────
+# A saved .macro can carry the editor's exact Blockly workspace next to the
+# text code: one machine line in the header
+#     # BLOCKLY_V1: <sha256> <base64(zlib(json))>
+# The hash is computed over the file's canonical instruction lines (the same
+# basis _parse_macro_text uses), so the blob is only trusted while the text
+# body is byte-for-byte the same content the workspace was saved against.
+# Recording appends, notepad edits, or any step change invalidate it and the
+# editor falls back to rebuilding blocks from the text — no stale workspace
+# can ever load. Engines skip every # line, so playback/recording/run need
+# zero changes. Size-capped so monster recordings don't bloat the file.
+_BLOCKLY_LINE_RE = re.compile(r"^#\s*BLOCKLY_V1:\s*([0-9a-f]{64})\s+([A-Za-z0-9+/=]+)\s*$")
+_BLOCKLY_MAX_B64 = 4 * 1024 * 1024   # ~3 MB workspace JSON
+
+
+def _blockly_canonical_basis(text_lines: list[str]) -> str:
+    """Canonical instruction lines of a macro text, sans the BLOCKLY blob line.
+    This is the hash basis on BOTH the write and the read side."""
+    from macro_engine.macro_text import canonicalize_lines
+    keep = [ln for ln in (str(l).strip() for l in text_lines) if ln and not ln.startswith("# BLOCKLY_V1:")]
+    return "\n".join(canonicalize_lines(keep))
+
+
+def _blockly_pack(blockly, text_lines: list[str]) -> str | None:
+    """Serialize the Blockly workspace into the `# BLOCKLY_V1:` header line.
+    Returns None when the payload would be empty or absurdly large."""
+    if not blockly:
+        return None
+    try:
+        import base64
+        import hashlib
+        import json as _json
+        import zlib
+        raw = _json.dumps(blockly, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        b64 = base64.b64encode(zlib.compress(raw, 9)).decode("ascii")
+        if len(b64) > _BLOCKLY_MAX_B64:
+            log.info("[MACRO] blockly blob too large (%d b64 chars) — not embedded", len(b64))
+            return None
+        sha = hashlib.sha256(_blockly_canonical_basis(text_lines).encode("utf-8")).hexdigest()
+        return f"# BLOCKLY_V1: {sha} {b64}"
+    except Exception as e:
+        log.warning(f"blockly pack failed: {e}")
+        return None
+
+
+def _blockly_unpack(line: str, text_lines: list[str]):
+    """Extract + verify a BLOCKLY_V1 line. Returns the workspace JSON dict or
+    None (absent, corrupt, or stale — stale means the text body changed since
+    the blob was written, e.g. a recording was appended)."""
+    m = _BLOCKLY_LINE_RE.match(line.strip())
+    if not m:
+        return None
+    sha, b64 = m.group(1), m.group(2)
+    try:
+        import base64
+        import hashlib
+        import json as _json
+        import zlib
+        basis = hashlib.sha256(_blockly_canonical_basis(text_lines).encode("utf-8")).hexdigest()
+        if basis != sha:
+            return None   # body changed under the blob — stale, rebuild from text
+        return _json.loads(zlib.decompress(base64.b64decode(b64)).decode("utf-8"))
+    except Exception as e:
+        log.warning(f"blockly blob unpack failed: {e}")
+        return None
+
+
+def _build_macro_text(name: str, sensitivity: dict, blocks: list[dict],
+                         blockly=None) -> str:
+    """Serialize blocks to plain v1 .macro text (TYPE:VALUE lines).
+
+    The bot's macro runtime only executes plain v1 lines, so the editor
+    ALWAYS saves the plain format — never the v2 pretty body and never a
+    zip container. Each block is written verbatim (TYPE:VALUE), so lines
+    the blockly editor keeps as Raw blocks (image checks, IF conditions
+    recorded before the editor, anything the visual editor cannot
+    represent) survive a save round-trip byte-for-byte and the runtime
+    keeps running them exactly as before.
+
+    Structural markers ride as comment-style lines (# GROUP:, # SECTION:,
+    # LOCKED:) — playback skips every # line, so the engine needs zero
+    changes. The blockly workspace is embedded as a # BLOCKLY_V1: blob so
+    the editor reopens exactly what was saved; the runtime ignores it.
+    """
     lines = [f"# Macro: {name}"]
     sensitivity = _normalize_sensitivity(sensitivity)
     blocks = _normalize_blocks(blocks)
     for key in ("SENS_RECORDED_H", "SENS_RECORDED_V", "SENS_USER_H", "SENS_USER_V"):
         lines.append(f"# {key}:{sensitivity[key]}")
-    locked = [str(i) for i, b in enumerate(blocks) if b.get("locked")]
-    if locked:
-        lines.append(f"# LOCKED:{','.join(locked)}")
+    # LOCKED indices count EXECUTABLE blocks only — same numbering the
+    # parser applies when reading back (markers/comment lines don't count).
+    locked: list[str] = []
+    exe_i = -1
     for block in blocks:
         btype = str(block.get("type", "")).strip()
-        val   = str(block.get("value", "")).strip()
         if not btype:
             continue
-        lines.append(f"{btype}:{val}" if val else btype)
+        if btype in ("GROUP", "GROUP_END", "SECTION", "SECTION_END", "COMMENT", "LOCK", "LOCK_END"):
+            continue
+        if block.get("locked"):
+            locked.append(str(exe_i + 1))
+        exe_i += 1
+    if locked:
+        lines.append(f"# LOCKED:{','.join(locked)}")
+
+    body: list[str] = []
+    for block in blocks:
+        btype = str(block.get("type", "")).strip()
+        val = str(block.get("value", "")).strip()
+        if not btype:
+            continue
+        if btype == "COMMENT":
+            body.append(f"# {val}")
+        elif btype == "GROUP":
+            body.append(f"# GROUP:{val}")
+        elif btype == "GROUP_END":
+            body.append("# GROUP_END")
+        elif btype == "SECTION":
+            body.append(f"# SECTION:{val}")
+        elif btype == "SECTION_END":
+            body.append("# SECTION_END")
+        elif btype == "LOCK":
+            body.append("LOCK:")
+        elif btype == "LOCK_END":
+            body.append("LOCK_END:")
+        else:
+            body.append(f"{btype}:{val}" if val else btype)
+
+    blob = _blockly_pack(blockly, lines + body)
+    if blob:
+        lines.append(blob)
+    lines.extend(body)
     return "\n".join(lines) + "\n"
 
 
@@ -523,18 +1101,107 @@ def _write_macro_atomic(path: str, text: str) -> None:
     os.replace(tmp_path, path)
 
 
-def _save_macro_file(path: str, name: str, blocks: list[dict], sensitivity: dict) -> dict:
+_MACRO_MARKERS = frozenset({
+    "GROUP", "GROUP_END", "COMMENT", "SECTION", "SECTION_END", "LOCK", "LOCK_END",
+})
+
+
+def _exec_count(blocks) -> int:
+    n = 0
+    for b in blocks or []:
+        t = str((b or {}).get("type") or "").strip()
+        if t and t not in _MACRO_MARKERS:
+            n += 1
+    return n
+
+
+def _backup_macro(path: str) -> None:
+    """Keep one rolling .bak next to the file so a bad save is recoverable."""
+    try:
+        if not path or not os.path.isfile(path) or os.path.getsize(path) < 8:
+            return
+        shutil.copy2(path, path + ".bak")
+    except Exception:
+        pass
+
+
+def _resolve_macro_open_path(path: str) -> str:
+    """Absolute path, or a workspace/global .macro that matches the basename."""
+    raw = str(path or "").strip().strip('"')
+    if not raw:
+        return ""
+    cand = os.path.abspath(os.path.normpath(raw.replace("/", os.sep)))
+    if os.path.isfile(cand):
+        return cand
+    base = os.path.basename(raw.replace("\\", "/"))
+    if not base:
+        return cand
+    want = os.path.normcase(base)
+    hit = ""
+    for m in _list_macros():
+        if os.path.normcase(os.path.basename(m["path"])) != want:
+            continue
+        hit = m["path"]
+        # prefer a path that still looks like the request (resources/macros)
+        req = raw.replace("\\", "/").lower()
+        got = m["path"].replace("\\", "/").lower()
+        if "resources/macros" in req and "resources/macros" in got:
+            return m["path"]
+        if "/macros/" in req and "/macros/" in got:
+            return m["path"]
+    return hit or cand
+
+
+def _save_macro_file(path: str, name: str, blocks: list[dict], sensitivity: dict,
+                     blockly=None, blockly_xml=None) -> dict:
+    """Save a macro — v3 container (.macro zip) with a legacy-text fallback.
+
+    Container members: manifest.json / generated_code.txt (always
+    regenerated from the current steps) / blockly.xaml (the editor's
+    exact workspace — absent when stale, e.g. recording appends) /
+    images/ (every referenced image, embedded). If the zip write fails
+    (read-only dir, broken zip module) the file degrades to legacy text.
+    """
     global current_path, current_macro
     path = _normalize_save_path(path, name)
     name = str(name or _macro_name_from_path(path) or "macro").strip() or "macro"
     sensitivity = _normalize_sensitivity(sensitivity)
     blocks = _normalize_blocks(blocks)
-    text = _build_macro_text(name, sensitivity, blocks)
+
+    if os.path.isfile(path):
+        try:
+            old_blocks = _parse_macro_text(_read_macro_text(path)).get("blocks") or []
+        except Exception:
+            old_blocks = []
+        if _exec_count(old_blocks) > 0 and _exec_count(blocks) == 0:
+            log.warning("refusing to overwrite %s with 0 steps (had %s)", path, _exec_count(old_blocks))
+            try:
+                parsed = _parse_macro_text(_read_macro_text(path))
+            except Exception:
+                parsed = {"blocks": old_blocks, "meta": {}}
+            current_path = path
+            current_macro = _macro_name_from_path(path)
+            return {
+                "ok": False,
+                "refused": True,
+                "error": "Refusing to overwrite a recorded macro with an empty canvas.",
+                "path": path,
+                "name": current_macro,
+                "blocks": parsed.get("blocks") or old_blocks,
+                "meta": parsed.get("meta") or {},
+                "block_count": len(parsed.get("blocks") or old_blocks),
+                "container": _container.is_container_file(path),
+                "blockly": None,
+                "blocklyXml": None,
+            }
+        _backup_macro(path)
+
+    # Plain v1 text only — this bot's .macro files stay plain text, never
+    # zip containers. The runtime (macro_runner) reads these lines directly.
+    text = _build_macro_text(name, sensitivity, blocks, blockly)
     _write_macro_atomic(path, text)
 
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        saved_text = f.read()
-    parsed = _parse_macro_text(saved_text)
+    parsed = _parse_macro_text(_read_macro_text(path))
 
     current_path = path
     current_macro = _macro_name_from_path(path)
@@ -547,11 +1214,16 @@ def _save_macro_file(path: str, name: str, blocks: list[dict], sensitivity: dict
         "blocks": parsed["blocks"],
         "meta": parsed["meta"],
         "block_count": len(parsed["blocks"]),
+        "container": False,
+        # echo the editor's own workspace state back so the client never
+        # loses its saved workspace after a manual save (the old 1:1 bug)
+        "blockly": blockly,
+        "blocklyXml": blockly_xml,
     }
 
 
 def _bot_user_sensitivity() -> dict:
-    """Live Fortnite mouse sensitivity from the bot's shared Config panel."""
+    """Live game mouse sensitivity from the bot's shared Config panel."""
     try:
         import config as _cfg
         uh = float(getattr(_cfg, "USER_SENS_H", 17.0) or 17.0)
@@ -609,8 +1281,7 @@ def _engine_sensitivity_dict() -> dict:
 
 def _macro_meta_for_path(path: str) -> dict:
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            return _parse_macro_text(f.read())["meta"]
+        return _parse_macro_text(_read_macro_text(path))["meta"]
     except Exception:
         return {}
 
@@ -828,10 +1499,181 @@ def _start_recording(sensitivity: dict | None = None) -> bool:
     return engine.start_recording(macro_name, engine.sensitivity)
 
 
+def _lock_envelope_ranges(blocks: list[dict]) -> list[tuple[int, int]]:
+    """Inclusive (start, end) index ranges of top-level LOCK envelopes."""
+    ranges: list[tuple[int, int]] = []
+    i, n = 0, len(blocks or [])
+    while i < n:
+        if blocks[i].get("type") == "LOCK":
+            depth, j = 1, i + 1
+            while j < n and depth > 0:
+                t = blocks[j].get("type")
+                if t == "LOCK":
+                    depth += 1
+                elif t == "LOCK_END":
+                    depth -= 1
+                j += 1
+            ranges.append((i, j - 1))
+            i = j
+        else:
+            i += 1
+    return ranges
+
+
+def _env_signature(blocks: list[dict], rng: tuple[int, int]) -> list[tuple[str, str]]:
+    a, b = rng
+    return [
+        (str(x.get("type") or ""), str(x.get("value") if x.get("value") is not None else ""))
+        for x in blocks[a:b + 1]
+    ]
+
+
+def _restore_lock_envelopes(disk: list[dict], snap: list[dict] | None) -> list[dict]:
+    """Keep every LOCK envelope that existed at record start.
+
+    The stop-time rebuild reads the file as it is NOW — if the editor
+    rewrote it while the recording ran (poll flush, autosave) and that
+    rewrite lost a lock envelope, the purge would eat it. Envelopes the
+    disk lost come back from the start snapshot; an envelope that lost
+    steps gets its full content back. Envelopes created DURING the
+    recording (not in the snapshot) are kept as they are.
+    """
+    if not snap:
+        return disk
+    d_ranges = _lock_envelope_ranges(disk)
+    s_ranges = _lock_envelope_ranges(snap)
+    if not s_ranges:
+        return disk
+    out: list[dict] = []
+    pos = 0
+    for k, (ds, de) in enumerate(d_ranges):
+        out.extend(disk[pos:ds])
+        if k < len(s_ranges):
+            ss, se = s_ranges[k]
+            if _env_signature(disk, (ds, de)) != _env_signature(snap, (ss, se)):
+                from collections import Counter
+                # any snapshot step the disk envelope no longer has → the
+                # whole envelope reverts to the pinned start state
+                lost = Counter(_env_signature(snap, (ss, se))) - Counter(_env_signature(disk, (ds, de)))
+                if lost:
+                    out.extend(snap[ss:se + 1])
+                else:
+                    out.extend(disk[ds:de + 1])
+            else:
+                out.extend(disk[ds:de + 1])
+        else:
+            out.extend(disk[ds:de + 1])
+        pos = de + 1
+    out.extend(disk[pos:])
+    if len(s_ranges) > len(d_ranges):
+        # envelopes that vanished entirely from disk land back above the
+        # fresh recording group, same as every other lock
+        for k in range(len(d_ranges), len(s_ranges)):
+            ss, se = s_ranges[k]
+            out.extend(snap[ss:se + 1])
+    return out
+
+
+def _blocks_surviving_rerecord(base: list[dict]) -> list[dict]:
+    """Locked content that survives a re-record: everything inside a
+    LOCK { ... } envelope (inclusive), locked blocks, and Groups whose
+    body holds locked content or a LOCK envelope. Everything else is
+    wiped; the new recording lands as its own Group at the tail."""
+    out: list[dict] = []
+    i, n = 0, len(base)
+    while i < n:
+        b = base[i]
+        # LOCK { ... } envelope — visible in the file, kept whole
+        if b.get("type") == "LOCK":
+            env: list[dict] = [b]
+            depth, j = 1, i + 1
+            while j < n and depth > 0:
+                t = base[j].get("type")
+                if t == "LOCK":
+                    depth += 1
+                elif t == "LOCK_END":
+                    depth -= 1
+                env.append(base[j])
+                j += 1
+            out.extend(env)
+            i = j
+            continue
+        if not b.get("locked"):
+            # A Group/Section whose BODY holds locked steps survives as a
+            # whole: the .macro format can't put a locked flag on the marker
+            # itself (LOCKED indices skip markers), so the lock rides on
+            # the content — keeping the content but dropping its wrapper
+            # would spill a half-open group into the fresh recording.
+            if b.get("type") in ("GROUP", "SECTION"):
+                depth, j, has_locked = 1, i + 1, False
+                while j < n and depth > 0:
+                    t = base[j].get("type")
+                    if t in ("GROUP", "SECTION"):
+                        depth += 1
+                    elif t in ("GROUP_END", "SECTION_END"):
+                        depth -= 1
+                    if depth > 0 and (base[j].get("locked") or t == "LOCK"):
+                        has_locked = True
+                    j += 1
+                if has_locked:
+                    out.extend(base[i:j])
+                i = j
+                continue
+            i += 1
+            continue
+        out.append(b)
+        if b.get("type") in ("GROUP", "SECTION"):
+            # a locked group/section keeps its whole body through the
+            # matching END marker (inclusive) — a half-kept group would
+            # swallow the new recording below it
+            depth, i = 1, i + 1
+            while i < n and depth > 0:
+                t = base[i].get("type")
+                if t in ("GROUP", "SECTION"):
+                    depth += 1
+                elif t in ("GROUP_END", "SECTION_END"):
+                    depth -= 1
+                out.append(base[i])
+                i += 1
+        else:
+            i += 1
+    return out
+
+
 def _stop_recording_and_save() -> dict:
-    global _record_locked_blocks
-    blocks = list(_record_locked_blocks) + list(engine.stop_recording() or [])
+    global _record_locked_blocks, _record_start_text
+    recorded = list(engine.stop_recording() or [])
     _record_locked_blocks = []
+    prev_version = int(engine.state.get("record_version") or 0)
+    snap_text, _record_start_text = _record_start_text, None
+    snap_blocks: list[dict] | None = None
+    if snap_text:
+        try:
+            snap_blocks = _parse_macro_text(_text_from_bytes(snap_text)).get("blocks", [])
+        except Exception as e:
+            log.warning(f"record rebuild: could not parse start snapshot: {e}")
+    # A re-record WIPES the macro: only Lock blocks (and their content)
+    # survive, and the new recording lands as its own named Group at the
+    # bottom — below all locks. That's the whole point of a lock: pin what
+    # must survive re-recording, F5 again, and only locks + the fresh
+    # recording remain (no manual wipe-and-rerecord in the editor).
+    base: list[dict] = []
+    try:
+        if current_path and os.path.isfile(current_path):
+            base = _parse_macro_text(_read_macro_text(current_path)).get("blocks", [])
+    except Exception as e:
+        log.warning(f"record rebuild: could not re-read {current_path}: {e}")
+    # Safety net: if the file was rewritten between record start and stop
+    # (poll flush / autosave of a stale editor list) and that rewrite
+    # dropped or emptied a LOCK envelope, the pinned start state wins.
+    base = _restore_lock_envelopes(base, snap_blocks)
+    blocks = _blocks_surviving_rerecord(base)
+    if recorded:
+        blocks = blocks + [
+            {"type": "GROUP", "value": f"Recording {prev_version + 1}", "locked": False},
+        ] + recorded + [
+            {"type": "GROUP_END", "value": "", "locked": False},
+        ]
     name = current_macro or "recorded_macro"
     path = current_path or _normalize_save_path("", name)
     result = _save_macro_file(path, name, blocks, _recording_sensitivity or _engine_sensitivity_dict())
@@ -842,6 +1684,20 @@ def _stop_recording_and_save() -> dict:
         record_version=prev_version + 1,
         recording=False,
     )
+    # ── recording undo/redo history (Ctrl+Z / Ctrl+Y in the recorder) ──
+    # pre  = the file exactly as it was when the recording started
+    #        (snapshot; falls back to an empty macro when there was none)
+    # post = the file the recording just wrote
+    try:
+        post_text = _read_macro_payload(result["path"])       # bytes: container-safe
+    except Exception:
+        post_text = _build_macro_text(result["name"], _recording_sensitivity or _engine_sensitivity_dict(), [])
+    pre_text = snap_text if snap_text is not None else _build_macro_text(
+        result["name"], _recording_sensitivity or _engine_sensitivity_dict(), [])
+    _record_history["undo"].append(
+        {"path": result["path"], "name": result["name"], "pre": pre_text, "post": post_text})
+    _record_history["redo"].clear()
+    del _record_history["undo"][:-_RECORD_HISTORY_MAX]
     return result
 
 
@@ -955,7 +1811,8 @@ def _toggle_f6() -> None:
         "SENS_USER_H": engine.sensitivity.user_h,
         "SENS_USER_V": engine.sensitivity.user_v,
     }, current_path)
-    engine.play_path_once(current_path, current_macro, playback_repeat, override)
+    # containers unzip to a clean temp on every playback; legacy files play raw
+    engine.play_path_once(_playback_source(current_path), current_macro, playback_repeat, override)
 
 
 def _toggle_f5() -> None:
@@ -975,16 +1832,19 @@ def _toggle_f5() -> None:
             return
         global _record_locked_blocks
         _record_locked_blocks = _current_locked_blocks()
+        _record_snapshot_start()
         _start_recording()
 
 
 # ── Flask routes ─────────────────────────────────────────────────────────────
 
-
-
 @bp.get("/")
 def index():
-    return render_template("index.html")
+    # send_file, NOT render_template: the dashboard's own templates/index.html
+    # shadows this blueprint template in the shared Jinja loader (the macro
+    # index has zero Jinja vars anyway), which made /me/ render the whole
+    # dashboard inside the recorder iframe — recursive app-in-app nesting.
+    return send_file(os.path.join(ROOT, "templates", "index.html"))
 
 
 @bp.get("/api/bootstrap")
@@ -1009,16 +1869,21 @@ def bootstrap():
 def macro_open():
     """Load a macro file by absolute path."""
     global current_path, current_macro
-    path = os.path.abspath(request.args.get("path", "").strip().strip('"'))
+    path = _resolve_macro_open_path(request.args.get("path", ""))
     if not path or not os.path.isfile(path):
         return jsonify({"ok": False, "error": "File not found"}), 404
 
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            text = f.read()
+        text = _read_macro_text(path)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
+    blockly_xml = None
+    try:
+        if _container.is_container_file(path):
+            blockly_xml = _container.read_blockly_xml(_read_macro_payload(path))
+    except Exception:
+        blockly_xml = None
     parsed        = _parse_macro_text(text)
     current_path  = path
     current_macro = _macro_name_from_path(path)
@@ -1026,11 +1891,13 @@ def macro_open():
         _set_engine_recorded_sens(parsed["meta"])
     _save_state()
     return jsonify({
-        "ok":     True,
-        "name":   current_macro,
-        "path":   current_path,
-        "blocks": parsed["blocks"],
-        "meta":   parsed["meta"],
+        "ok":       True,
+        "name":     current_macro,
+        "path":     current_path,
+        "blocks":   parsed["blocks"],
+        "meta":     parsed["meta"],
+        "blockly":  parsed.get("blockly"),
+        "blocklyXml": blockly_xml,
     })
 
 
@@ -1042,13 +1909,29 @@ def macro_save():
     name       = str(data.get("name", current_macro)).strip() or "macro"
     blocks     = data.get("blocks", [])
     sensitivity = data.get("sensitivity", {})
+    blockly    = data.get("blockly")          # workspace JSON (legacy blob / in-memory state)
+    blockly_xml = data.get("blocklyXml") or data.get("blockly_xml")   # workspace XML 1:1
 
     try:
-        result = _save_macro_file(path, name, blocks, sensitivity)
+        result = _save_macro_file(path, name, blocks, sensitivity, blockly, blockly_xml)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
     return jsonify(result)
+
+
+@bp.post("/api/macro/serialize")
+def macro_serialize():
+    """Serialize the CURRENT in-editor blocks to .macro text (for the code panel)."""
+    data = request.get_json(force=True) or {}
+    name = str(data.get("name", current_macro or "macro")).strip() or "macro"
+    blocks = data.get("blocks", [])
+    sens = data.get("sensitivity") or {}
+    try:
+        text = _build_macro_text(name, sens, blocks)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({"ok": True, "text": text})
 
 
 @bp.post("/api/macro/new")
@@ -1190,7 +2073,7 @@ def tools_image_list():
 @bp.post("/api/tools/image/test")
 def tools_image_test():
     try:
-        from macro_logic import effective_region, image_match_result, truthy
+        from macro_engine.macro_logic import effective_region, image_match_result, truthy
 
         data = request.get_json(silent=True) or {}
         macro_dir = os.path.dirname(os.path.abspath(current_path)) if current_path else MACROS_DIR
@@ -1261,7 +2144,7 @@ def play_macro():
         _countdown_overlay("play")
     repeat = _repeat_value(data.get("repeat", playback_repeat), playback_repeat)
     override = _sensitivity_override(data.get("sensitivity"), path)
-    ok = engine.play_path_once(path, current_macro, repeat, override)
+    ok = engine.play_path_once(_playback_source(path), current_macro, repeat, override)
     return jsonify({"ok": bool(ok)})
 
 
@@ -1311,6 +2194,7 @@ def record_start():
             _minimize_webview_window()
         global _record_locked_blocks
         _record_locked_blocks = _current_locked_blocks()
+        _record_snapshot_start()
         ok = _start_recording(data.get("sensitivity") or {})
     return jsonify({"ok": bool(ok), "recording": bool(ok), "path": current_path, "name": current_macro})
 
@@ -1325,18 +2209,93 @@ def record_stop():
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 500
     result["recording"] = False
-    return jsonify(result)
+    return result
+
+
+def _record_history_apply(entry: dict, which: str) -> dict:
+    """Write an undo/redo history entry to disk and reload it."""
+    global current_path, current_macro
+    _write_macro_payload(entry["path"], entry[which])
+    parsed = _parse_macro_text(_read_macro_text(entry["path"]))
+    current_path = entry["path"]
+    current_macro = entry["name"] or _macro_name_from_path(entry["path"])
+    if parsed["meta"]:
+        _set_engine_recorded_sens(parsed["meta"])
+    _save_state()
+    prev_version = int(engine.state.get("record_version") or 0)
+    engine._set_state(
+        macro=current_macro,
+        record_path=current_path,
+        record_version=prev_version + 1,
+        recording=False,
+    )
+    return {
+        "ok": True,
+        "recording": False,
+        "name": current_macro,
+        "path": current_path,
+        "blocks": parsed["blocks"],
+        "meta": parsed["meta"],
+        "applied": which,
+    }
+
+
+@bp.post("/api/record/undo")
+def record_undo():
+    """Ctrl+Z after a recording: restore the macro as it was before it.
+
+    Removes the fresh recording group and puts back everything the
+    re-record wiped (locks included — the pre state is the exact file
+    that existed when the recording started)."""
+    with _state_lock:
+        if engine.is_recording():
+            return jsonify({"ok": False, "error": "Stop recording first."}), 409
+        if engine.is_running():
+            return jsonify({"ok": False, "error": "Stop playback first."}), 409
+        stack = _record_history["undo"]
+        if not stack or stack[-1]["path"] != current_path:
+            return jsonify({"ok": False, "error": "Nothing to undo."}), 400
+        entry = stack.pop()
+        _record_history["redo"].append(entry)
+        try:
+            return jsonify(_record_history_apply(entry, "pre"))
+        except Exception as e:
+            # never lose the entry to a failed write
+            _record_history["undo"].append(_record_history["redo"].pop())
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.post("/api/record/redo")
+def record_redo():
+    """Ctrl+Y (or Ctrl+Shift+Z): put the undone recording back."""
+    with _state_lock:
+        if engine.is_recording():
+            return jsonify({"ok": False, "error": "Stop recording first."}), 409
+        if engine.is_running():
+            return jsonify({"ok": False, "error": "Stop playback first."}), 409
+        stack = _record_history["redo"]
+        if not stack or stack[-1]["path"] != current_path:
+            return jsonify({"ok": False, "error": "Nothing to redo."}), 400
+        entry = stack.pop()
+        _record_history["undo"].append(entry)
+        try:
+            return jsonify(_record_history_apply(entry, "post"))
+        except Exception as e:
+            _record_history["redo"].append(_record_history["undo"].pop())
+            return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.get("/api/state")
 def get_state():
     with _state_lock:
         smooth = dict(_smooth_move)
+    from version import __version__
     return jsonify({
         "ok": True,
         "state": engine.state,
         "tab_armed": _recorder_tab_open,
         "smooth_move": smooth,
+        "version": __version__,
     })
 
 
@@ -1359,7 +2318,6 @@ def attach_macro_engine(dash_app) -> None:
             globals()["current_path"] = macros[0]["path"]
             globals()["current_macro"] = macros[0]["name"]
     set_recorder_tab_active(False)
-    log.info("Macro Engine attached at /me (F5/F6 hook only while Recorder tab is open)")
 
 
 
@@ -1453,8 +2411,8 @@ threading.Thread(target=watch_parent, daemon=True).start()
 webview.create_window(
     'Macro Engine',
     'http://127.0.0.1:5050',
-    width=1280,
-    height=860,
+    width=1600,
+    height=1075,
     resizable=True,
     min_size=(980, 620),
 )
@@ -1470,7 +2428,7 @@ def _run_webview_window() -> None:
     import webview
     webview.create_window(
         "Macro Engine", "http://127.0.0.1:5050",
-        width=1280, height=860, resizable=True, min_size=(980, 620),
+        width=1600, height=1075, resizable=True, min_size=(980, 620),
     )
     webview.start()
 

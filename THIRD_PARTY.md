@@ -11,3 +11,11 @@ license; none are bundled in this repository.
 The bot uses [Tesseract](https://github.com/tesseract-ocr/tesseract)
 (Apache-2.0) via `pytesseract`. It is not bundled; install it separately or
 place a copy next to the app (see README → Requirements).
+
+## Blockly (bundled)
+
+The visual macro editor (`code/editor/`, `code/blockly/`) embeds a build of
+[Blockly](https://developers.google.com/blockly) by Google LLC, licensed
+under the Apache License 2.0. The minified core
+(`code/blockly/lib/blockly.min.js`), its English messages (`en.js`) and the
+media sprites are unmodified upstream build outputs.

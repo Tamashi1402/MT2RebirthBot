@@ -214,13 +214,13 @@ _SCALED_REGION_KEYS = [
     "DRILL_ACTIVE_REGION",
     "A6_STARDUST_REGION",
     "A6_STAR_LEVEL_REGION",
-    "MAP_A5_REGION",
-    "MAP_A6_REGION",
-    "MAP_BASE_REGION",
     "MAP_BLACK_REGION",
     "QUEST_PANEL1_TEXT_REGION", "QUEST_PANEL2_TEXT_REGION", "QUEST_PANEL3_TEXT_REGION",
     "QUEST_HUD1_DONE_REGION", "QUEST_HUD2_DONE_REGION", "QUEST_HUD3_DONE_REGION",
     "HATCH_AREA1_TEXT_REGION",
+    # Force Restart flow v2 (OCR regions, 1920x1080 base)
+    "FORCE_PLAY_OCR_REGION", "FORCE_GAME_TITLE_REGION",
+    "FORCE_SEARCH_DISCOVER_REGION", "FORCE_SELECT_OCR_REGION",
 ]
 _SCALED_POINT_KEYS = [
     "MANUAL_STR_CLOSE_CENTER", "DELVE_JOIN_CENTER", "KRAKEN_JOIN_CENTER",
@@ -247,6 +247,7 @@ _SCALED_POINT_KEYS = [
     "FORCE_ESC_SAMPLE", "FORCE_MENU_CLICK",
     "FORCE_EXIT_SAMPLE", "FORCE_LOBBY_CLICK",
     "FORCE_READY_SAMPLE", "FORCE_READY_CLICK",
+    "FORCE_SEARCH_CLICK", "FORCE_GAME_BILLBOARD_CLICK", "FORCE_SELECT_CLICK",
     "FORCE_SHARD_SAMPLE",
     "QUEST_PANEL1_BTN", "QUEST_PANEL2_BTN", "QUEST_PANEL3_BTN",
     "QUEST_CLOSE_CLICK", "QUEST_CLOSE_SAMPLE",
@@ -262,6 +263,10 @@ _SCALED_POINT_KEYS = [
 # Never scale from previously-scaled config values — that is what broke
 # OCR after a wrong-ratio scale in 1.7.
 DEFAULT_REGIONS = {
+    "FORCE_PLAY_OCR_REGION": (100, 887, 417, 942),
+    "FORCE_GAME_TITLE_REGION": (83, 665, 438, 704),
+    "FORCE_SEARCH_DISCOVER_REGION": (147, 145, 883, 201),
+    "FORCE_SELECT_OCR_REGION": (89, 898, 392, 935),
     "STONE_ICON_REGION": (1629, 657, 1704, 727),
     "STONE_REGION": (1700, 659, 1919, 721),
     "STRENGTH_REGION": (1698, 602, 1919, 655),
@@ -312,12 +317,6 @@ DEFAULT_REGIONS = {
     "DRILL_ACTIVE_REGION": (28, 697, 124, 728),
     "A6_STARDUST_REGION": (1716, 532, 1919, 583),
     "A6_STAR_LEVEL_REGION": (54, 212, 222, 283),
-    # Area 5 rock on the area boundary (map-loaded). User picker 1920x1080.
-    "MAP_A5_REGION": (935, 328, 1128, 392),
-    # Area 6 3D clouds (map-loaded). User picker 1920x1080.
-    "MAP_A6_REGION": (1339, 410, 1566, 511),
-    # Base top glass (map-loaded). User picker 1920x1080.
-    "MAP_BASE_REGION": (1450, 61, 1556, 145),
     # World view after rebirth (skip HUD). Black-screen fade detect.
     "MAP_BLACK_REGION": (360, 90, 1560, 960),
     # Daily Quests panel text crops (user-measured 1920x1080, wide X for localization).
@@ -333,6 +332,9 @@ DEFAULT_REGIONS = {
     "HATCH_AREA1_TEXT_REGION": (525, 375, 1201, 434),
 }
 DEFAULT_POINTS = {
+    "FORCE_SEARCH_CLICK": (243, 172),
+    "FORCE_GAME_BILLBOARD_CLICK": (225, 493),
+    "FORCE_SELECT_CLICK": (238, 915),
     "MANUAL_STR_CLOSE_CENTER": (1742, 101),
     "DELVE_JOIN_CENTER": (1242, 830),
     "KRAKEN_JOIN_CENTER": (1242, 830),
@@ -644,14 +646,7 @@ TELEPORT_CLOSE_COLOR      = (247, 255, 26)   # #f7ff1a
 # 0 disables shift detection entirely.
 TELEPORT_MENU_SHIFT_DX = float(_cfg.get("TELEPORT_MENU_SHIFT_DX", 663) or 0)
 REBIRTH_BTN2_COLOR        = (191, 196, 200)  # #bfc4c8
-MAP_A5_REGION             = tuple(int(x) for x in _cfg.get("MAP_A5_REGION",             [935, 328, 1128, 392]))
-MAP_A6_REGION             = tuple(int(x) for x in _cfg.get("MAP_A6_REGION",             [1339, 410, 1566, 511]))
-MAP_BASE_REGION           = tuple(int(x) for x in _cfg.get("MAP_BASE_REGION",           [1450, 61, 1556, 145]))
 MAP_BLACK_REGION          = tuple(int(x) for x in _cfg.get("MAP_BLACK_REGION",          [360, 90, 1560, 960]))
-MAP_A5_SKY_RGB            = (227, 91, 156)   # #e35b9c pink skybox (map not loaded)
-MAP_A6_SKY_RGB            = (0, 175, 219)    # #00afdb blue skybox (map not loaded)
-MAP_LOAD_TIMEOUT_SECONDS  = float(_cfg.get("MAP_LOAD_TIMEOUT_SECONDS", 5.0))
-MAP_LOAD_SETTLE_SECONDS   = float(_cfg.get("MAP_LOAD_SETTLE_SECONDS", 0.50))
 
 # ── Daily Quests (rebirth rail) ────────────────────────────────────────────────
 # 1920x1080 authoring coords — auto-scaled at runtime (see _SCALED_*_KEYS).
@@ -769,10 +764,9 @@ if FARM_METEOR_AREA not in ("a6", "a7", "a8"):
 METEOR_HEALTH_CHECK = _cfg_bool("METEOR_HEALTH_CHECK", True)
 FIXED_A5_HIT_TIME = _t("FIXED_A5_HIT_TIME", int, 60)
 HIT_ROCKS = _cfg_bool("HIT_ROCKS", True)
-# Map load detection: ON reads the base/A5/A6 map box colors before playing
-# the next action/macro. OFF skips detection and waits a fixed delay instead.
-DETECT_MAP_LOADING = _cfg_bool("DETECT_MAP_LOADING", True)
-MAP_LOAD_FIXED_SECONDS = float(_cfg.get("MAP_LOAD_FIXED_SECONDS", 1.0) or 1.0)
+# Single fixed settle after every teleport / map load (the old per-area
+# base/A5/A6 color detection is gone).
+MAP_LOAD_FIXED_SECONDS = float(_cfg.get("MAP_LOAD_FIXED_SECONDS", 0.5) or 0.5)
 HIT_BASEROCK = _cfg_bool("HIT_BASEROCK", True)
 HIT_A5_METEOR = _cfg_bool("HIT_A5_METEOR", True)
 FARM_METEOR_NODE_FARM_SECONDS = float(_cfg.get("FARM_METEOR_NODE_FARM_SECONDS", 10.0) or 10.0)
@@ -955,8 +949,6 @@ def _perf_value(key: str, fast: float, normal: float, slow: float) -> float:
 # takes effect immediately — the getters below just return the attribute.
 UI_CLICK_SETTLE = _perf_value("UI_CLICK_SETTLE", 0.10, 0.10, 0.55)
 UI_BTN_SETTLE = _perf_value("UI_BTN_SETTLE", 0.10, 0.10, 0.17)
-MAP_LOAD_SETTLE = _perf_value("MAP_LOAD_SETTLE", 0.30, 0.55, 1.05)
-DEST_FIXED_SETTLE = _perf_value("DEST_FIXED_SETTLE", 0.40, 0.55, 0.85)
 LOBBY_SETTLE = _perf_value("LOBBY_SETTLE", 1.0, 5.0, 10.0)
 LOBBY_READY_SETTLE = _perf_value("LOBBY_READY_SETTLE", 5.0, 10.0, 15.0)
 LOBBY_STEP_DELAY = _perf_value("LOBBY_STEP_DELAY", 0.25, 0.50, 1.00)
@@ -971,17 +963,8 @@ def ui_btn_settle() -> float:
     return UI_BTN_SETTLE
 
 
-def map_load_settle() -> float:
-    return MAP_LOAD_SETTLE
-
-
 def startup_settle() -> float:
     return max(0.0, float(STARTUP_SETTLE_SECONDS or 0.35))
-
-
-def dest_fixed_delay() -> float:
-    """Area 7 / 8 have no color sample yet."""
-    return DEST_FIXED_SETTLE
 
 
 def lobby_settle() -> float:
@@ -1029,7 +1012,59 @@ REBIRTH_CHECK_DELAY   = int(_cfg.get("REBIRTH_CHECK_DELAY",   5))
 REBIRTH_SETTLE_WAIT   = int(_cfg.get("REBIRTH_SETTLE_WAIT",   3))
 REBIRTH_POST_CONFIRM_WAIT = float(_cfg.get("REBIRTH_POST_CONFIRM_WAIT", 1.0))  # wait AFTER rebirth confirmed before teleporting to base
 FOCUS_RECHECK_DELAY   = float(_cfg.get("FOCUS_RECHECK_DELAY",   1.0))
-MENU_RESUME_JOIN_WAIT = int(_cfg.get("MENU_RESUME_JOIN_WAIT",   30))   # seconds to wait after pressing PLAY before checking for stone icon
+MENU_RESUME_JOIN_WAIT = int(_cfg.get("MENU_RESUME_JOIN_WAIT",  120))   # seconds to wait after pressing PLAY for the game to load (a join can take 30s-2min)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Force Restart flow v2 — three-state recovery + OCR lobby navigation +
+# wrong-game map search. All values editable in Global Force Restart settings.
+# ─────────────────────────────────────────────────────────────────────────────
+# State 3 of the three-state recovery: after all GUIs are closed and the
+# in-game image is still missing, wait up to this long for the HUD image or
+# the lobby menu (a join can legitimately take 30s-2min) before giving up
+# and leaving to the lobby. Default 120s.
+FORCE_NOTINGAME_WAIT     = int(_cfg.get("FORCE_NOTINGAME_WAIT",     120))
+# ── Display probe (display-off diagnostic logging) ──────────────────────────
+# Background thread grabs the full screen every DISPLAY_PROBE_SECONDS and logs
+# black/dark/vivid ratios, grab latency, monitor count, foreground window and
+# the GAME_DETECT result, bracketing any display-off window in the log.
+# Grep "[DISPLAY]" after a display-off test. Set DISPLAY_PROBE_ENABLED=False
+# to silence it completely.
+DISPLAY_PROBE_ENABLED     = _cfg_bool("DISPLAY_PROBE_ENABLED",     True)
+DISPLAY_PROBE_SECONDS     = float(_cfg.get("DISPLAY_PROBE_SECONDS", 30))
+# Lobby menu search window (PLAY OCR + scroll-up drift protection).
+FORCE_MENU_TIMEOUT       = int(_cfg.get("FORCE_MENU_TIMEOUT",       60))
+# Pause between "MT2 already selected" and the PLAY press. Default 5s.
+FORCE_PLAY_SETTLE        = float(_cfg.get("FORCE_PLAY_SETTLE",      5.0))
+# Island code typed into Search Discover when the wrong game is selected.
+FORCE_MAP_CODE           = str(_cfg.get("FORCE_MAP_CODE",          "2311-7649-8274")).strip()
+# Map search: max seconds to wait for the picked game-logo billboard image.
+FORCE_MAP_SEARCH_TIMEOUT = int(_cfg.get("FORCE_MAP_SEARCH_TIMEOUT", 30))
+# Map search: how many full attempts (scroll-up reset -> type -> search)
+# before giving up. Each miss resets the search and runs it again.
+FORCE_MAP_SEARCH_ATTEMPTS = int(_cfg.get("FORCE_MAP_SEARCH_ATTEMPTS", 3))
+# Map search: max seconds to wait for the SELECT button after the billboard.
+FORCE_SELECT_TIMEOUT     = int(_cfg.get("FORCE_SELECT_TIMEOUT",     30))
+# Map search: max seconds to wait for the title to read Miner Tycoon 2 again.
+FORCE_TITLE_TIMEOUT      = int(_cfg.get("FORCE_TITLE_TIMEOUT",      30))
+# OCR alias lists (comma-separated, normalized: case/punctuation ignored).
+FORCE_OCR_PLAY_ALIASES   = str(_cfg.get("FORCE_OCR_PLAY_ALIASES",   "play"))
+FORCE_OCR_TITLE_ALIASES  = str(_cfg.get("FORCE_OCR_TITLE_ALIASES",  "miner tycoon 2,minertycoon2,miner tycoon,miner"))
+FORCE_OCR_SEARCH_ALIASES = str(_cfg.get("FORCE_OCR_SEARCH_ALIASES", "search discover,search,discover"))
+FORCE_OCR_SELECT_ALIASES = str(_cfg.get("FORCE_OCR_SELECT_ALIASES", "select"))
+# OCR regions (1920x1080 base coords, scaled at runtime).
+FORCE_PLAY_OCR_REGION    = tuple(int(x) for x in _cfg.get("FORCE_PLAY_OCR_REGION",    [100, 887, 417, 942]))
+FORCE_GAME_TITLE_REGION  = tuple(int(x) for x in _cfg.get("FORCE_GAME_TITLE_REGION",  [83, 665, 438, 704]))
+FORCE_SEARCH_DISCOVER_REGION = tuple(int(x) for x in _cfg.get("FORCE_SEARCH_DISCOVER_REGION", [147, 145, 883, 201]))
+FORCE_SELECT_OCR_REGION  = tuple(int(x) for x in _cfg.get("FORCE_SELECT_OCR_REGION",  [89, 898, 392, 935]))
+# Map search click points (1920x1080 base coords, scaled at runtime).
+FORCE_SEARCH_CLICK         = tuple(int(x) for x in _cfg.get("FORCE_SEARCH_CLICK",         [243, 172]))
+FORCE_GAME_BILLBOARD_CLICK = tuple(int(x) for x in _cfg.get("FORCE_GAME_BILLBOARD_CLICK", [225, 493]))
+FORCE_SELECT_CLICK         = tuple(int(x) for x in _cfg.get("FORCE_SELECT_CLICK",         [238, 915]))
+# Map-search game-logo billboard image (picked via the Force Restart tab,
+# no default: wrong-game recovery without it stops the bot with an error).
+FORCE_GAME_LOGO_IMAGE     = str(_cfg.get("FORCE_GAME_LOGO_IMAGE", "")).strip()
+FORCE_GAME_LOGO_BOX       = list(_cfg.get("FORCE_GAME_LOGO_BOX", []))
+FORCE_GAME_LOGO_SCREEN    = list(_cfg.get("FORCE_GAME_LOGO_SCREEN", []))
 STONE_ICON_MISSING_WAIT = int(_cfg.get("STONE_ICON_MISSING_WAIT", 3))   # seconds to wait after stone icon disappears before attempting menu resume / soft-kill
 MENU_APPEAR_WAIT      = int(_cfg.get("MENU_APPEAR_WAIT",      60))  # seconds to wait for the menu to appear after kick, before checking for PLAY button
 
@@ -1076,13 +1111,11 @@ KRAKEN_DRILL_ENABLED = _cfg_bool("KRAKEN_DRILL_ENABLED", False)
 KRAKEN_DRILL_INTERVAL_SECONDS = float(_cfg.get("KRAKEN_DRILL_INTERVAL_SECONDS", 10.0))
 KRAKEN_HEALTH_BAR_REGION = tuple(int(x) for x in _cfg.get("KRAKEN_HEALTH_BAR_REGION", [610, 55, 1328, 122]))
 KRAKEN_HEALTH_BAR_SEEN_THRESH = float(_cfg.get("KRAKEN_HEALTH_BAR_SEEN_THRESH", 0.015))
-KRAKEN_HB_CONFIRM_WINDOW_SECONDS = float(_cfg.get("KRAKEN_HB_CONFIRM_WINDOW_SECONDS", 2.5))  # seconds to watch after bar gone: no black screen = kill
-KRAKEN_HB_EXTENDED_WINDOW_SECONDS = float(_cfg.get("KRAKEN_HB_EXTENDED_WINDOW_SECONDS", 5.0))  # extra watch after confirm window: still no black screen = kill confirmed
+KRAKEN_HB_CONFIRM_WINDOW_SECONDS = float(_cfg.get("KRAKEN_HB_CONFIRM_WINDOW_SECONDS", 1.5))  # single watch window after bar gone: no black screen = kill (default 1.5s)
 KRAKEN_POST_HB_LOSS_SHOOT_SECONDS = float(_cfg.get("KRAKEN_POST_HB_LOSS_SHOOT_SECONDS", 1.5))  # keep firing this long after the health bar disappears
 KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS = float(_cfg.get("KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS", 8.0))  # max seconds to wait for the boss health bar to appear after joining
-KRAKEN_POST_KILL_WAIT_SECONDS    = float(_cfg.get("KRAKEN_POST_KILL_WAIT_SECONDS",    0.0))  # optional settle before post-fight walk (0 = immediate)
-KRAKEN_REWARD_WALK_SECONDS = float(_cfg.get("KRAKEN_REWARD_WALK_SECONDS", 5.0))  # max seconds to walk looking for CLOSE button after teleport
-KRAKEN_REWARD_OPEN_WAIT_SECONDS = float(_cfg.get("KRAKEN_REWARD_OPEN_WAIT_SECONDS", 1.0))
+KRAKEN_REWARD_OPEN_WAIT_SECONDS = float(_cfg.get("KRAKEN_REWARD_OPEN_WAIT_SECONDS", 0.5))  # settle after reward walk before checking menu (default 0.5s)
+KRAKEN_REWARD_WALK_SECONDS = float(_cfg.get("KRAKEN_REWARD_WALK_SECONDS", 4.0))  # fixed forward walk after the kill, spamming E, until the reward NPC menu opens (default 4.0s)
 
 # -- Zytos mode (mirrors Kraken, separate config) --
 ZYTOS_CLOSE_REGION = tuple(int(x) for x in _cfg.get("ZYTOS_CLOSE_REGION", list(KRAKEN_CLOSE_REGION)))
@@ -1138,10 +1171,9 @@ MANUAL_STR_MAX_SECONDS    = int(_cfg.get("MANUAL_STR_MAX_SECONDS",     60))
 MANUAL_STR_IDLE_WAIT      = float(_cfg.get("MANUAL_STR_IDLE_WAIT",     3.0))
 MANUAL_STR_CLOSE_YELLOW_THRESH = float(_cfg.get("MANUAL_STR_CLOSE_YELLOW_THRESH", 0.45))
 MANUAL_STR_MOVE_SETTLE_DELAY = float(_cfg.get("MANUAL_STR_MOVE_SETTLE_DELAY", 0.012))
-MANUAL_STR_CLICK_DELAY = float(_cfg.get("MANUAL_STR_CLICK_DELAY", 0.010))
-# MANUAL_STR_CLICK_DELAY_MS / MANUAL_STR_DOWNUP_MS removed: click pacing in the
-# strength menu is hardcoded to 1ms in manual_strength.py (see comment there).
-MANUAL_STR_POST_CLICK_DELAY = float(_cfg.get("MANUAL_STR_POST_CLICK_DELAY", 0.013))
+# Click pacing lives in MANUAL_STR_CLICK_DELAY_MS / MANUAL_STR_CLICK_HOLD_MS
+# (defaults 1ms, floors 1ms). The old MANUAL_STR_CLICK_DELAY (0.010s) /
+# MANUAL_STR_POST_CLICK_DELAY keys were dead and are removed.
 _mslr = _cfg.get("MANUAL_STR_ONLY_LAST_ROW", True)
 MANUAL_STR_ONLY_LAST_ROW = _mslr if isinstance(_mslr, bool) else str(_mslr).strip().lower() in ("true", "1", "yes", "on")
 MANUAL_STR_NO_STRENGTH_TIMEOUT = float(_cfg.get("MANUAL_STR_NO_STRENGTH_TIMEOUT", 30.0 if MANUAL_STR_CLICK_METHOD == "default" else 60.0))
@@ -1365,6 +1397,33 @@ ZYTOS_SQUARE_HOLD_SECONDS = float(_cfg.get("ZYTOS_SQUARE_HOLD_SECONDS", 2.0))
 BASE_ROCK_DRILL_PRESSES = int(_cfg.get("BASE_ROCK_DRILL_PRESSES",   6))
 USE_SHORTCUTS = _cfg_bool("USE_SHORTCUTS", True)
 FORCE_RESTART_ON_FAILURE = _cfg_bool("FORCE_RESTART_ON_FAILURE", False)
+
+# ── Game Detection (In-Game image detection, Force Restart tab) ─────────────
+# User-picked always-visible HUD element (MT2 logo / stone icon / shard icon).
+# No default is shipped — nothing is active until the user picks an image
+# from the dashboard (F2 pipette, same as MacroForge). The picked PNG lives
+# in data/game_detect/ with its pick box/point embedded (mfmeta tEXt chunk).
+GAME_DETECT_IMAGE = str(_cfg.get("GAME_DETECT_IMAGE", "") or "").strip()   # filename in data/game_detect/
+def _game_detect_box_default():
+    v = _cfg.get("GAME_DETECT_BOX", [])
+    if isinstance(v, (list, tuple)) and len(v) == 4:
+        try:
+            return [int(round(float(x))) for x in v]
+        except (TypeError, ValueError):
+            return []
+    return []
+GAME_DETECT_BOX = _game_detect_box_default()           # [x1, y1, x2, y2] at pick-time screen res
+def _game_detect_screen_default():
+    v = _cfg.get("GAME_DETECT_SCREEN", [])
+    if isinstance(v, (list, tuple)) and len(v) >= 2:
+        try:
+            return [int(v[0]), int(v[1])]
+        except (TypeError, ValueError):
+            return []
+    return []
+GAME_DETECT_SCREEN = _game_detect_screen_default()     # [w, h] the box was picked at
+GAME_DETECT_DIFF = float(_cfg.get("GAME_DETECT_DIFF", 5.0))  # max image difference % counted as "in game"
+GAME_DETECT_DIFF = min(100.0, max(0.0, GAME_DETECT_DIFF))
 
 
 # Nova sync removed

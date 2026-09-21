@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>MT2 Recorder</title>
-  <link rel="stylesheet" href="/me/static/style.css?v=40">
+  <title>Macro Forge Recorder</title>
+  <script>if(window.parent!==window)document.documentElement.classList.add('embedded');</script>
+  <link rel="stylesheet" href="/me/static/style.css?v=41">
 </head>
 <body>
   <header id="topbar">
@@ -41,10 +42,14 @@
     <div class="topbar-sep"></div>
     <div id="macroTopLabel" class="top-macro-label">No macro</div>
     <div class="topbar-spacer"></div>
-    <div class="top-hint">F5 record · F6 play</div>
+    <div id="appVersion" class="top-hint" title="MacroForge build"></div>
+    <div class="top-hint">F5 record · F6 play · Ctrl+Z undo recording</div>
   </header>
 
   <div id="layout">
+    <div id="blockly-mount">
+      <iframe id="macro-blockly-frame" src="/editor/macro-editor.html?v=217" title="Macro Editor"></iframe>
+    </div>
     <aside id="left-sidebar">
       <div class="sb-body">
         <button class="sb-item block-category" data-category="mouse" title="Mouse">
@@ -441,6 +446,39 @@
   </div>
 
   <script>window.MACRO_ENGINE_BASE="/me";</script>
-  <script src="/me/static/app.js?v=40"></script>
+  <script src="/me/static/app.js?v=42"></script>
+<script>
+// heartbeat: while this page (the macro editor tab) is OPEN — visible OR
+// hidden — the engine keeps the smooth tracker off, so L is never stolen
+// (typing in blockly fields, game input while this tab sits in the
+// background). Only closing the tab hands L back to the recorder.
+(function () {
+  var url = '/me/api/editor_focus';
+  function post(open) {
+    try {
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ open: !!open })
+      }).catch(function () {});
+    } catch (e) {}
+  }
+  function beacon(open) {
+    // survives page freeze/focus loss better than fetch
+    try {
+      navigator.sendBeacon(url, new Blob([JSON.stringify({ open: !!open })],
+        { type: 'application/json' }));
+    } catch (e) { post(open); }
+  }
+  // visible: every 5s; hidden: browsers throttle to ~1/min — still well
+  // inside the server's staleness window. No visibility gating: a hidden
+  // tab is still an OPEN tab, and L must stay free.
+  setInterval(function () { post(true); }, 5000);
+  document.addEventListener('visibilitychange', function () { beacon(true); });
+  window.addEventListener('pagehide', function () { beacon(false); });
+  window.addEventListener('beforeunload', function () { post(false); });
+  post(true);
+})();
+</script>
 </body>
 </html>

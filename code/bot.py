@@ -54,7 +54,6 @@ from screen        import (
     rock_health_bar_metrics,
     meteor_health_bar_metrics,
     meteor_health_bar_seen,
-    is_stone_icon_visible,
     is_auto_strength_active,
     is_in_menu, is_rebirth_screen, grab_region, get_menu_play_center, kraken_health_bar_seen, save_debug_fullscreen,
     read_bramble_mode_text, bramble_mode_matches,
@@ -571,8 +570,7 @@ def _farm_env_bits() -> str:
     except Exception:
         pass
     try:
-        from screen import is_stone_icon_visible
-        bits.append(f"icon={'yes' if is_stone_icon_visible() else 'NO'}")
+        bits.append(f"ingame={'yes' if _stone_icon_visible_restart_image() else 'NO'}")
     except Exception:
         pass
     try:
@@ -1372,6 +1370,12 @@ def _on_f8_start():
         log.info("Hotkey F8 ignored: loadouts not set")
         return
 
+    if missing_game_detection():
+        _block_for_missing_game_detection()
+        cprint("Hotkey F8  |  in-game image detection not set", "warn")
+        log.info("Hotkey F8 ignored: Force Restart needs In-Game image detection")
+        return
+
     # Force start state from hotkey even if dashboard flags are slightly stale.
     _KILLED = False
     _STONE_LOST = False
@@ -1441,7 +1445,28 @@ _FORCE_RESTART_STONE_ICON_IMAGE = {
 
 
 def _stone_icon_visible_restart_image() -> bool:
-    """Use the same fixed 90% image check as force_restart.macro."""
+    """In-game HUD verification for force restart / menu resume / crater.
+
+    Primary: Game Detection — the user-picked always-visible HUD image
+    (Force Restart tab), compared against the live region with a mean
+    image-difference check (default 5% max difference counts as in game).
+    Fallback when nothing is picked: the legacy fixed 90% template check
+    (images/1920x1080_inGame.png), same as force_restart.macro used.
+    """
+    try:
+        from game_detect import game_detect_result
+        res = game_detect_result()
+        if res.get("set"):
+            ok = res.get("ok")
+            if ok is not None:
+                _diff = res.get("diff")
+                log.debug(
+                    f"[GAME_DETECT] diff={_diff:.2f}% thresh={res.get('threshold')}% ok={ok}"
+                )
+                return bool(ok)
+            log.warning("[GAME_DETECT] check could not run (capture/template) — falling back")
+    except Exception as _e:
+        log.debug(f"[GAME_DETECT] result failed: {_e}")
     try:
         from macro_logic import image_match_result
         bot_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
@@ -1457,20 +1482,14 @@ def _stone_icon_visible_restart_image() -> bool:
 
 
 def _in_game_ready_for_macros() -> bool:
-    """True only in a real match. The inGame template alone can match a loading screen."""
+    """True only in a real match. The inGame template alone can match a
+    loading screen, so this is the full check: the user-picked in-game
+    HUD image when set, else the legacy inGame template."""
     try:
-        icon = bool(is_stone_icon_visible())
-    except Exception:
-        icon = False
-    img = False
-    try:
-        img = bool(_stone_icon_visible_restart_image())
-    except Exception:
-        img = False
-    if img and not icon:
-        log.warning("[MENU_RESUME] in-game template matched but stone icon missing — not in a match")
+        return bool(_stone_icon_visible_restart_image())
+    except Exception as e:
+        log.warning(f"[MENU_RESUME] in-game check failed: {e}")
         return False
-    return bool(icon)
 
 
 def _do_menu_resume(debug: bool = False) -> bool:
@@ -1953,18 +1972,22 @@ def _start_stone_watcher():
                     )
             except Exception as _rec_e:
                 log.debug(f"[Recorder] record_frame error: {_rec_e}")
-            if _KILLED or _stone_frozen or _manual_strength_active or _REBIRTH_IN_PROGRESS:
-                miss_count = 0   # reset while frozen/manual/killed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â don't falsely trigger
+            if _KILLED or _stone_frozen or _REBIRTH_IN_PROGRESS:
+                miss_count = 0   # reset while frozen/killed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â don't falsely trigger
                 continue
-            if is_stone_icon_visible():
+            if _stone_icon_visible_restart_image():
                 miss_count = 0
             else:
                 try:
                     from manual_strength import is_window_open as _manual_window_open
                     if _manual_window_open():
+                        # Strength window (close button visible) = manual strength
+                        # legitimately running — the HUD image may be covered.
                         # Never close it from the watcher — closing it mid-tag
                         # froze the bot at the rock (window opened, watcher closed it).
-                        log.debug("[WATCHER] strength window up — ignore stone-icon miss")
+                        # Window CLOSED + image missing = stuck outside game ->
+                        # the miss counts and recovery takes over.
+                        log.debug("[WATCHER] strength window up — ignore in-game miss")
                         miss_count = 0
                         continue
                 except Exception as e:
@@ -2654,6 +2677,40 @@ def _try_force_restart_after_failure(reason: str, ds_snap: dict | None = None) -
     if _KILLED or not _force_restart_enabled(ds_snap):
         return False
 
+    # ── Three-state check: in game? GUI open? clearly not in game? ──
+    # Runs BEFORE leaving anything. Most "failures" are a stray GUI or a
+    # slow join — those recover without touching the lobby, and if we are
+    # already in the lobby menu we join straight from there (no ESC round
+    # trip, no chance to land on the wrong game).
+    try:
+        from fr_flow import three_state_recovery as _tsr, menu_join_flow as _mjf
+        state = _tsr(tag=reason)
+        if state == "in_game":
+            log.info(f"[FORCE_RESTART] three-state: in game \u2014 recovered without leaving ({reason})")
+            return True
+        if state == "menu":
+            log.info("[FORCE_RESTART] three-state: already in the lobby menu \u2014 joining Miner Tycoon 2")
+            if _mjf(reason):
+                if _KILLED:
+                    return False
+                _WAITING_FOR_START = False
+                _at_base = False
+                _menu_resume_fresh_start = True
+                _dash_update(
+                    killed=False,
+                    run_active=False,
+                    waiting_for_start=False,
+                    status="RESTART",
+                    goal="Restarting",
+                )
+                set_overlay(status="RESTART", goal="Restarting")
+                log.info("[FORCE_RESTART] menu join OK; starting fresh run")
+                return True
+            log.warning("[FORCE_RESTART] menu join failed \u2014 falling back to leave-to-lobby")
+        # "give_up" -> leave-to-lobby below
+    except Exception as e:
+        log.warning(f"[FORCE_RESTART] three-state check failed: {e}")
+
     for attempt in range(1, 4):
         if _KILLED:
             return False
@@ -3000,6 +3057,75 @@ def _focus_bot_window() -> bool:
     except Exception as e:
         log.debug(f"[LOADOUT] focus bot window failed: {e}")
         return False
+
+
+def _game_detect_active(ds_snap: dict | None = None) -> bool:
+    """True when Force Restart is enabled for the current mode AND Game
+    Detection (In-Game image detection) is required but not picked yet."""
+    try:
+        if not _force_restart_enabled(ds_snap):
+            return False
+        from game_detect import is_game_detect_set
+        return not is_game_detect_set()
+    except Exception as _e:
+        log.debug(f"[GAME_DETECT] gate check failed: {_e}")
+        return False
+
+
+def _fresh_start_not_in_game(passes: int = 3) -> bool:
+    """True when the In-Game image detection is set and CONFIRMED says we
+    are not in game (a few passes, 0.4s apart — the settle window is tiny
+    and a slow draw must not skip the loadout of a real in-game start).
+    Returns False when the detection is not set (fallback to the classic
+    loadout-first behavior)."""
+    try:
+        from game_detect import game_detect_result as _gdr
+        for _ in range(max(1, passes)):
+            res = _gdr()
+            if res.get("set") is not True or res.get("ok") is not False:
+                return False
+            time.sleep(0.4)
+        return True
+    except Exception:
+        return False
+
+
+def missing_game_detection(ds_snap: dict | None = None) -> bool:
+    """Gate: force restart ON but no In-Game image picked yet."""
+    return _game_detect_active(ds_snap)
+
+
+_GAME_DETECT_BLOCK_SEQ = 0
+
+
+def _block_for_missing_game_detection() -> None:
+    """Force Restart is ON but In-Game image detection is not picked.
+    Do not start, do not force-restart — pop the dashboard widget."""
+    global _WAITING_FOR_START, _GAME_DETECT_BLOCK_SEQ
+    _GAME_DETECT_BLOCK_SEQ += 1
+    _WAITING_FOR_START = True
+    log.warning("[GAME_DETECT] Force Restart is ON but In-Game image detection is not set")
+    _console_status("ERROR", "In-Game image detection not set!")
+    try:
+        set_overlay(status="ERROR", goal="In-Game image detection not set!")
+    except Exception:
+        pass
+    _dash_update(
+        waiting_for_start=True,
+        run_active=False,
+        run_start_time=None,
+        status="ERROR",
+        goal="In-Game image detection not set!",
+        game_detect_block_seq=_GAME_DETECT_BLOCK_SEQ,
+    )
+    # Same as the loadout block: pull the dashboard to the front so the
+    # user can pick the image right away.
+    global _last_loadout_focus_ts
+    _now = time.time()
+    if _now - _last_loadout_focus_ts >= 5.0:
+        _last_loadout_focus_ts = _now
+        if _focus_bot_window():
+            log.info("[GAME_DETECT] dashboard window brought to front (image detection not set)")
 
 
 def _block_for_missing_loadouts(missing: list[str]) -> None:
@@ -5702,7 +5828,7 @@ def _delve_try_menu_resume(reason: str) -> bool:
     # in-match HUD (stone icon) is visible. This filters false positives from
     # bright yellow UI elements that can look like PLAY.
     try:
-        if reason == "boss fight" and is_stone_icon_visible():
+        if reason == "boss fight" and _stone_icon_visible_restart_image():
             return False
     except Exception:
         pass
@@ -5872,12 +5998,16 @@ def _kraken_open_menu_via_a7() -> bool:
     return False
 
 
-def _kraken_reopen_menu_after_kill() -> bool:
-    """Walk forward for a fixed 3s while spamming E, then confirm menu."""
+def _kraken_reopen_menu_after_kill():
+    """Walk forward for a fixed 3s while spamming E; abort on death screen.
+
+    Returns True (reward menu visible), False (fallback route result), or
+    the string "death" if the black/respawn screen appeared during the walk.
+    """
     import config as _cfg_kraken
     from macro_runner import _key_up as _mr_key_up
 
-    walk_s = 3.0
+    walk_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_REWARD_WALK_SECONDS", 4.0)))
     wait_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_REWARD_OPEN_WAIT_SECONDS", 0.5)))
     e_interval = 0.10
 
@@ -5906,6 +6036,8 @@ def _kraken_reopen_menu_after_kill() -> bool:
 
     walk_start = time.time()
     last_e = 0.0
+    last_death_check = 0.0
+    death_seen = False
     try:
         keyboard.press(fwd_name)
         from macro_runner import _key_down as _mr_key_down
@@ -5913,6 +6045,13 @@ def _kraken_reopen_menu_after_kill() -> bool:
         while not _KILLED:
             now = time.time()
             elapsed = now - walk_start
+            # Death guard: the kill was confirmed without a black screen, but a
+            # late respawn screen can still show up - check while walking.
+            if now - last_death_check >= 0.10:
+                last_death_check = now
+                if is_rebirth_screen():
+                    death_seen = True
+                    break
             if now - last_e >= e_interval:
                 trigger_binding_action("e", hold_ms=50)
                 last_e = now
@@ -5928,6 +6067,10 @@ def _kraken_reopen_menu_after_kill() -> bool:
             _mr_key_up(fwd_vk)
         except Exception:
             pass
+
+    if death_seen:
+        log.info("[KRAKEN] death screen during reward walk - treating as death")
+        return "death"
 
     time.sleep(wait_s)
     ok = _kraken_close_visible()
@@ -6010,10 +6153,8 @@ def _run_kraken_loop():
         poll_s = max(0.03, float(getattr(_cfg_kraken, "KRAKEN_SHOOT_POLL_SECONDS", 0.1)))
         reassert_s = max(poll_s, float(getattr(_cfg_kraken, "KRAKEN_SHOOT_REASSERT_SECONDS", 0.5)))
         death_wait = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_DEATH_WAIT_SECONDS", 5)))
-        hb_confirm_window_s = max(0.5, float(getattr(_cfg_kraken, "KRAKEN_HB_CONFIRM_WINDOW_SECONDS", 2.5)))
-        hb_extended_window_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_HB_EXTENDED_WINDOW_SECONDS", 5.0)))
+        hb_confirm_window_s = max(0.5, float(getattr(_cfg_kraken, "KRAKEN_HB_CONFIRM_WINDOW_SECONDS", 1.5)))
         hb_post_loss_shoot_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_POST_HB_LOSS_SHOOT_SECONDS", 1.5)))
-        post_kill_wait_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_POST_KILL_WAIT_SECONDS", 0.0)))
         first_hb_timeout_s = max(3.0, float(getattr(_cfg_kraken, "KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS", 8.0)))
 
         shooting = False
@@ -6063,7 +6204,6 @@ def _run_kraken_loop():
             next_reassert = 0.0
             health_missing_since = None
             health_seen_once = False
-            hb_extended_since = None
             shooting = True
             walk_thread.start()
 
@@ -6124,36 +6264,16 @@ def _run_kraken_loop():
                         boss_end_reason = "death"
                         break
                     elif elapsed >= hb_confirm_window_s:
-                        if hb_extended_since is None:
-                            hb_extended_since = now
-                            log.info(
-                                "[KRAKEN] %.1fs confirm window passed, no black screen yet "
-                                "â€” extended watch for %.1fs",
-                                elapsed, hb_extended_window_s,
-                            )
-                        else:
-                            ext_elapsed = now - hb_extended_since
-                            if is_rebirth_screen():
-                                log.info(
-                                    "[KRAKEN] black screen in extended window (%.2fs after confirm) â†’ death",
-                                    ext_elapsed,
-                                )
-                                if shooting:
-                                    _mouse_left_up()
-                                    shooting = False
-                                boss_end_reason = "death"
-                                break
-                            elif ext_elapsed >= hb_extended_window_s:
-                                kill_detected_at = health_missing_since
-                                log.info(
-                                    "[KRAKEN] %.1fs extended window passed, no black screen â†’ boss killed",
-                                    ext_elapsed,
-                                )
-                                if shooting:
-                                    _mouse_left_up()
-                                    shooting = False
-                                boss_end_reason = "killed"
-                                break
+                        kill_detected_at = health_missing_since
+                        log.info(
+                            "[KRAKEN] %.1fs confirm window passed, no black screen -> boss killed",
+                            elapsed,
+                        )
+                        if shooting:
+                            _mouse_left_up()
+                            shooting = False
+                        boss_end_reason = "killed"
+                        break
 
                 # â”€â”€ Assert shooting while health bar is still visible â”€â”€â”€
                 if health_missing_since is None:
@@ -6205,15 +6325,13 @@ def _run_kraken_loop():
             _dash_update(status="KRAKEN", goal="Post Fight", run_start_time=None)
             set_overlay(status="KRAKEN", goal="Post Fight", run_start_time=0)
             _console_status("KRAKEN", "Post Fight")
-            if post_kill_wait_s > 0.0:
-                log.info("[KRAKEN] boss killed â€” waiting %.1fs before post-fight walk", post_kill_wait_s)
-                _wait_polling(post_kill_wait_s, "Kraken post-fight settle", freeze=False)
-                if _KILLED or _TEST_FORCE_FAILURE:
-                    break
-            # Now walk to re-enter the fight
-            menu_ready = _kraken_reopen_menu_after_kill()
-            if menu_ready:
-                # Back to navigation â€” timer stays cleared until next fight starts
+            # Walk to re-enter the fight right away - no extra settle wait.
+            outcome = _kraken_reopen_menu_after_kill()
+            if outcome == "death":
+                log.info("[KRAKEN] late death after kill - waiting for respawn")
+            elif outcome:
+                menu_ready = True
+                # Back to navigation - timer stays cleared until next fight starts
                 _dash_update(status="KRAKEN", goal="Navigation", run_start_time=None)
                 set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
                 continue
@@ -6375,6 +6493,11 @@ def run_bot():
         _net_start()
     except Exception:
         pass
+    try:
+        import display_probe as _display_probe
+        _display_probe.start()
+    except Exception as _display_e:
+        log.warning(f"[DISPLAY] probe failed to start: {_display_e}")
     log.info("Bot starting ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â waiting for dashboard Start")
 
     # Outer loop: soft-reset (F9) brings us back here each time
@@ -6392,6 +6515,10 @@ def run_bot():
             _missing_lo = missing_required_loadouts()
             if _missing_lo:
                 _block_for_missing_loadouts(_missing_lo)
+                continue
+
+            if missing_game_detection():
+                _block_for_missing_game_detection()
                 continue
 
             if not is_fortnite_focused():
@@ -6413,14 +6540,42 @@ def run_bot():
                 except Exception:
                     _startup_settle = min(1.0, max(0.0, float(getattr(_cfg_runtime, "STARTUP_SETTLE_SECONDS", 0.20))))
                 _startup_deadline = time.time() + _startup_settle
+                _startup_in_game = False
                 while time.time() < _startup_deadline:
                     if _KILLED or _STONE_LOST:
                         break
-                    if is_stone_icon_visible() and is_fortnite_focused():
+                    if _stone_icon_visible_restart_image() and is_fortnite_focused():
+                        _startup_in_game = True
                         break
                     time.sleep(0.05)
                 if _KILLED or _STONE_LOST:
                     _just_started = False
+                elif not _startup_in_game and _fresh_start_not_in_game():
+                    # In-Game image detection says we are NOT in game (lobby /
+                    # loading). Do NOT touch the loadout first — go straight
+                    # to the three-state / lobby-menu recovery, which checks
+                    # the selected game and rejoins Miner Tycoon 2.
+                    log.info("[FR_FLOW] fresh start: not in game — menu recovery before loadout")
+                    from dashboard import get_state as _ds_lo_ng
+                    _ds_lo = {}
+                    try:
+                        _ds_lo = _ds_lo_ng() or {}
+                    except Exception:
+                        pass
+                    if not _KILLED and _try_force_restart_after_failure("fresh_start_not_in_game", _ds_lo):
+                        _just_started = True
+                        continue
+                    if not _KILLED and _menu_resume_enabled(_ds_lo):
+                        if _do_menu_resume():
+                            _WAITING_FOR_START = False
+                            _at_base = False
+                            _menu_resume_fresh_start = True
+                            _just_started = True
+                            continue
+                    log.warning("[LOADOUT] fresh-start recovery failed — waiting for Start")
+                    _WAITING_FOR_START = True
+                    _just_started = True
+                    continue
                 elif not _apply_fresh_start_loadout():
                     log.warning("[LOADOUT] fresh-start select failed")
                     from dashboard import get_state as _ds_lo_fail
@@ -6487,7 +6642,7 @@ def run_bot():
                     set_overlay(status="STONE LOST", goal="Recovering...")
                     if not _hold_for_network():
                         continue
-                    if is_stone_icon_visible():
+                    if _stone_icon_visible_restart_image():
                         log.info("[KRAKEN] HUD back after network wait — resume")
                         _STONE_LOST = False
                         continue
@@ -6505,7 +6660,7 @@ def run_bot():
                             set_overlay(status="MENU RESUME", goal="...")
                             _appear_deadline = time.time() + _appear_secs
                             while time.time() < _appear_deadline and not _KILLED:
-                                if is_stone_icon_visible() or is_in_menu():
+                                if _stone_icon_visible_restart_image() or is_in_menu():
                                     break
                                 _wait_polling(0.25, "...", freeze=True)
                             if not _KILLED:
@@ -6569,7 +6724,7 @@ def run_bot():
                     set_overlay(status="STONE LOST", goal="Recovering...")
                     if not _hold_for_network():
                         continue
-                    if is_stone_icon_visible():
+                    if _stone_icon_visible_restart_image():
                         log.info("[ZYTOS] HUD back after network wait — resume")
                         _STONE_LOST = False
                         continue
@@ -6587,7 +6742,7 @@ def run_bot():
                             set_overlay(status="MENU RESUME", goal="...")
                             _appear_deadline = time.time() + _appear_secs
                             while time.time() < _appear_deadline and not _KILLED:
-                                if is_stone_icon_visible() or is_in_menu():
+                                if _stone_icon_visible_restart_image() or is_in_menu():
                                     break
                                 _wait_polling(0.25, "...", freeze=True)
                             if not _KILLED:
@@ -6733,7 +6888,7 @@ def run_bot():
                 _console_status("STONE LOST", "Recovering...")
                 if not _hold_for_network():
                     break
-                if is_stone_icon_visible():
+                if _stone_icon_visible_restart_image():
                     log.info("[WATCHER] HUD back after network wait — resume")
                     _STONE_LOST = False
                     continue
@@ -6753,7 +6908,7 @@ def run_bot():
                         set_overlay(status="MENU RESUME", goal="...")
                         _appear_deadline = time.time() + _appear_secs
                         while time.time() < _appear_deadline and not _KILLED:
-                            if is_stone_icon_visible() or is_in_menu():
+                            if _stone_icon_visible_restart_image() or is_in_menu():
                                 break
                             _wait_polling(0.25, "...", freeze=True)
 
@@ -6773,7 +6928,7 @@ def run_bot():
                                 # Step 4: check stone icon ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â maybe we're already back in game
                                 log.warning("[WATCHER] Menu resume failed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â checking if stone icon came back")
                                 time.sleep(2)
-                                if is_stone_icon_visible():
+                                if _stone_icon_visible_restart_image():
                                     log.info("[WATCHER] Stone icon visible after failed menu resume ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â resuming run")
                                     _STONE_LOST = False
                                     _WAITING_FOR_START = False
@@ -6845,14 +7000,14 @@ def run_bot():
                     # Read join-wait from live dashboard state (updated when user saves config)
                     # Falls back to config module, then hardcoded default
                     import config as _cfg_mr2
-                    _configured_wait = float(_ds_mr_snap.get("menu_resume_join_wait") or getattr(_cfg_mr2, "MENU_RESUME_JOIN_WAIT", 30))
+                    _configured_wait = float(_ds_mr_snap.get("menu_resume_join_wait") or getattr(_cfg_mr2, "MENU_RESUME_JOIN_WAIT", 120))
                     pre_wait = min(10.0, _configured_wait)
                     log.info(f"[MENU_RESUME] Run failed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â waiting {pre_wait} s then attempting menu resume")
                     _console_status("MENU RESUME", "...")
                     set_overlay(status="WAITING", goal="...")
                     _pre_deadline = time.time() + float(pre_wait)
                     while time.time() < _pre_deadline and not _KILLED:
-                        if is_stone_icon_visible() or is_in_menu():
+                        if _stone_icon_visible_restart_image() or is_in_menu():
                             break
                         _wait_polling(0.25, "...", freeze=False)
                     if not _KILLED:

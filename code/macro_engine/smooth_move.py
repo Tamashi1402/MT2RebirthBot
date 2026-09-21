@@ -3,7 +3,7 @@
 Hold-key X-axis movement tracker for the Recorder tab.
 
 While armed (Recorder tab open, not playing/recording), holding the
-configured key (default L) with Fortnite focused:
+configured key (default L) while in-game:
 
 - The hold key is swallowed (Windows / the game never sees it).
 - Mouse movement is NOT blocked — the game and cursor behave normally.
@@ -25,7 +25,7 @@ import threading
 log = logging.getLogger(__name__)
 
 try:
-    from .macro_engine import (
+    from .playback import (
         HC_ACTION, LLKHF_INJECTED,
         WH_KEYBOARD_LL,
         WM_INPUT, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
@@ -41,7 +41,7 @@ try:
         _TranslateMessage, _DispatchMessageW,
     )
 except ImportError:
-    from macro_engine import (
+    from macro_engine.playback import (
         HC_ACTION, LLKHF_INJECTED,
         WH_KEYBOARD_LL,
         WM_INPUT, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
@@ -56,24 +56,6 @@ except ImportError:
         _GetRawInputData, RID_INPUT,
         _TranslateMessage, _DispatchMessageW,
     )
-
-_GetForegroundWindow = ctypes.windll.user32.GetForegroundWindow
-_GetWindowTextW = ctypes.windll.user32.GetWindowTextW
-
-
-def _foreground_is_game() -> bool:
-    """True when the foreground window looks like the game (permissive)."""
-    try:
-        hwnd = _GetForegroundWindow()
-        if not hwnd:
-            return False
-        buf = ctypes.create_unicode_buffer(256)
-        if not _GetWindowTextW(hwnd, buf, 256):
-            return True  # can't read the title — don't block the tool
-        return "fortnite" in buf.value.lower()
-    except Exception:
-        return True
-
 
 def _raw_input_is_injected(l_param) -> bool:
     """SendInput-injected raw input carries no device handle (hDevice=0)."""
@@ -205,10 +187,6 @@ class SmoothMoveTracker:
 
             def raw_wnd_proc(hwnd, msg, w_param, l_param):
                 if msg == WM_INPUT and self._tracking:
-                    # focus lost mid-hold — stop the capture
-                    if not _foreground_is_game():
-                        self._end()
-                        return 0
                     if not _raw_input_is_injected(l_param):
                         # true hardware movement — measure both axes
                         try:
@@ -261,7 +239,7 @@ class SmoothMoveTracker:
                                 busy = bool(self._is_busy())
                             except Exception:
                                 busy = False
-                            if not busy and _foreground_is_game():
+                            if not busy:
                                 self._begin()
                                 return 1  # the game never sees the key
                 return _CallNextHookEx(None, n_code, w_param, l_param)

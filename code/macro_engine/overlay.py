@@ -7,6 +7,8 @@ import threading
 
 
 class MacroOverlay:
+    _push_warned = False
+
     def __init__(self):
         self._state = {
             "running": False,
@@ -50,7 +52,19 @@ class MacroOverlay:
         else:
             header, goal, hint = "", "", ""
         try:
-            from overlay import set_recorder_overlay
+            try:
+                from run.overlay import set_recorder_overlay   # forge build layout
+            except ImportError:
+                from overlay import set_recorder_overlay     # bot layout (code/overlay.py)
             set_recorder_overlay(active=active, header=header, goal=goal, hint=hint)
-        except Exception:
-            pass
+        except Exception as e:
+            # HUD not importable in this build mode - surface it once so
+            # "overlay not showing during F5/F6" is diagnosable, not silent.
+            if not MacroOverlay._push_warned:
+                MacroOverlay._push_warned = True
+                try:
+                    import sys
+                    print(f"[macro overlay] recorder HUD unavailable: {e}",
+                          file=sys.stderr, flush=True)
+                except Exception:
+                    pass
