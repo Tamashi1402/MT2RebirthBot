@@ -2998,9 +2998,17 @@ document.addEventListener('keydown', async e => {
 
 setInterval(pollState, 200);
 
-bootstrap().catch(e => {
-  console.error(e);
-  alert('Macro Engine UI failed to initialize.');
+// Bootstrap can lose the race with the Flask API at app start; the poller
+// (pollState every 200ms) recovers the UI either way. Never alert the user.
+bootstrap().catch(async e => {
+  console.warn('Macro Engine UI bootstrap failed, retrying once:', e);
+  try {
+    await new Promise(r => setTimeout(r, 1200));
+    await bootstrap();
+    console.info('Macro Engine UI bootstrap retry succeeded');
+  } catch (e2) {
+    console.error('Macro Engine UI bootstrap failed (silent, poller recovers):', e2);
+  }
 });
 
 
