@@ -118,32 +118,67 @@ def _open_menu_via_a8() -> bool:
     return False
 
 
-def _reopen_menu_after_kill() -> bool:
-    """After kill: look left, walk forward 1.35s, press E (from hand-made zytos.mcr)."""
+def _reopen_menu_after_kill():
+    """Post-kill approach: look left, walk forward, press E (from hand-made zytos.mcr).
+
+    Returns True (reward menu visible), False (fallback route result), or
+    the string "death" if the black/respawn screen appeared during the approach.
+    Same model as Kraken: the kill was confirmed without a black screen, but a
+    late respawn screen can still show up - so every step is death-guarded.
+    """
     import config as cfg
     b = _bot()
     walk_s = 1.35
     wait_s = max(0.0, float(getattr(cfg, "ZYTOS_REWARD_OPEN_WAIT_SECONDS", 1.0)))
+
+    state = {"death": False}
+
+    def _death_or_exit() -> bool:
+        if is_rebirth_screen():
+            state["death"] = True
+            return True
+        return _must_exit()
+
+    def _death_abort() -> bool:
+        if state["death"]:
+            log.info("[ZYTOS] death screen during post-fight approach - treating as death")
+            return True
+        return False
 
     _inp.release_movement_keys()
     time.sleep(0.08)
     if _must_exit():
         return False
 
+    log.info("[ZYTOS] post-fight approach started (look left, W %.2fs, E)", walk_s)
     _inp.look_left_post_fight()
-    time.sleep(0.50)
+    # 0.5s settle after the look, checked in 0.05s steps so a death screen wins
+    _look_deadline = time.time() + 0.50
+    while time.time() < _look_deadline:
+        if _death_or_exit():
+            break
+        time.sleep(0.05)
+    if _death_abort():
+        return "death"
     if _must_exit():
         return False
 
-    log.info("[ZYTOS] post-fight walk W for %.2fs then E", walk_s)
-    if not _inp.walk_forward(walk_s, _must_exit):
-        return False
-
+    _inp.walk_forward(walk_s, _death_or_exit)
+    if _death_abort():
+        return "death"
     if _must_exit():
         return False
+
     time.sleep(0.15)
     trigger_binding_action("e", hold_ms=80)
-    time.sleep(max(0.5, wait_s))
+    # Settle while still watching for a late respawn screen
+    _settle_deadline = time.time() + max(0.5, wait_s)
+    while time.time() < _settle_deadline:
+        if _death_or_exit():
+            break
+        time.sleep(0.05)
+    if _death_abort():
+        return "death"
     ok = _det.close_visible()
     if ok:
         log.info("[ZYTOS] reward menu confirmed after look-left + W + E")
@@ -228,10 +263,8 @@ def run_zytos():
         poll_s = max(0.03, float(getattr(cfg, "ZYTOS_SHOOT_POLL_SECONDS", 0.1)))
         reassert_s = max(poll_s, float(getattr(cfg, "ZYTOS_SHOOT_REASSERT_SECONDS", 0.5)))
         death_wait = max(0.0, float(getattr(cfg, "ZYTOS_DEATH_WAIT_SECONDS", 5)))
-        hb_confirm_window_s = max(0.5, float(getattr(cfg, "ZYTOS_HB_CONFIRM_WINDOW_SECONDS", 2.5)))
-        hb_extended_window_s = max(0.0, float(getattr(cfg, "ZYTOS_HB_EXTENDED_WINDOW_SECONDS", 5.0)))
+        hb_confirm_window_s = max(0.5, float(getattr(cfg, "ZYTOS_HB_CONFIRM_WINDOW_SECONDS", 3.5)))
         hb_post_loss_shoot_s = max(0.0, float(getattr(cfg, "ZYTOS_POST_HB_LOSS_SHOOT_SECONDS", 1.5)))
-        post_kill_wait_s = max(0.0, float(getattr(cfg, "ZYTOS_POST_KILL_WAIT_SECONDS", 0.0)))
         first_hb_timeout_s = max(3.0, float(getattr(cfg, "ZYTOS_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS", 8.0)))
 
         shooting = False
@@ -248,7 +281,6 @@ def run_zytos():
             next_reassert = 0.0
             health_missing_since = None
             health_seen_once = False
-            hb_extended_since = None
             shooting = True
             walk_thread.start()
 
@@ -305,36 +337,16 @@ def run_zytos():
                         boss_end_reason = "death"
                         break
                     elif elapsed >= hb_confirm_window_s:
-                        if hb_extended_since is None:
-                            hb_extended_since = now
-                            log.info(
-                                "[ZYTOS] %.1fs confirm window passed, no black screen yet "
-                                "— extended watch for %.1fs",
-                                elapsed, hb_extended_window_s,
-                            )
-                        else:
-                            ext_elapsed = now - hb_extended_since
-                            if is_rebirth_screen():
-                                log.info(
-                                    "[ZYTOS] black screen in extended window (%.2fs after confirm) → death",
-                                    ext_elapsed,
-                                )
-                                if shooting:
-                                    _mouse_left_up()
-                                    shooting = False
-                                boss_end_reason = "death"
-                                break
-                            elif ext_elapsed >= hb_extended_window_s:
-                                kill_detected_at = health_missing_since
-                                log.info(
-                                    "[ZYTOS] %.1fs extended window passed, no black screen → boss killed",
-                                    ext_elapsed,
-                                )
-                                if shooting:
-                                    _mouse_left_up()
-                                    shooting = False
-                                boss_end_reason = "killed"
-                                break
+                        kill_detected_at = health_missing_since
+                        log.info(
+                            "[ZYTOS] %.1fs confirm window passed, no black screen → boss killed",
+                            elapsed,
+                        )
+                        if shooting:
+                            _mouse_left_up()
+                            shooting = False
+                        boss_end_reason = "killed"
+                        break
 
                 if health_missing_since is None:
                     if now >= next_reassert:
@@ -383,13 +395,12 @@ def run_zytos():
             b._dash_update(status="ZYTOS", goal="Post Fight", run_start_time=None)
             set_overlay(status="ZYTOS", goal="Post Fight", run_start_time=0)
             b._console_status("ZYTOS", "Post Fight")
-            if post_kill_wait_s > 0.0:
-                log.info("[ZYTOS] boss killed — waiting %.1fs before post-fight walk", post_kill_wait_s)
-                b._wait_polling(post_kill_wait_s, "Zytos post-fight settle", freeze=False)
-                if _must_exit():
-                    break
-            menu_ready = _reopen_menu_after_kill()
-            if menu_ready:
+            # Walk to re-enter the fight right away - no extra settle wait.
+            outcome = _reopen_menu_after_kill()
+            if outcome == "death":
+                log.info("[ZYTOS] late death after kill - waiting for respawn")
+            elif outcome:
+                menu_ready = True
                 b._dash_update(status="ZYTOS", goal="Navigation", run_start_time=None)
                 set_overlay(status="ZYTOS", goal="Navigation", run_start_time=0)
                 continue

@@ -174,7 +174,7 @@ def click_join_twice():
 def prepare_weapon():
     from macro_runner import trigger_binding_action
     cfg = _cfg()
-    wait_s = max(0.0, float(getattr(cfg, "ZYTOS_POST_JOIN_WAIT_SECONDS", 0.5)))
+    wait_s = max(0.0, float(getattr(cfg, "ZYTOS_POST_JOIN_WAIT_SECONDS", 1.0)))
     binding = str(getattr(cfg, "ZYTOS_WEAPON_BINDING", None) or getattr(cfg, "WEAPON_1_BINDING", "1"))
     time.sleep(wait_s)
     for idx in range(3):

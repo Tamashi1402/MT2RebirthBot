@@ -5931,7 +5931,7 @@ def _kraken_click_join_twice():
 
 def _kraken_prepare_weapon():
     import config as _cfg_kraken
-    wait_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_POST_JOIN_WAIT_SECONDS", 0.5)))
+    wait_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_POST_JOIN_WAIT_SECONDS", 1.0)))
     binding = str(getattr(_cfg_kraken, "KRAKEN_WEAPON_BINDING", None) or getattr(_cfg_kraken, "WEAPON_1_BINDING", "1"))
     time.sleep(wait_s)
     for idx in range(3):
@@ -6153,7 +6153,7 @@ def _run_kraken_loop():
         poll_s = max(0.03, float(getattr(_cfg_kraken, "KRAKEN_SHOOT_POLL_SECONDS", 0.1)))
         reassert_s = max(poll_s, float(getattr(_cfg_kraken, "KRAKEN_SHOOT_REASSERT_SECONDS", 0.5)))
         death_wait = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_DEATH_WAIT_SECONDS", 5)))
-        hb_confirm_window_s = max(0.5, float(getattr(_cfg_kraken, "KRAKEN_HB_CONFIRM_WINDOW_SECONDS", 1.5)))
+        hb_confirm_window_s = max(0.5, float(getattr(_cfg_kraken, "KRAKEN_HB_CONFIRM_WINDOW_SECONDS", 3.5)))
         hb_post_loss_shoot_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_POST_HB_LOSS_SHOOT_SECONDS", 1.5)))
         first_hb_timeout_s = max(3.0, float(getattr(_cfg_kraken, "KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS", 8.0)))
 
