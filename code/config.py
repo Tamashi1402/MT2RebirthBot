@@ -777,10 +777,6 @@ ROUTE_REDO_LIMIT = int(_cfg.get("ROUTE_REDO_LIMIT", 5) or 5)
 # "classic": the original v1.9.10 timing profile the fast method was tuned
 #             on (60s stall watchdog, 0.25s post-monitor open wait, 60s
 #             no-strength timeout) - same 1ms clicks, patient watchdogs.
-# "compat":  like classic but clicks at a guaranteed 12ms hold + 12ms gap
-#             (perf_counter spin-wait). For machines whose 1ms sleeps are
-#             REAL 1ms (high-res timer) - the game drops near-1ms clicks
-#             there; 12ms registers everywhere.
 # Manual Strength open/click pacing (v1.8.31). When MANUAL_STR_OPEN is False
 # the bot never presses the monitor key + clicks to open the strength window
 # itself — a macro must open it (the live loop waits for the window instead).
@@ -790,11 +786,11 @@ MANUAL_STR_OPEN = bool(_cfg.get("MANUAL_STR_OPEN", True))
 # MINIMUM 1ms is enforced: 0ms makes the game merge/eat clicks ENTIRELY (they
 # register nothing — verified on the Fortnite lobby click tests and the Sep 17
 # 09:27 baserock stall: ~690 clicks at 0ms bought zero upgrades, every attempt
-# tripped the 5s HUD no-gain watchdog). Compat mode overrides both to 12ms.
+# tripped the 5s HUD no-gain watchdog).
 MANUAL_STR_CLICK_DELAY_MS = max(1, int(float(_cfg.get("MANUAL_STR_CLICK_DELAY_MS", 1) or 1)))
 MANUAL_STR_CLICK_HOLD_MS  = max(1, int(float(_cfg.get("MANUAL_STR_CLICK_HOLD_MS", 1) or 1)))
 _ms_method = str(_cfg.get("MANUAL_STR_CLICK_METHOD", "default") or "default").strip().lower()
-MANUAL_STR_CLICK_METHOD = _ms_method if _ms_method in ("default", "classic", "compat") else "default"
+MANUAL_STR_CLICK_METHOD = _ms_method if _ms_method in ("default", "classic") else "default"
 # Bottom-row spam pattern: N right-side buys, then M left-side unlock
 # clicks (5/1 = the classic pattern; 1/1 = plain alternation).
 MANUAL_STR_BOTTOM_RIGHT_CLICKS = max(1, int(_cfg.get("MANUAL_STR_BOTTOM_RIGHT_CLICKS", 5) or 5))

@@ -52,30 +52,9 @@ def _click_method() -> str:
     """Clicking method (Fine-Tuning -> Manual Strength -> Clicking method)."""
     try:
         m = str(getattr(_cfg, "MANUAL_STR_CLICK_METHOD", "default") or "default").strip().lower()
-        return m if m in ("default", "classic", "compat") else "default"
+        return m if m in ("default", "classic") else "default"
     except Exception:
         return "default"
-
-
-def _is_compat_pacing() -> bool:
-    """True when clicks must be paced with a guaranteed 12ms spin-wait.
-
-    time.sleep(0.001) is only a REAL 1ms on machines where the game raises
-    the Windows timer to 1ms - the game's UI drops nearly all near-1ms
-    clicks there. On the default ~15.6ms timer the same sleep stretches to
-    ~15ms and clicks register fine. The spin-wait paces both machines
-    identically."""
-    return _click_method() == "compat"
-
-
-def _spin_wait(stop_event, seconds: float) -> bool:
-    """Busy-wait a guaranteed real delay (perf_counter), stop-event aware."""
-    end = time.perf_counter() + max(0.0, seconds)
-    while time.perf_counter() < end:
-        if stop_event is not None and stop_event.is_set():
-            return False
-        time.sleep(0.0005)
-    return True
 
 
 # Bottom-row spam pattern: N right-side buys, then M left-side unlock.
@@ -116,10 +95,7 @@ def _click_delay() -> float:
     """Gap between one click's LEFTUP and the next LEFTDOWN.
 
     Configurable via MANUAL_STR_CLICK_DELAY_MS (Fine-Tuning -> Manual
-    Strength -> Click delay, default 1ms). Compat mode forces the guaranteed
-    12ms spin-wait instead."""
-    if _is_compat_pacing():
-        return 0.012
+    Strength -> Click delay, default 1ms)."""
     try:
         # floor at 1ms: 0ms pacing makes the game merge/eat every click
         return max(1, int(getattr(_cfg, "MANUAL_STR_CLICK_DELAY_MS", 1))) / 1000.0
@@ -130,9 +106,7 @@ def _downup_delay() -> float:
     """Hold time between LEFTDOWN and LEFTUP.
 
     Configurable via MANUAL_STR_CLICK_HOLD_MS (Fine-Tuning -> Manual
-    Strength -> Click hold, default 1ms). Compat mode forces 12ms."""
-    if _is_compat_pacing():
-        return 0.012
+    Strength -> Click hold, default 1ms)."""
     try:
         return max(1, int(getattr(_cfg, "MANUAL_STR_CLICK_HOLD_MS", 1))) / 1000.0
     except Exception:
@@ -140,9 +114,7 @@ def _downup_delay() -> float:
 
 
 def _pace_wait(stop_event, seconds: float) -> bool:
-    """Sleep a click-pacing delay: spin-wait in compat mode, plain sleep otherwise."""
-    if _is_compat_pacing():
-        return _spin_wait(stop_event, seconds)
+    """Sleep a click-pacing delay (plain sleep, stop-event aware)."""
     if stop_event is not None:
         return _sleep_or_stop(stop_event, seconds)
     time.sleep(seconds)

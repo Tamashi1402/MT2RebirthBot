@@ -494,7 +494,7 @@ CONFIG_EDITABLE = [
     ("MANUAL_STR_MAX_SECONDS",   "int",   "Max time per rock (seconds)"),
     ("MANUAL_STR_IDLE_WAIT",     "float", "Idle timeout, nothing buyable (seconds)"),
     ("MANUAL_STR_NO_STRENGTH_TIMEOUT", "float", "No-progress reroute (seconds)"),
-    ("MANUAL_STR_CLICK_METHOD", "str", "Clicking method (default / classic / compat)"),
+    ("MANUAL_STR_CLICK_METHOD", "str", "Clicking method (default / classic)"),
     ("MANUAL_STR_OPEN",                             "bool",  "Manual Strength Open (off = macros must open the window)"),
     ("MANUAL_STR_CLICK_DELAY_MS",                     "int",   "Manual Strength: click delay between clicks (ms, min 1)"),
     ("MANUAL_STR_CLICK_HOLD_MS",                     "int",   "Manual Strength: click hold time down->up (ms, min 1)"),
@@ -1344,7 +1344,7 @@ def config_post():
             typed["BOSS_FIGHT_A1_MODE"] = normalize_bramble_mode(typed["BOSS_FIGHT_A1_MODE"])
         if "MANUAL_STR_CLICK_METHOD" in typed:
             _m = str(typed["MANUAL_STR_CLICK_METHOD"]).strip().lower()
-            typed["MANUAL_STR_CLICK_METHOD"] = _m if _m in ("default", "classic", "compat") else "default"
+            typed["MANUAL_STR_CLICK_METHOD"] = _m if _m in ("default", "classic") else "default"
         if "MANUAL_STR_DETECTION" in typed:
             _msd = str(typed["MANUAL_STR_DETECTION"]).strip().lower()
             typed["MANUAL_STR_DETECTION"] = _msd if _msd in ("stone", "surge") else "stone"
@@ -5393,8 +5393,8 @@ const CFG_TOOLTIPS = {
   REBIRTH_CHECK_DELAY: 'Seconds to wait before checking if a rebirth screen appeared.',
   QUEST_MINE_TIMEOUT_SECONDS: 'Daily Quests: max seconds to hold LMB on one star rock before the bot gives up and auto-finishes that quest (default 90).',
   MANUAL_STR_OPEN: 'Manual Strength Open: when checked (default) the bot opens the strength window itself (monitor key -> left click). Unchecked = the bot never opens it — your macros must open the window; the buying loop just waits for it to appear.',
-  MANUAL_STR_CLICK_DELAY_MS: 'Manual Strength: delay between one click and the next (release -> next press), in milliseconds. Default 1ms, minimum 1ms (0ms makes the game merge and eat clicks entirely — they register nothing; the bot forces 1ms even if you enter 0). Compat clicking mode overrides this to 12ms.',
-  MANUAL_STR_CLICK_HOLD_MS: 'Manual Strength: hold time between mouse down and mouse up for each click, in milliseconds. Default 1ms, minimum 1ms (0ms makes the game merge and eat clicks entirely; the bot forces 1ms even if you enter 0). Compat clicking mode overrides this to 12ms.',
+  MANUAL_STR_CLICK_DELAY_MS: 'Manual Strength: delay between one click and the next (release -> next press), in milliseconds. Default 1ms, minimum 1ms (0ms makes the game merge and eat clicks entirely — they register nothing; the bot forces 1ms even if you enter 0).',
+  MANUAL_STR_CLICK_HOLD_MS: 'Manual Strength: hold time between mouse down and mouse up for each click, in milliseconds. Default 1ms, minimum 1ms (0ms makes the game merge and eat clicks entirely; the bot forces 1ms even if you enter 0).',
   HATCH_CLOSE_MIN_PCT: 'Daily Quests: yellow-pixel percentage needed to consider the hatch GUI (and its close button) detected. The hatch button is thinner than the quest board close, reading ~0.27 when open, so the default is 0.20.',
   DAILY_QUEST_ALIASES: 'Daily Quests: OCR aliases per quest type. Pick the quest type in the dropdown (Break N Star Rocks / Open Chests / Hatch Pets / Combine Pets / Hatch GUI: Area 1 Egg), then add translated names with +. For rocks, {$NUMBER} marks where the rock-count digit sits (BREAK {$NUMBER} STAR ROCKS). Matching is case-insensitive and ignores spaces.',
   GAME_DETECT_IMAGE: 'Pick an always-visible in-game HUD element as proof we are in the MT2 map: the Miner Tycoon 2 logo, the stone icon or the shard icon. Press Pick, then F2 in-game, drag a box around it. The box and point are recorded with the image and save immediately. Nothing is shipped by default — Force Restart refuses to start until this is picked (global Config, top gear). The image is NOT searched for on screens where the HUD is hidden (menus, Manual Strength overlays) — those paths already skip the stone/shard checks.',
@@ -5452,7 +5452,7 @@ const CFG_TOOLTIPS = {
   A5_POST_MACRO_VERIFY_DELAY: 'Extra delay after an Area 5 navigation macro before post-navigation settle. Lower saves time; raise only if transitions are flaky.',
   MANUAL_STR_ONLY_LAST_ROW: 'When enabled, manual strength buys only the bottom row left/right buttons and ignores upper rows.',
   MANUAL_STR_DETECTION: 'What baserock manual strength watches to decide it is done. Stone: stop when the stone amount reaches the Stone threshold below (default 1.36e152 - the standard base-rock threshold). Surge level: stop when the bottom-row Surge level reaches the Surge threshold. Surge needs Bottom Row Only ON (Features tab); with it off, stone detection is always used.',
-  MANUAL_STR_CLICK_METHOD: 'How manual strength paces its clicks. Default: current profile (1ms clicks, 5s stall watchdog, 0.5s open waits, 30s give-up). Classic: the original timing profile tuned by the author - same 1ms clicks but patient watchdogs (60s stall, 0.25s post-monitor open wait, 60s give-up). Compat: classic pacing with clicks slowed to a guaranteed 12ms hold/gap - for machines where 1ms clicks get dropped by the game (usually a 1ms system timer; not an FPS thing).',
+  MANUAL_STR_CLICK_METHOD: 'How manual strength paces its clicks. Default: current profile (1ms clicks, 5s stall watchdog, 0.5s open waits, 30s give-up). Classic: the original timing profile tuned by the author - same 1ms clicks but patient watchdogs (60s stall, 0.25s post-monitor open wait, 60s give-up).',
   MANUAL_STR_BOTTOM_RIGHT_CLICKS: 'Bottom-row spam: how many RIGHT-side buys per cycle (default 5). With Left clicks = 1 this is the classic 5-right/1-left pattern.',
   MANUAL_STR_BOTTOM_LEFT_CLICKS: 'Bottom-row spam: how many LEFT (unlock) clicks per cycle (default 1). Set Right=1 and Left=1 for plain alternation.',
   MANUAL_STR_STONE_TARGET: 'Stone detection: stop buying when stone reaches this amount. Default 1.36e152 (the standard base-rock threshold). Applies everywhere the baserock grinds with manual strength on (start gate, meteor shortcut, boss A1) - it replaces the per-route thresholds.',
@@ -5468,7 +5468,7 @@ const CFG_TOOLTIPS = {
   KRAKEN_ROUTE_ATTEMPTS: 'How many times to retry the route to the kraken (F4 teleport + area7_to_kraken macro + menu check) before failing. Default 10.',
   KRAKEN_SHOOT_POLL_SECONDS: 'Shoot-loop tick interval — how often the loop checks health bar / black screen. Default 0.1s. Keep >= 0.03.',
   KRAKEN_SHOOT_REASSERT_SECONDS: 'Re-assert left mouse down every N seconds during the fight (guard against lost input). Default 0.5s.',
-  ZYTOS_HB_CONFIRM_WINDOW_SECONDS: 'After the Zytos health bar disappears, watch this many seconds: black screen = death, no black screen = boss killed. Single window, same model as Kraken. The post-fight approach (look left, walk, E) also keeps checking for the death screen while it runs. Default 3.5s.',
+  ZYTOS_HB_CONFIRM_WINDOW_SECONDS: 'After the Zytos health bar disappears, watch this many seconds: black screen = death (you died), no black screen = boss killed. Single window, same model as Kraken. The post-fight approach (look left, walk, E) also keeps checking for the death screen while it runs. Default 3.5s.',
   ZYTOS_POST_HB_LOSS_SHOOT_SECONDS: 'Keep the left mouse held this long after the Zytos health bar disappears. Default 1.5s.',
   ZYTOS_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS: 'Max seconds to wait for the Zytos health bar to appear after joining. Default 8s.',
   ZYTOS_DEATH_WAIT_SECONDS: 'Wait this long for respawn after a death in the Zytos fight. Default 5s.',
@@ -5978,11 +5978,10 @@ function renderConfigField(key, values) {
     </select></div>`;
   }
   if(key==='MANUAL_STR_CLICK_METHOD'){
-    const cur = String(values[key]||'default').toLowerCase()==='classic' ? 'classic' : (String(values[key]||'').toLowerCase()==='compat' ? 'compat' : 'default');
+    const cur = String(values[key]||'default').toLowerCase()==='classic' ? 'classic' : 'default';
     return `<div class="cfg-group">${labelHtml}<select class="cfg-input" id="cfg_${key}">
       <option value="default"${cur==='default'?' selected':''}>Default</option>
       <option value="classic"${cur==='classic'?' selected':''}>Classic (original pacing)</option>
-      <option value="compat"${cur==='compat'?' selected':''}>Compat (slow clicks - drop-proof)</option>
     </select></div>`;
   }
   if(key==='MANUAL_STR_STONE_TARGET'){
