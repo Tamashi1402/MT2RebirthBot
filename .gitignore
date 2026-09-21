@@ -6,7 +6,6 @@ venv/
 
 # Runtime data (auto-created on first run)
 logs/
-data/config.json
 data/dashboard_state.json
 data/stats.json
 
