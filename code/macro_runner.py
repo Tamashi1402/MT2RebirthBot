@@ -501,18 +501,27 @@ def _mouse_move_rel(dx: int, dy: int):
     _raw_mouse_move_rel(dx, dy)
 
 
+# down->up gap for a synthesized click: 1ms (was 50ms). Identical to the
+# blockly/MacroEngine playback path (macro_engine/playback.py uses
+# _CLICK_PRESS_S = 0.001 and routes every button event through the 1ms
+# pacing guard in _send_mouse_event). 50ms stretched run-mode playback
+# well past the recorded wall-clock and made clicks feel nothing like
+# editor playback.
+_CLICK_PRESS_SECONDS = 0.001
+
+
 def _mouse_left_down():
-    _send_input(_make_mouse(MOUSEEVENTF_LEFTDOWN))
+    _send_mouse_event(MOUSEEVENTF_LEFTDOWN)
 
 
 def _mouse_left_up():
-    _send_input(_make_mouse(MOUSEEVENTF_LEFTUP))
+    _send_mouse_event(MOUSEEVENTF_LEFTUP)
 
 
 def _mouse_left_click():
-    _send_input(_make_mouse(MOUSEEVENTF_LEFTDOWN))
-    time.sleep(0.05)
-    _send_input(_make_mouse(MOUSEEVENTF_LEFTUP))
+    _mouse_left_down()
+    time.sleep(_CLICK_PRESS_SECONDS)
+    _mouse_left_up()
 
 
 def _smooth_move_rel(dx: int, dy: int, duration_ms: int,
@@ -1066,7 +1075,63 @@ def wait_for_fortnite_focus(timeout: float = 300) -> bool:
 
 # ── Middle-mouse click ───────────────────────────────────────
 
+# -- Click pacing guard (identical to macro_engine/macro_runner) ----------
+# Fortnite-verified: a click registers only when 1) the button is held
+# >= 1ms between DOWN and UP, AND 2) >= 1ms passes after UP before the
+# next DOWN. 0ms in either slot and the game merges/eats the click.
+# Blockly playback routes ALL button events through this guard, so run
+# mode must too - shared state, same rule.
+_MOUSE_MIN_HOLD_S = 0.001   # DOWN -> UP floor
+_MOUSE_MIN_GAP_S = 0.001    # UP  -> next DOWN floor
+_MOUSE_DOWN2BTN = {
+    MOUSEEVENTF_LEFTDOWN: ("left", None),
+    MOUSEEVENTF_RIGHTDOWN: ("right", None),
+    MOUSEEVENTF_MIDDLEDOWN: ("middle", None),
+    MOUSEEVENTF_XDOWN: ("x", lambda d: str(int(d or 0))),
+}
+_MOUSE_UP2BTN = {
+    MOUSEEVENTF_LEFTUP: ("left", None),
+    MOUSEEVENTF_RIGHTUP: ("right", None),
+    MOUSEEVENTF_MIDDLEUP: ("middle", None),
+    MOUSEEVENTF_XUP: ("x", lambda d: str(int(d or 0))),
+}
+_mouse_last_down_ts = {}    # button key -> perf_counter of its DOWN
+_mouse_last_up_ts = {}      # button key -> perf_counter of its UP
+_mouse_pace_lock = threading.Lock()
+
+
+def _mouse_btn_key(table, flags, data):
+    hit = table.get(flags)
+    if hit is None:
+        return None
+    name, mk = hit
+    return name + (":" + mk(data) if mk else "")
+
+
 def _send_mouse_event(flags: int, data: int = 0):
+    """SendInput mouse event with the 1ms hold / 1ms inter-click gap guard.
+
+    DOWN waits until 1ms has passed since that button's last UP; UP waits
+    until the button was held 1ms since its last DOWN. Wheels (WHEEL flags)
+    and pure moves pass straight through."""
+    btn = _mouse_btn_key(_MOUSE_DOWN2BTN, flags, data)
+    if btn is not None:
+        with _mouse_pace_lock:
+            last_up = _mouse_last_up_ts.get(btn)
+            if last_up is not None:
+                wait = _MOUSE_MIN_GAP_S - (time.perf_counter() - last_up)
+                if wait > 0:
+                    time.sleep(wait)
+            _mouse_last_down_ts[btn] = time.perf_counter()
+    elif flags in _MOUSE_UP2BTN:
+        btn = _mouse_btn_key(_MOUSE_UP2BTN, flags, data)
+        with _mouse_pace_lock:
+            last_down = _mouse_last_down_ts.get(btn)
+            if last_down is not None:
+                wait = _MOUSE_MIN_HOLD_S - (time.perf_counter() - last_down)
+                if wait > 0:
+                    time.sleep(wait)
+            _mouse_last_up_ts[btn] = time.perf_counter()
     union = _INPUT_UNION()
     union.mi = MOUSEINPUT(dx=0, dy=0, mouseData=data, dwFlags=flags,
                           time=0, dwExtraInfo=0)
@@ -1076,25 +1141,25 @@ def _send_mouse_event(flags: int, data: int = 0):
 
 def middle_click():
     _send_mouse_event(MOUSEEVENTF_MIDDLEDOWN)
-    time.sleep(0.05)
+    time.sleep(_CLICK_PRESS_SECONDS)
     _send_mouse_event(MOUSEEVENTF_MIDDLEUP)
 
 
 def right_click():
     _send_mouse_event(MOUSEEVENTF_RIGHTDOWN)
-    time.sleep(0.05)
+    time.sleep(_CLICK_PRESS_SECONDS)
     _send_mouse_event(MOUSEEVENTF_RIGHTUP)
 
 
 def xbutton1_click():
     _send_mouse_event(MOUSEEVENTF_XDOWN, data=0x0001)
-    time.sleep(0.05)
+    time.sleep(_CLICK_PRESS_SECONDS)
     _send_mouse_event(MOUSEEVENTF_XUP, data=0x0001)
 
 
 def xbutton2_click():
     _send_mouse_event(MOUSEEVENTF_XDOWN, data=0x0002)
-    time.sleep(0.05)
+    time.sleep(_CLICK_PRESS_SECONDS)
     _send_mouse_event(MOUSEEVENTF_XUP, data=0x0002)
 
 
@@ -1189,15 +1254,32 @@ class MacroPlayer:
         return False
 
     def play(self):
-        with open(self.macro_path, "r", encoding="utf-8") as f:
+        src = self.macro_path
+        # .macro v3 containers unzip to a clean temp first - mirrors the
+        # blockly/MacroEngine playback path (macro_engine/playback.py)
+        try:
+            from macro_engine import container as _c
+            if _c.is_container_file(src):
+                src = _c.extract_for_playback(src)
+        except Exception:
+            src = self.macro_path
+        with open(src, "r", encoding="utf-8", errors="replace") as f:
             lines = [l.rstrip("\n") for l in f.readlines()]
+        # v2 pretty .macro files (IF (hp < 20) { ... }) normalize to the v1
+        # engine line format - same canonicalization blockly playback does;
+        # v1 input passes through unchanged
+        try:
+            from macro_engine.macro_text import canonicalize_lines
+            lines = canonicalize_lines(lines)
+        except Exception:
+            pass
         self._sensitivity = _macro_sensitivity_from_lines(lines)
         self._smooth_carry_x = 0.0
         self._smooth_carry_y = 0.0
 
-        # Do NOT prime_game_mouse_capture() here. That dummy +1/-1 was meant
-        # only for the Recorder's first play. On some PCs it knocks Fortnite
-        # out of mouse-capture and every following SMOOTH_MOVE turns wrong.
+        # Priming (dummy +1/-1 capture pair) is NOT done here - it happens
+        # once per run in run_macro(), matching blockly/MacroEngine playback
+        # (macro_engine/playback.py primes before every play).
 
         # Build label index
         labels: dict[str, int] = {}
@@ -1214,7 +1296,7 @@ class MacroPlayer:
         vars_state: dict = {}
         self._vars_state = vars_state
         if_stack: list[dict] = []
-        macro_dir = os.path.dirname(os.path.abspath(self.macro_path))
+        macro_dir = os.path.dirname(os.path.abspath(src))
 
         while pc < len(lines):
             self._check_stop()
@@ -1224,6 +1306,24 @@ class MacroPlayer:
 
             if not raw or raw.startswith("#"):
                 continue
+            # LOCK { ... } is a re-record envelope, not playback: skip the
+            # markers, the steps inside execute normally (blockly parity)
+            if raw == "LOCK:" or raw.startswith("LOCK_END:"):
+                continue
+            # BACKGROUND arm markers of a WHILE/UNTIL loop - the arm runs on
+            # its own thread in the editor; run mode has no arm support, so
+            # jump the whole section exactly like blockly's main thread does
+            if raw == "BG_BEGIN:":
+                j = pc
+                while j < len(lines) and lines[j] != "BG_END:":
+                    j += 1
+                pc = j + 1   # resume after the arm
+                continue
+            if raw == "BG_END:" or raw.startswith("BG_END:"):
+                continue
+            # LOOK is the legacy alias of SMOOTH_MOVE (old recordings)
+            if raw.startswith("LOOK:"):
+                raw = "SMOOTH_MOVE:" + raw[5:]
 
             if raw.startswith("VARIABLE:"):
                 if branch_active(if_stack):
@@ -1294,8 +1394,10 @@ class MacroPlayer:
                 _key_up(remap_macro_vk(int(raw[7:].strip(), 16)))
                 continue
             if raw.startswith("KEY_PRESS:"):
+                # no next_due push: the blockly/MacroEngine player lets the
+                # 30ms hold overlap into the next DELAY (accumulated-deadline
+                # catch-up), so total timing equals the recording exactly
                 _key_press(remap_macro_vk(int(raw[10:].strip(), 16)))
-                next_due = max(next_due, time.perf_counter())
                 continue
 
             # --- MOUSE ---
@@ -1317,8 +1419,26 @@ class MacroPlayer:
                 _mouse_left_up()
                 continue
             if raw == "MOUSE_LEFT_CLICK":
+                # no next_due push - blocky parity (see KEY_PRESS note)
                 _mouse_left_click()
-                next_due = max(next_due, time.perf_counter())
+                continue
+            if raw == "MOUSE_RIGHT_DOWN":
+                _send_mouse_event(MOUSEEVENTF_RIGHTDOWN)
+                continue
+            if raw == "MOUSE_RIGHT_UP":
+                _send_mouse_event(MOUSEEVENTF_RIGHTUP)
+                continue
+            if raw == "MOUSE_RIGHT_CLICK":
+                right_click()
+                continue
+            if raw == "MOUSE_MIDDLE_DOWN":
+                _send_mouse_event(MOUSEEVENTF_MIDDLEDOWN)
+                continue
+            if raw == "MOUSE_MIDDLE_UP":
+                _send_mouse_event(MOUSEEVENTF_MIDDLEUP)
+                continue
+            if raw == "MOUSE_MIDDLE_CLICK":
+                middle_click()
                 continue
             if raw.startswith("MOUSE_REL:"):
                 parts = raw[10:].split(",")
@@ -1396,6 +1516,11 @@ def run_macro(name: str, wait: bool = True):
     _release_held_inputs_now()
     mouse_settings_snapshot = _prepare_windows_mouse_compatibility()
     _boost_playback_timing()
+    # Prime game mouse capture with the canceling +1/-1 pair before every
+    # run - blockly/MacroEngine playback primes before every play, and
+    # without it the game can swallow the first SMOOTH_MOVE, which made
+    # run-mode camera turns land short ('tight') vs editor playback.
+    prime_game_mouse_capture()
 
     stop_ev = threading.Event()
     player  = MacroPlayer(path, stop_ev)
