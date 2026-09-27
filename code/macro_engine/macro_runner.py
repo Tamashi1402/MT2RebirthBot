@@ -22,6 +22,8 @@ from macro_engine.macro_logic import (
     handle_else_if,
     handle_end_if,
     handle_end_while,
+    handle_iterate,
+    handle_end_iterate,
     handle_if,
     handle_while,
     list_add,
@@ -1308,6 +1310,7 @@ class MacroPlayer:
         self._vars_state = vars_state
         if_stack: list[dict] = []
         while_stack: list[int] = []   # body-start pc per active WHILE/UNTIL loop
+        iterate_stack: list[int] = []  # body-start pc per active ITERATE loop
         macro_dir = os.path.dirname(os.path.abspath(src))
         loop_bg: dict = {}            # body-start pc -> BackgroundLoop (WHILE/UNTIL arm)
         watchers: dict = {}           # var name -> BackgroundWatcher (WATCH lines)

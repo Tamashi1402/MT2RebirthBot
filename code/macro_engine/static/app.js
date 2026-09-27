@@ -51,6 +51,7 @@ const blockDefaults = {
   LIST_ADD:         '{"list":"list1","value":0,"pos":0}',
   LIST_REMOVE:      '{"list":"list1","pos":1}',
   ITERATE:          '{"list":{"get":"list1"},"as":"item"}',
+  END_ITERATE:      '',
 };
 
 const valueLessBlocks = new Set([
@@ -67,6 +68,7 @@ const valueLessBlocks = new Set([
   'LOCK_END',
   'BG_BEGIN',
   'BG_END',
+  'END_ITERATE',
 ]);
 
 const keyOptions = [
@@ -1357,6 +1359,8 @@ const CATEGORY_MAP = {
   LOCK_END:         { icon: '',                  label: 'Lock' },
   LIST_ADD:         { icon: 'variable.png',      label: 'List Add' },
   LIST_REMOVE:      { icon: 'variable.png',      label: 'List Remove' },
+  ITERATE:          { icon: 'repeat.png',        label: 'Iterate' },
+  END_ITERATE:      { icon: 'end_repeat.png',   label: 'End Iterate' },
 };
 
 const ACTION_LABELS = {
@@ -1375,6 +1379,7 @@ const ACTION_LABELS = {
   SECTION: 'Section', SECTION_END: 'End Section', ELSE: 'Else',
   PRINT: 'Print', LOCK: 'Lock', LOCK_END: 'End Lock',
   LIST_ADD: 'List Add', LIST_REMOVE: 'List Remove',
+  ITERATE: 'Iterate', END_ITERATE: 'End Iterate',
 };
 
 const ACTIONS_COL_WIDTH = 58;
@@ -1594,11 +1599,11 @@ function blockIndentFor(index) {
   let depth = 0;
   for (let i = 0; i < index; i++) {
     const t = blocks[i]?.type;
-    if (t === 'IF' || t === 'REPEAT' || t === 'LOCK' || t === 'WHILE' || t === 'UNTIL') depth += 1;
-    if (t === 'END_IF' || t === 'ENDREPEAT' || t === 'LOCK_END' || t === 'END_WHILE' || t === 'END_UNTIL') depth = Math.max(0, depth - 1);
+    if (t === 'IF' || t === 'REPEAT' || t === 'LOCK' || t === 'WHILE' || t === 'UNTIL' || t === 'ITERATE') depth += 1;
+    if (t === 'END_IF' || t === 'ENDREPEAT' || t === 'LOCK_END' || t === 'END_WHILE' || t === 'END_UNTIL' || t === 'END_ITERATE') depth = Math.max(0, depth - 1);
   }
   const current = blocks[index]?.type;
-  if (current === 'ELSE_IF' || current === 'END_IF' || current === 'ENDREPEAT' || current === 'END_WHILE' || current === 'END_UNTIL') depth = Math.max(0, depth - 1);
+  if (current === 'ELSE_IF' || current === 'END_IF' || current === 'ENDREPEAT' || current === 'END_WHILE' || current === 'END_UNTIL' || current === 'END_ITERATE') depth = Math.max(0, depth - 1);
   return depth;
 }
 
@@ -3111,3 +3116,4 @@ bootstrap().catch(async e => {
     }
   });
 })();
+

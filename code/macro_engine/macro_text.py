@@ -772,6 +772,8 @@ def canonicalize_lines(lines) -> list:
                     out.append("LOCK_END:")
                 elif kind == "UNTIL_BG":
                     out.append("BG_END:")
+                elif kind == "ITERATE":
+                    out.append("END_ITERATE")
                 else:
                     out.append("# SECTION_END")
             continue
@@ -809,8 +811,19 @@ def canonicalize_lines(lines) -> list:
             stack.append(m.group(1))
             continue
         # pretty ITERATE <list> AS "name" { ... } — loop a list variable
+        m = re.match(r'^ITERATE\s+(.+?)\s+AS\s+"((?:[^"\\]|\\.)*)"\s*\{\s*$', line)
         if m:
-            out.append("# %s:%s" % (m.group(1), _unq('"' + m.group(2) + '"')))
+            try:
+                lexpr = expr_from_str(m.group(1))
+            except MacroTextError:
+                lexpr = {"get": "items"}
+            out.append("ITERATE:" + json.dumps(
+                {"list": lexpr, "as": _unq('"' + m.group(2) + '"')},
+                separators=(",", ":")))
+            stack.append("ITERATE")
+            continue
+        # BREAK (pretty) — stop the innermost loop, continue after its END
+        if re.match(r"^BREAK\s*$", line):
             stack.append(m.group(1))
             continue
         if re.match(r"^LOCK\s*\{\s*$", line):
@@ -965,6 +978,14 @@ def _pretty_instr(t: str, v: str) -> str:
                 str(d.get("list") or ""), expr_to_str(d.get("pos")))
         except Exception:
             return "LIST_REMOVE:%s" % v
+    if t == "ITERATE":
+        try:
+            d = json.loads(v or "{}")
+            return 'ITERATE %s AS %s {' % (
+                expr_to_str(d.get("list")),
+                _q(str(d.get("as") or "item")))
+        except Exception:
+            return "ITERATE:%s" % v
     return ("%s %s" % (t, v)).strip()
 
 
@@ -1040,6 +1061,12 @@ def pretty_body(steps) -> list:
             out.append("%sREPEAT %s {" % (ind(), v or "1"))
             depth += 1
         elif t == "ENDREPEAT":
+            depth = max(0, depth - 1)
+            out.append(ind() + "}")
+        elif t == "ITERATE":
+            out.append("%s%s" % (ind(), _pretty_instr("ITERATE", v)))
+            depth += 1
+        elif t == "END_ITERATE":
             depth = max(0, depth - 1)
             out.append(ind() + "}")
         elif t == "LIST_ADD":

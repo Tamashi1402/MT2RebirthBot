@@ -13,12 +13,18 @@ import re
 
 from logger import get_logger
 from config import MACROS_DIR, FOCUS_RECHECK_DELAY
-from macro_logic import (
+# the engine's macro_logic is a strict superset of the old top-level
+# module (expression SETs, runtime/desktop locations, LOG, BREAK, and now
+# lists / ITERATE) — run on it 1:1 with the editor players instead of the
+# stripped legacy copy
+from macro_engine.macro_logic import (
     branch_active,
     define_variable,
     handle_else_if,
     handle_end_if,
     handle_if,
+    handle_iterate,
+    handle_end_iterate,
     list_add,
     list_remove,
     parse_payload,
@@ -1293,6 +1299,7 @@ class MacroPlayer:
         # Execution loop
         pc = 0                     # program counter
         repeat_stack: list[tuple[int, int, int]] = []  # (start_pc, count, remaining)
+        iterate_stack: list[int] = []  # body-start pc per active ITERATE loop
         next_due = time.perf_counter()  # accumulated deadline — prevents drift accumulation
 
         vars_state: dict = {}

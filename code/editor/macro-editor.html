@@ -251,9 +251,40 @@
       <block type="mfm_list_remove">
         <value name="POS"><block type="math_number"><field name="NUM">1</field></block></value>
       </block>
+      <block type="mfm_iterate">
+        <value name="LIST"><block type="mfm_empty_list"></block></value>
+        <value name="AS"><block type="mfm_component"><field name="NAME">item</field></block></value>
+      </block>
+      <block type="mfm_component"><field name="NAME">item</field></block>
+      <block type="mfm_list_get">
+        <value name="LIST"><block type="mfm_empty_list"></block></value>
+        <value name="NUM"><block type="math_number"><field name="NUM">1</field></block></value>
+      </block>
+      <block type="mfm_list_size">
+        <value name="LIST"><block type="mfm_empty_list"></block></value>
+      </block>
+      <block type="mfm_list_is_empty">
+        <value name="LIST"><block type="mfm_empty_list"></block></value>
+      </block>
+      <block type="mfm_type_is">
+        <value name="VALUE"><block type="text"><field name="TEXT"></field></block></value>
+      </block>
+      <block type="mfm_empty_list"></block>
+    </category>
+    <sep></sep>
     <category name="Flow" colour="120">
       <block type="mfm_delay">
         <value name="MS"><block type="math_number"><field name="NUM">100</field></block></value>
+      </block>
+      <block type="mfm_repeat">
+        <value name="TIMES"><block type="math_number"><field name="NUM">10</field></block></value>
+      </block>
+      <block type="mfm_break_loop"></block>
+      <block type="controls_if">
+        <value name="IF0"><block type="pcr_compare_number">
+          <value name="A"><block type="math_number"><field name="NUM">0</field></block></value>
+          <value name="B"><block type="math_number"><field name="NUM">0</field></block></value>
+        </block></value>
       </block>
       <block type="mfm_label"></block>
       <block type="mfm_goto"></block>

@@ -20,6 +20,8 @@ from macro_engine.macro_logic import (
     handle_else_if,
     handle_end_if,
     handle_end_while,
+    handle_iterate,
+    handle_end_iterate,
     handle_if,
     handle_while,
     list_add,
@@ -1175,6 +1177,7 @@ class MacroEngine:
             repeat_stack: list[tuple[int, int]] = []
             if_stack: list[dict] = []
             while_stack: list[int] = []   # body-start pc per active WHILE/UNTIL loop
+            iterate_stack: list[int] = []  # body-start pc per active ITERATE loop
             loop_bg: dict = {}             # body-start pc -> BackgroundLoop (WHILE/UNTIL arm)
             watchers: dict = {}            # var name -> BackgroundWatcher (WATCH lines)
 

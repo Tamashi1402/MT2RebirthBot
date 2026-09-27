@@ -716,6 +716,61 @@ def handle_end_while(stack: list[dict[str, Any]], while_stack: list[int],
     return None
 
 
+# ── ITERATE loops (List category) ──────────────────────────────────────
+# ITERATE:(list-expr) AS "name" ... END_ITERATE — rides the same if_stack
+# as WHILE (so parent-branch gating + BREAK_LOOP work identically). The
+# list is snapshotted at entry; each pass puts the current item into
+# vars_state[name] (the `component` block reads it). ITERATE_MAX items is
+# the safety cap against a runaway list.
+
+ITERATE_MAX_ITEMS = 1_000_000
+
+
+def handle_iterate(stack: list[dict[str, Any]], vars_state: dict[str, Any],
+                   data: dict[str, Any], bot_root: str = "",
+                   macro_dir: str | None = None) -> None:
+    parent_active = branch_active(stack)
+    items: list = []
+    if parent_active:
+        try:
+            val = eval_expr((data or {}).get("list"), vars_state, bot_root, macro_dir)
+        except Exception:
+            val = None
+        if isinstance(val, (list, tuple)):
+            items = list(val)[:ITERATE_MAX_ITEMS]
+    active = bool(parent_active and items)
+    name = str((data or {}).get("as") or "item").strip() or "item"
+    stack.append({"parent": parent_active, "active": active, "branch_taken": active,
+                  "payload": data, "iterate": True, "items": items,
+                  "idx": 1 if active else 0, "name": name})
+    if active:
+        vars_state[name] = items[0]
+
+
+def handle_end_iterate(stack: list[dict[str, Any]], iterate_stack: list[int],
+                      vars_state: dict[str, Any]) -> int | None:
+    """Close one ITERATE loop. Returns the body start pc to loop again,
+    or None when the loop exits (or was never entered)."""
+    if not stack:
+        return None
+    top = stack[-1]
+    if not top.get("iterate"):
+        return None            # not an iterate frame — leave it alone
+    if not top.get("active"):
+        stack.pop()            # empty list at entry — body was skipped
+        return None
+    items = top.get("items") or []
+    idx = int(top.get("idx") or 0)
+    if idx < len(items):
+        top["idx"] = idx + 1
+        vars_state[str(top.get("name") or "item")] = items[idx]
+        return iterate_stack[-1] if iterate_stack else None
+    stack.pop()
+    if iterate_stack:
+        iterate_stack.pop()
+    return None
+
+
 def _resolve_image_path(path: str, bot_root: str, macro_dir: str | None = None) -> str:
     path = str(path or "").strip()
     if not path:
@@ -1411,7 +1466,7 @@ class BackgroundLoop(threading.Thread):
                 logging.getLogger(__name__).warning(
                     "BACKGROUND arm: %s is not supported on a background "
                     "thread — skipped (supported: variables, IMAGE, "
-                    "GRAB_IMAGE, DELAY, PRINT, IF/ELSE, REPEAT, WHILE/UNTIL)",
+                    "GRAB_IMAGE, DELAY, PRINT/LOG, IF/ELSE, REPEAT, WHILE/UNTIL)",
                     head)
             except Exception:
                 pass
@@ -1433,6 +1488,7 @@ class BackgroundLoop(threading.Thread):
         vars_state = self.vars_state
         if_stack: list[dict[str, Any]] = []
         while_stack: list[int] = []
+        iterate_stack: list[int] = []
         repeat_stack: list[tuple[int, int]] = []
         pc = 0
         lines = self.lines

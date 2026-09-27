@@ -608,6 +608,10 @@ function _mfm_value_text(c) {
       c.type === 'pcr_get_color' || c.type === 'pcr_get_resloc') {
     return '${' + String(c.getFieldValue('VAR') || '') + '}';
   }
+  // the iterate loop's current item — printable/loggable like any getter (item 9)
+  if (c.type === 'mfm_component') {
+    return '${' + _mfmIterateName(c) + '}';
+  }
   if (c.type === 'math_number') return String(c.getFieldValue('NUM') || '0');
   if (c.type === 'logic_boolean') return c.getFieldValue('BOOL') === 'TRUE' ? 'true' : 'false';
   // any other value block — serialize the expression node and render it
@@ -708,14 +712,43 @@ function _mfm_rgba_vals(block, inputName) {
 }
 
 // expression tree from a value/data block (the expanded .macro format)
+// innermost enclosing iterate loop's component name (the `component`
+// block resolves against it at serialize time)
+function _mfmIterateName(b) {
+  // the iterate's "as" component block names the loop var; a `component`
+  // in the body resolves against the innermost enclosing iterate (its
+  // own NAME field is only the standalone fallback)
+  try {
+    let p = b;
+    while (p) {
+      if (p.type === 'mfm_iterate') {
+        const as = p.getInputTargetBlock && p.getInputTargetBlock('AS');
+        if (as && as.type === 'mfm_component') {
+          return String(as.getFieldValue('NAME') || 'item') || 'item';
+        }
+        return 'item';
+      }
+      p = p.getParent && p.getParent();
+    }
+  } catch (e) {}
+  try {
+    if (b && b.type === 'mfm_component') {
+      return String(b.getFieldValue('NAME') || 'item') || 'item';
+    }
+  } catch (e) {}
+  return 'item';
+}
+
 function _mfm_expr(b) {
   if (!b) return { lit: true };
   switch (b.type) {
     case 'math_number': return { lit: Number(b.getFieldValue('NUM')) || 0 };
     case 'text': return { lit: String(b.getFieldValue('TEXT') || '') };
     case 'logic_boolean': return { lit: b.getFieldValue('BOOL') === 'TRUE' };
+    case 'mfm_empty_list': return { lit: [] };
     case 'pcr_get_number': case 'pcr_get_text': case 'pcr_get_logic':
     case 'pcr_get_image': case 'pcr_get_resloc': case 'pcr_get_color':
+    case 'pcr_get_list':
       return { get: String(b.getFieldValue('VAR') || '') };
     case 'pcr_image_from_res':
       return { lit: _mfm_image_path(b) };
@@ -757,6 +790,9 @@ function _mfm_expr(b) {
       }
       return { grab: d };
     }
+      // the iterate loop's current item — resolves to the innermost
+      // enclosing ITERATE's component name
+      return { get: _mfmIterateName(b) };
     case 'mfm_grab_color': {
       const pc = b.getInputTargetBlock('POINT');
       if (pc && pc.type === 'pcr_scale_res') {
@@ -912,10 +948,19 @@ function _mfm_exprXml(v, doc) {
   if (v && typeof v === 'object' && !Array.isArray(v)) {
     if ('lit' in v) return mkLit(v.lit);
     if ('get' in v) {
+      // inside an ITERATE body, a reference to the loop's component name
+      // reloads as the `component` block (not a typed getter)
+      if (_mfmIterNames.length && String(v.get) === _mfmIterNames[_mfmIterNames.length - 1]) {
+        const cb = mkBlk('mfm_component');
+        const cf = document.createElement('field'); cf.setAttribute('name', 'NAME');
+        cf.textContent = String(v.get); cb.appendChild(cf);
+        return cb;
+      }
       const t = (window._pcrLocalVars || {})[v.get] || 'number';
       const b = mkBlk(t === 'text' ? 'pcr_get_text' : t === 'logic' ? 'pcr_get_logic'
         : t === 'image' ? 'pcr_get_image' : t === 'resloc' ? 'pcr_get_resloc'
-        : t === 'color' ? 'pcr_get_color' : 'pcr_get_number');
+        : t === 'color' ? 'pcr_get_color' : t === 'list' ? 'pcr_get_list'
+        : 'pcr_get_number');
       const f = doc.createElement('field'); f.setAttribute('name', 'VAR');
       f.textContent = String(v.get); b.appendChild(f); return b;
     }
@@ -1204,10 +1249,25 @@ function _mfm_cond(block) {
 
 // Flat block list → Blockly XML (then domToWorkspace).
 // Returns {dom, unknown: n} for reporting.
+// component-name context while mfmListToXml walks ITERATE bodies —
+// {get: <name>} refs to the active component reload as `component`
+let _mfmIterNames = [];
+
+// a pos/value expr node → plain number (for shadow blocks), else default
+function _litNumOf(v, dflt) {
+  if (v && typeof v === 'object' && 'lit' in v) {
+    const n = Number(v.lit);
+    if (isFinite(n)) return n;
+  }
+  if (typeof v === 'number' && isFinite(v)) return v;
+  return dflt;
+}
+
 function mfmListToXml(blocks) {
   const xml = document.createElement('xml');
   let unknown = 0;
   const stacks = [{ dom: xml, locked: false }]; // container dom stack
+  _mfmIterNames = [];
 
   function _mfm_getterXml(name) {
     // getter typed by the local-variables rail — a number var gets
@@ -1218,6 +1278,7 @@ function mfmListToXml(blocks) {
       : t === 'image' ? 'pcr_get_image'
       : t === 'color' ? 'pcr_get_color'
       : t === 'resloc' ? 'pcr_get_resloc'
+      : t === 'list' ? 'pcr_get_list'
       : 'pcr_get_number';
     const gb = mk(type);
     addField(gb, 'VAR', name);
@@ -1415,6 +1476,7 @@ function mfmListToXml(blocks) {
     if (type === 'COMMENT') {
       const cel = mk('mfm_comment');
       addField(cel, 'TEXT', value);
+      if (item && /^#[0-9a-fA-F]{6}$/.test(String(item.color || ''))) addField(cel, 'COLOUR', item.color);
       if (groupStack.length) {
         groupStack[groupStack.length - 1].steps.push({ type: 'COMMENT', value: value, locked: locked });
       } else if (locked) {
@@ -1442,23 +1504,7 @@ function mfmListToXml(blocks) {
     }
 
     let el = null;
-    // BOT-COMPAT — kept as Raw: image checks, IF/ELSE_IF/ELSE/END_IF
-    // condition lines, SET_VARIABLE assignments, GRAB_IMAGE shots and
-    // VARIABLE declarations carry runtime payloads the bot's plain macro
-    // runner executes directly (its own schema), but this visual editor
-    // cannot represent them 1:1 — rebuilding them as editable blocks
-    // would silently rewrite their payloads into a different schema the
-    // bot cannot run. So they load as Raw blocks instead: TYPE and VALUE
-    // are preserved verbatim, they save back byte-for-byte, and the bot
-    // keeps executing them exactly as before. Everything else stays 1:1.
-    if (type === 'IF' || type === 'ELSE_IF' || type === 'ELSE' || type === 'END_IF' ||
-        type === 'SET_VARIABLE' || type === 'IMAGE' || type === 'GRAB_IMAGE' ||
-        type === 'VARIABLE') {
-      el = mk('mfm_raw');
-      addField(el, 'TYPE', type);
-      addField(el, 'VALUE', value);
-      unknown++;
-    } else switch (type) {
+    switch (type) {
       case 'DELAY': {
         el = mk('mfm_delay');
         addShadowNum(el, 'MS', value);
@@ -1540,6 +1586,36 @@ function mfmListToXml(blocks) {
         if (stacks.length > 1) stacks.pop();
         cur = stacks[stacks.length - 1];
         continue;
+      }
+      case 'ITERATE': {
+        flushLock();
+        let d = {};
+        try { d = JSON.parse(value || '{}'); } catch (e) { d = {}; }
+        el = mk('mfm_iterate');
+        const asb = mk('mfm_component');
+        addField(asb, 'NAME', d.as || 'item');
+        const asw = document.createElement('value'); asw.setAttribute('name', 'AS');
+        asw.appendChild(asb); el.appendChild(asw);
+        const lw = document.createElement('value'); lw.setAttribute('name', 'LIST');
+        lw.appendChild(_mfm_exprXml(d.list !== undefined ? d.list : { get: 'items' }, document));
+        el.appendChild(lw);
+        const st = document.createElement('statement');
+        st.setAttribute('name', 'DO');
+        el.appendChild(st);
+        appendTo(cur.dom, el);
+        _mfmIterNames.push(String(d.as || 'item'));
+        stacks.push({ dom: st, locked: cur.locked || locked, iterate: true });
+        continue;
+      }
+      case 'END_ITERATE': {
+        flushLock();
+        if (stacks.length > 1) {
+          const popped = stacks.pop();
+          if (popped && popped.iterate) _mfmIterNames.pop();
+        }
+        cur = stacks[stacks.length - 1];
+        continue;
+      }
       case 'LIST_ADD': {
         flushLock();
         let d = {};
@@ -2101,6 +2177,12 @@ function mfmWorkspaceToList(workspace, includeLocals) {
         push('LIST_REMOVE', JSON.stringify(d), locked);
         break;
       }
+      case 'mfm_iterate': {
+        const d = { list: _mfm_expr(b.getInputTargetBlock('LIST')),
+                    as: _mfmIterateName(b) };
+        push('ITERATE', JSON.stringify(d), locked);
+        emitStack(b.getInputTargetBlock('DO'), locked);
+        push('END_ITERATE', '', locked);
         break;
       }
       case 'mfm_image_check': {
@@ -2300,3 +2382,24 @@ function mfmEnsureHat(workspace, name, hatType) {
     this.setTooltip("An empty list — the clean starting point for 'set list' or any list input (item 7).");
   });
 
+  def('mfm_iterate', function () {
+    // iterate [list] as [component] — the component dummy is the loop
+    // var: copy it into the body to use the current item (item 3)
+    this.appendValueInput('LIST').setCheck('Array').appendField('iterate');
+    this.appendValueInput('AS').setCheck(null).setAlign(Blockly.ALIGN_RIGHT).appendField('as');
+    this.appendStatementInput('DO').appendField('');
+    this.setInputsInline(true);
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(260);
+    this.setTooltip("Run the body once per item of a list. The `component` block in the 'as' slot names the current item — drag that block (or a fresh `component` from the toolbox) into the body to use it. BREAK stops the loop early.");
+  });
+
+  def('mfm_component', function () {
+    this.appendDummyInput().appendField('component').appendField(new Blockly.FieldTextInput('item'), 'NAME');
+    this.setOutput(true, null);
+    this.setColour(260);
+    this.setTooltip("The current item of the enclosing 'iterate' loop. Rename it in the loop's 'as' slot — the loop's name wins.");
+  });
+})();
+}
