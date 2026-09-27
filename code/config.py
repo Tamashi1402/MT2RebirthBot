@@ -401,7 +401,7 @@ DEFAULT_POINTS = {
     "FORCE_READY_CLICK": (255, 910),
     "FORCE_SHARD_SAMPLE": (1668, 773),
     # Daily Quests start/complete buttons + close click/sample (user-measured 1920x1080).
-    # HUD quest tracker slot sample points (v1.9.2): done = slot's panel
+    # HUD quest tracker slot sample points (v1.11): done = slot's panel
     # background #2f363b gone. Left padding of each quest row.
     "QUEST_HUD1_SLOT": (5, 412),
     "QUEST_HUD2_SLOT": (5, 492),
@@ -669,7 +669,7 @@ QUEST_CLOSE_CLICK  = tuple(int(x) for x in _cfg.get("QUEST_CLOSE_CLICK",  [969, 
 QUEST_CLOSE_SAMPLE = tuple(int(x) for x in _cfg.get("QUEST_CLOSE_SAMPLE", [1073, 861]))
 # HUD quest tracker slots — green "Done" (#00f500) detection regions.
 QUEST_HUD1_DONE_REGION = tuple(int(x) for x in _cfg.get("QUEST_HUD1_DONE_REGION", [0, 409, 90, 464]))
-# v1.9.2 HUD slot sample points — done = slot background gone (see quest_menu.py)
+# v1.11 HUD slot sample points — done = slot background gone (see quest_menu.py)
 QUEST_HUD1_SLOT = tuple(int(x) for x in _cfg.get("QUEST_HUD1_SLOT", [5, 412]))
 QUEST_HUD2_SLOT = tuple(int(x) for x in _cfg.get("QUEST_HUD2_SLOT", [5, 492]))
 QUEST_HUD3_SLOT = tuple(int(x) for x in _cfg.get("QUEST_HUD3_SLOT", [5, 571]))
@@ -773,11 +773,11 @@ FARM_METEOR_AREA = str(_cfg.get("FARM_METEOR_AREA", "a6")).strip().lower()
 if FARM_METEOR_AREA not in ("a6", "a7", "a8"):
     FARM_METEOR_AREA = "a6"
 METEOR_HEALTH_CHECK = _cfg_bool("METEOR_HEALTH_CHECK", True)
-FIXED_A5_HIT_TIME = _t("FIXED_A5_HIT_TIME", int, 60)
+FIXED_A5_HIT_TIME = _t("FIXED_A5_HIT_TIME", int, 0)
 HIT_ROCKS = _cfg_bool("HIT_ROCKS", True)
 # Single fixed settle after every teleport / map load (the old per-area
 # base/A5/A6 color detection is gone).
-MAP_LOAD_FIXED_SECONDS = float(_cfg.get("MAP_LOAD_FIXED_SECONDS", 0.5) or 0.5)
+MAP_LOAD_FIXED_SECONDS = float(_cfg.get("MAP_LOAD_FIXED_SECONDS", 0.0))
 HIT_BASEROCK = _cfg_bool("HIT_BASEROCK", True)
 HIT_A5_METEOR = _cfg_bool("HIT_A5_METEOR", True)
 FARM_METEOR_NODE_FARM_SECONDS = float(_cfg.get("FARM_METEOR_NODE_FARM_SECONDS", 10.0) or 10.0)
@@ -791,15 +791,48 @@ ROUTE_REDO_LIMIT = int(_cfg.get("ROUTE_REDO_LIMIT", 5) or 5)
 # Manual Strength open/click pacing (v1.8.31). When MANUAL_STR_OPEN is False
 # the bot never presses the monitor key + clicks to open the strength window
 # itself — a macro must open it (the live loop waits for the window instead).
-MANUAL_STR_OPEN = bool(_cfg.get("MANUAL_STR_OPEN", True))
+MANUAL_STR_OPEN = bool(_cfg.get("MANUAL_STR_OPEN", False))
+
+# Bottom-row spam click points (1:1 with the user's click_routine.py):
+# left button once, then right button three times, repeating.
+# Robust parser: accepts list-of-pairs ([[x,y],...]), tuples, or any text
+# form the dashboard might write ("x,y;x,y", "[(x, y), ...]", "[[x, y], ...]").
+# NEVER raises at import — a malformed value falls back to the default.
+def _parse_spam_points(raw):
+    import re as _re
+    pts = []
+    try:
+        if isinstance(raw, (list, tuple)):
+            for p in raw:
+                if isinstance(p, (list, tuple)) and len(p) == 2:
+                    pts.append((int(p[0]), int(p[1])))
+        elif isinstance(raw, str):
+            for m in _re.finditer(r"(-?\d+)\s*,\s*(-?\d+)", raw):
+                pts.append((int(m.group(1)), int(m.group(2))))
+    except Exception:
+        pts = []
+    return pts
+
+# 1 left click + 3 right clicks (user's proven manual routine)
+_SPAM_POINTS_DEFAULT = [(1289, 946)] + [(1653, 934)] * 3
+try:
+    MANUAL_STR_SPAM_POINTS = _parse_spam_points(_cfg.get("MANUAL_STR_SPAM_POINTS")) or _SPAM_POINTS_DEFAULT
+except Exception:
+    MANUAL_STR_SPAM_POINTS = list(_SPAM_POINTS_DEFAULT)
+# Window-open screenshot check interval during the spam (seconds; 0 = never).
+MANUAL_STR_SPAM_OPEN_CHECK_SECS = float(_cfg.get("MANUAL_STR_SPAM_OPEN_CHECK_SECS", 2.0) or 0.0)
 # Click pacing: gap between LEFTUP and the next LEFTDOWN (click -> click), and
 # hold time between LEFTDOWN and LEFTUP (down -> up). Both in ms, default 1ms.
 # MINIMUM 1ms is enforced: 0ms makes the game merge/eat clicks ENTIRELY (they
 # register nothing — verified on the Fortnite lobby click tests and the Sep 17
 # 09:27 baserock stall: ~690 clicks at 0ms bought zero upgrades, every attempt
 # tripped the 5s HUD no-gain watchdog).
-MANUAL_STR_CLICK_DELAY_MS = max(1, int(float(_cfg.get("MANUAL_STR_CLICK_DELAY_MS", 1) or 1)))
-MANUAL_STR_CLICK_HOLD_MS  = max(1, int(float(_cfg.get("MANUAL_STR_CLICK_HOLD_MS", 1) or 1)))
+MANUAL_STR_CLICK_DELAY_MS = max(1, int(float(_cfg.get("MANUAL_STR_CLICK_DELAY_MS", 5) or 5)))
+MANUAL_STR_CLICK_HOLD_MS  = max(1, int(float(_cfg.get("MANUAL_STR_CLICK_HOLD_MS", 15) or 15)))
+# Bottom-row spam mix: how many times to click the LEFT point, then the
+# RIGHT point, per cycle (Fine-Tuning -> Manual Strength). Default 1:3.
+MANUAL_STR_SPAM_LEFT_CLICKS  = max(1, int(float(_cfg.get("MANUAL_STR_SPAM_LEFT_CLICKS", 1) or 1)))
+MANUAL_STR_SPAM_RIGHT_CLICKS = max(1, int(float(_cfg.get("MANUAL_STR_SPAM_RIGHT_CLICKS", 3) or 3)))
 _ms_method = str(_cfg.get("MANUAL_STR_CLICK_METHOD", "default") or "default").strip().lower()
 MANUAL_STR_CLICK_METHOD = _ms_method if _ms_method in ("default", "classic") else "default"
 # Bottom-row spam pattern: N right-side buys, then M left-side unlock
@@ -1018,10 +1051,10 @@ A5_CHECK_ATTEMPTS     = int(_cfg.get("A5_CHECK_ATTEMPTS",     10))
 REBIRTH_CHECK_DELAY   = int(_cfg.get("REBIRTH_CHECK_DELAY",   5))
 REBIRTH_SETTLE_WAIT   = int(_cfg.get("REBIRTH_SETTLE_WAIT",   3))
 REBIRTH_POST_CONFIRM_WAIT = float(_cfg.get("REBIRTH_POST_CONFIRM_WAIT", 1.0))  # wait AFTER rebirth confirmed before teleporting to base
-# v1.9.2: the post-rebirth stone-confirmation window is capped at this many
-# seconds (was a fixed 1.0s fast poll) - every ms here is rebirth cycle time.
+# v2023: whole post-rebirth verify OCR phase is capped at this many seconds
+# (was 3 reads x 0.4s apart — could steal >1s of cycle time).
 REBIRTH_VERIFY_BUDGET_SECONDS = float(_cfg.get("REBIRTH_VERIFY_BUDGET_SECONDS", 0.5))
-FOCUS_RECHECK_DELAY   = float(_cfg.get("FOCUS_RECHECK_DELAY",   1.0))
+FOCUS_RECHECK_DELAY   = float(_cfg.get("FOCUS_RECHECK_DELAY",   0.5))
 MENU_RESUME_JOIN_WAIT = int(_cfg.get("MENU_RESUME_JOIN_WAIT",  120))   # seconds to wait after pressing PLAY for the game to load (a join can take 30s-2min)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1122,7 +1155,7 @@ KRAKEN_DRILL_INTERVAL_SECONDS = float(_cfg.get("KRAKEN_DRILL_INTERVAL_SECONDS", 
 KRAKEN_HEALTH_BAR_REGION = tuple(int(x) for x in _cfg.get("KRAKEN_HEALTH_BAR_REGION", [610, 55, 1328, 122]))
 KRAKEN_HEALTH_BAR_SEEN_THRESH = float(_cfg.get("KRAKEN_HEALTH_BAR_SEEN_THRESH", 0.015))
 KRAKEN_HB_CONFIRM_WINDOW_SECONDS = float(_cfg.get("KRAKEN_HB_CONFIRM_WINDOW_SECONDS", 3.5))  # single watch window after bar gone: no black screen = kill (default 3.5s)
-KRAKEN_POST_HB_LOSS_SHOOT_SECONDS = float(_cfg.get("KRAKEN_POST_HB_LOSS_SHOOT_SECONDS", 1.5))  # keep firing this long after the health bar disappears
+KRAKEN_POST_HB_LOSS_SHOOT_SECONDS = float(_cfg.get("KRAKEN_POST_HB_LOSS_SHOOT_SECONDS", 1.75))  # keep firing this long after the health bar disappears
 KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS = float(_cfg.get("KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS", 8.0))  # max seconds to wait for the boss health bar to appear after joining
 KRAKEN_REWARD_OPEN_WAIT_SECONDS = float(_cfg.get("KRAKEN_REWARD_OPEN_WAIT_SECONDS", 0.5))  # settle after reward walk before checking menu (default 0.5s)
 KRAKEN_REWARD_WALK_SECONDS = float(_cfg.get("KRAKEN_REWARD_WALK_SECONDS", 4.0))  # fixed forward walk after the kill, spamming E, until the reward NPC menu opens (default 4.0s)
@@ -1377,7 +1410,7 @@ def _apply_runtime_region_scaling():
         pass
 
 LOG_LEVEL_CONSOLE = str(_cfg.get("LOG_LEVEL_CONSOLE", "INFO"))
-LOG_LEVEL_FILE    = str(_cfg.get("LOG_LEVEL_FILE",    "DEBUG"))
+LOG_LEVEL_FILE    = str(_cfg.get("LOG_LEVEL_FILE",    "INFO"))
 
 # â”€â”€ Drill unlock â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 UNLOCK_DRILLS           = _cfg_bool("UNLOCK_DRILLS", True)

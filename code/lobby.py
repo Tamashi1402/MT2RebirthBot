@@ -330,9 +330,11 @@ def _esc_open_pause_menu(step: float, ready_xy, ready_rgb) -> str:
             return "none"
         if _dump("ready mid-leave", ready_xy, ready_rgb, tol=70):
             return "ready"
-        if _dump("pause menu", esc_xy, esc_rgb, tol=40):
-            log.info(f"[FORCE_RESTART] pause menu open (ESC x{n - 1})")
-            return "pause"
+        # Always send at least one ESC before trusting the pause-menu pixel.
+        # The normal in-game background can match this dark sample exactly,
+        # which previously produced "pause menu open (ESC x0)" and skipped
+        # the key press entirely. If a different panel is open, the first ESC
+        # closes it and a later pass opens the actual pause menu.
         _press_esc()
         log.info(f"[FORCE_RESTART] ESC press {n}/3")
         if not _sleep(step):

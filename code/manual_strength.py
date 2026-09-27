@@ -57,48 +57,45 @@ def _click_method() -> str:
         return "default"
 
 
-# Bottom-row spam pattern: N right-side buys, then M left-side unlock.
-# The right side holds ~5 affordable upgrades and one click on the left
-# re-unlocks it - a 1:1 L/R ping-pong wastes half its taps on a locked
-# left button. N/M are user-configurable (5/1 by default, 1/1 = plain
-# alternation).
-def _bottom_right_clicks() -> int:
-    try:
-        return max(1, int(getattr(_cfg, "MANUAL_STR_BOTTOM_RIGHT_CLICKS", 5) or 5))
-    except Exception:
-        return 5
+def _spam_points() -> list[tuple[int, int]]:
+    """Click points for the bottom-row spam.
 
-
-def _bottom_left_clicks() -> int:
-    try:
-        return max(1, int(getattr(_cfg, "MANUAL_STR_BOTTOM_LEFT_CLICKS", 1) or 1))
-    except Exception:
-        return 1
-
-
-def _bottom_row_pattern(names: list) -> tuple:
-    """Click order for the bottom-row spam: N right-side buys, then M left unlocks.
-
-    Buttons are named *_left / *_right (row5_left, row5_right). If the
-    naming scheme ever changes, fall back to plain alternation.
+    1:1 with the user's click_routine.py: absolute screen positions built
+    from the LEFT point repeated MANUAL_STR_SPAM_LEFT_CLICKS times, then
+    the RIGHT point repeated MANUAL_STR_SPAM_RIGHT_CLICKS times
+    (default: 1 left, 3 right).
+    Falls back to the centers of the bottom-row buttons when not configured.
     """
-    right = [i for i, n in enumerate(names) if n.lower().endswith("_right")]
-    left = [i for i, n in enumerate(names) if n.lower().endswith("_left")]
-    if right and left:
-        pattern = [right[i % len(right)] for i in range(_bottom_right_clicks())]
-        pattern += [left[i % len(left)] for i in range(_bottom_left_clicks())]
-        return tuple(pattern)
-    return tuple(range(len(names)))
+    pts = getattr(_cfg, "MANUAL_STR_SPAM_POINTS", None)
+    try:
+        out = [tuple(int(v) for v in p) for p in pts]
+        if out:
+            try:
+                left_n = max(1, int(getattr(_cfg, "MANUAL_STR_SPAM_LEFT_CLICKS", 1)))
+                right_n = max(1, int(getattr(_cfg, "MANUAL_STR_SPAM_RIGHT_CLICKS", 3)))
+            except Exception:
+                left_n, right_n = 1, 3
+            return [out[0]] * left_n + [out[1]] * right_n
+    except Exception:
+        pass
+    _, row_buttons = _ROWS[0]
+    pts = []
+    for _name, attr in row_buttons:
+        try:
+            pts.append(_center(getattr(_cfg, attr)))
+        except Exception:
+            continue
+    return pts
 
 
 def _click_delay() -> float:
     """Gap between one click's LEFTUP and the next LEFTDOWN.
 
     Configurable via MANUAL_STR_CLICK_DELAY_MS (Fine-Tuning -> Manual
-    Strength -> Click delay, default 1ms)."""
+    Strength -> Click delay, default 5ms)."""
     try:
         # floor at 1ms: 0ms pacing makes the game merge/eat every click
-        return max(1, int(getattr(_cfg, "MANUAL_STR_CLICK_DELAY_MS", 1))) / 1000.0
+        return max(1, int(getattr(_cfg, "MANUAL_STR_CLICK_DELAY_MS", 5))) / 1000.0
     except Exception:
         return _CLICK_GAP
 
@@ -106,18 +103,41 @@ def _downup_delay() -> float:
     """Hold time between LEFTDOWN and LEFTUP.
 
     Configurable via MANUAL_STR_CLICK_HOLD_MS (Fine-Tuning -> Manual
-    Strength -> Click hold, default 1ms)."""
+    Strength -> Click hold, default 20ms)."""
     try:
-        return max(1, int(getattr(_cfg, "MANUAL_STR_CLICK_HOLD_MS", 1))) / 1000.0
+        return max(1, int(getattr(_cfg, "MANUAL_STR_CLICK_HOLD_MS", 20))) / 1000.0
     except Exception:
         return _DOWNUP_PACE
 
 
 def _pace_wait(stop_event, seconds: float) -> bool:
-    """Sleep a click-pacing delay (plain sleep, stop-event aware)."""
-    if stop_event is not None:
-        return _sleep_or_stop(stop_event, seconds)
-    time.sleep(seconds)
+    """Sleep a click-pacing delay with sub-millisecond precision.
+
+    v2022: plain time.sleep is quantized to ~15.6ms on Win11 — the OS
+    ignores timer-resolution requests from background processes (EcoQoS),
+    so a 3ms gap really slept 14.8ms and MS ran at 40ms/click (MS-PACE
+    Sep 27: hold=21.9 for 15, gap=14.8 for 3). Same approach as the macro
+    player's DELAY: sleep the bulk only when the wait is long enough that
+    timer granularity doesn't matter, then busy-spin the last stretch
+    with sleep(0) yields so HUD-reader threads still get the GIL.
+    """
+    if seconds <= 0:
+        return False
+    deadline = time.perf_counter() + seconds
+    if seconds > 0.02:
+        bulk = seconds - 0.002
+        if stop_event is not None:
+            if stop_event.wait(bulk):
+                return True
+        else:
+            time.sleep(bulk)
+    while True:
+        remaining = deadline - time.perf_counter()
+        if remaining <= 0:
+            return False
+        if stop_event is not None and stop_event.is_set():
+            return True
+        time.sleep(0)  # yield slice: keeps GIL pressure near zero
     return False
 
 
@@ -295,53 +315,95 @@ def _spam_bottom_row(
     stop_fn=None,
     activity_callback=None,
 ) -> int:
-    """Bottom-row-only: N right clicks then M left, as fast as possible. No OCR.
+    """Bottom-row spam 1:1 with the user's click_routine.py.
 
-    N/M come from config (default 5 right / 1 left - see _bottom_row_pattern).
-    Window-open is checked every few clicks so we do not screenshot every tap.
+    Fixed click points (MANUAL_STR_SPAM_POINTS, default left once then right
+    three times), move+down immediately, hold MANUAL_STR_CLICK_HOLD_MS, up,
+    gap MANUAL_STR_CLICK_DELAY_MS, repeat. No OCR, no per-click checks.
+
+    The only safety check is a window-open screenshot at most every
+    MANUAL_STR_SPAM_OPEN_CHECK_SECS seconds (default 2s, 0 = never): the
+    old code screenshotted every 10 clicks / 0.3s, which spent more time
+    capturing than clicking.
     """
-    points = []
-    names = []
-    for name, attr in row_buttons:
-        try:
-            points.append(_center(getattr(_cfg, attr)))
-            names.append(name)
-        except Exception:
-            continue
+    points = _spam_points()
     if not points:
         return 0
-    delay_s = _click_delay()
+    names = [name for name, _ in row_buttons] or ["spam"]
+    hold_s = _downup_delay()
+    gap_s = _click_delay()
+    try:
+        open_check_secs = max(0.0, float(getattr(_cfg, "MANUAL_STR_SPAM_OPEN_CHECK_SECS", 2.0)))
+    except Exception:
+        open_check_secs = 2.0
     clicked = 0
-    last_open_check = 0.0
-    pattern = _bottom_row_pattern(names)
-    pattern_pos = 0
+    pos = 0
+    if open_check_secs > 0 and not _is_window_open():
+        log.info("[MANUAL_STR] strength window not open at spam start")
+        return 0
+    last_open_check = time.perf_counter()
+    # Per-click segment timing (v2021): where does each click's time go?
+    _pc = time.perf_counter
+    seg = {"move": 0.0, "down": 0.0, "hold": 0.0, "up": 0.0,
+           "cb": 0.0, "gap": 0.0, "open": 0.0, "stop": 0.0}
+    _t0_wall = _pc()
     while time.time() < deadline:
         if stop_event and stop_event.is_set():
             break
+        _t = _pc()
         if stop_fn and stop_fn():
+            seg["stop"] += _pc() - _t
             break
-        now = time.time()
-        if clicked == 0 or (clicked % 10 == 0) or (now - last_open_check >= 0.30):
-            if not _is_window_open():
-                log.info("[MANUAL_STR] strength window closed while spamming bottom row")
+        seg["stop"] += _pc() - _t
+        if open_check_secs > 0:
+            now = time.perf_counter()
+            if now - last_open_check >= open_check_secs:
+                _t = _pc()
+                _open = _is_window_open()
+                seg["open"] += _pc() - _t
+                if not _open:
+                    log.info("[MANUAL_STR] strength window closed while spamming bottom row")
+                    break
+                last_open_check = now
+        x, y = points[pos]
+        pos = (pos + 1) % len(points)
+        _t = _pc(); _mouse_move_abs(x, y); seg["move"] += _pc() - _t
+        if stop_event and stop_event.is_set():
+            break
+        _t = _pc(); _mouse_left_down(); seg["down"] += _pc() - _t
+        if hold_s:
+            _t = _pc()
+            _aborted = _pace_wait(stop_event, hold_s)
+            seg["hold"] += _pc() - _t
+            if _aborted:
+                _t = _pc(); _mouse_left_up(); seg["up"] += _pc() - _t
                 break
-            last_open_check = now
-        side = pattern[pattern_pos % len(pattern)]
-        pattern_pos += 1
-        x, y = points[side]
-        name = names[side]
-        _mouse_move_abs(x, y)
-        _fast_left_click(stop_event)
+        _t = _pc(); _mouse_left_up(); seg["up"] += _pc() - _t
         clicked += 1
         if activity_callback:
+            _t = _pc()
             try:
-                activity_callback(row_name, name)
+                activity_callback(row_name, names[clicked % len(names)])
             except Exception:
                 pass
-        if delay_s:
-            if _pace_wait(stop_event, delay_s):
+            seg["cb"] += _pc() - _t
+        if gap_s:
+            _t = _pc()
+            _aborted = _pace_wait(stop_event, gap_s)
+            seg["gap"] += _pc() - _t
+            if _aborted:
                 break
     if clicked:
+        _wall = _pc() - _t0_wall
+        _known = sum(seg.values())
+        seg["other"] = max(0.0, _wall - _known)
+        parts = "  ".join(
+            f"{k}={v * 1000.0 / clicked:.1f}ms" for k, v in seg.items()
+        )
+        log.info(
+            f"[MS-PACE] {clicked} clicks in {_wall:.2f}s "
+            f"({_wall * 1000.0 / clicked:.1f}ms/click)  {parts}"
+        )
         log.debug(f"[MANUAL_STR] bottom-row spam clicked {clicked} times")
     return clicked
 
@@ -617,6 +679,17 @@ def close_window_verified(attempts: int = 5, stop_event: threading.Event | None 
 
 
 
+# Module-level flag: True while the buy loop is running (window open).
+# Lets the stone watcher skip its in-game checks entirely during spam —
+# the strength window covers the HUD, so they always fail anyway.
+_LIVE_ACTIVE = threading.Event()
+
+
+def live_active() -> bool:
+    """True while the manual-strength buy loop is running."""
+    return _LIVE_ACTIVE.is_set()
+
+
 class ManualStrengthHandle:
     def __init__(self, thread: threading.Thread, stop_event: threading.Event):
         self._thread = thread
@@ -662,6 +735,7 @@ def start_manual_strength_loop(
             opened = _open_window(stop_event, attempts=6)
             if not opened:
                 return
+            _LIVE_ACTIVE.set()
             log.info(f"[MANUAL_STR] live loop started{f' ({reason})' if reason else ''}")
 
             deadline = float("inf")
@@ -679,6 +753,7 @@ def start_manual_strength_loop(
         except Exception as e:
             log.warning(f"[MANUAL_STR] live loop failed: {e}")
         finally:
+            _LIVE_ACTIVE.clear()
             if opened:
                 close_window_verified()
             log.info(f"[MANUAL_STR] live loop stopped; bought={bought}")

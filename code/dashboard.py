@@ -421,10 +421,7 @@ CONFIG_EDITABLE = [
     ("FARM_METEOR_LOADOUT",                          "str",   "Legacy Meteor Farm loadout (falls back to Meteor Rewards)"),
     ("DISABLE_OVERLAYS",                             "bool",  "Disable overlays (HUD will not be drawn at all)"),
     ("METEOR_HEALTH_CHECK",                          "bool",  "Check A5 Meteor health (auto stop when the red bar disappears)"),
-    ("FIXED_A5_HIT_TIME",                            "int",   "Fixed A5 hit time (seconds) — used only when the A5 Meteor health check is disabled"),
-    ("HIT_ROCKS",                                    "bool",  "Hit stage rocks"),
-    ("HIT_BASEROCK",                                 "bool",  "Hit baserock"),
-    ("HIT_A5_METEOR",                                "bool",  "Hit A5 Meteor"),
+    ("FIXED_A5_HIT_TIME",                            "int",   "Fixed A5 hit time (seconds) — a5-meteor mode hold (0 = single 100ms tap)"),
     ("BOSS_FIGHT_A1_MODE",                          "str",   "Boss fight mode (Bramble / Zytos)"),
     ("QUEST_MINE_TIMEOUT_SECONDS",                   "int",   "Daily Quests: max seconds to mine one quest rock before auto-done"),
     ("DAILY_QUEST_ALIASES",                          "str",   "Daily Quests: OCR aliases for Break X Star Rocks (| separated, {$NUMBER} = digit)"),
@@ -494,12 +491,12 @@ CONFIG_EDITABLE = [
     ("MANUAL_STR_MAX_SECONDS",   "int",   "Max time per rock (seconds)"),
     ("MANUAL_STR_IDLE_WAIT",     "float", "Idle timeout, nothing buyable (seconds)"),
     ("MANUAL_STR_NO_STRENGTH_TIMEOUT", "float", "No-progress reroute (seconds)"),
-    ("MANUAL_STR_CLICK_METHOD", "str", "Clicking method (default / classic)"),
     ("MANUAL_STR_OPEN",                             "bool",  "Manual Strength Open (off = macros must open the window)"),
     ("MANUAL_STR_CLICK_DELAY_MS",                     "int",   "Manual Strength: click delay between clicks (ms, min 1)"),
     ("MANUAL_STR_CLICK_HOLD_MS",                     "int",   "Manual Strength: click hold time down->up (ms, min 1)"),
-    ("MANUAL_STR_BOTTOM_RIGHT_CLICKS", "int", "Bottom row: right clicks per left click"),
-    ("MANUAL_STR_BOTTOM_LEFT_CLICKS", "int", "Bottom row: left (unlock) clicks"),
+    ("MANUAL_STR_SPAM_POINTS", "str", "Bottom row spam points: x,y;x,y (left point first, right point second)"),
+    ("MANUAL_STR_SPAM_LEFT_CLICKS",  "int", "Spam mix: left-point clicks per cycle (default 1)"),
+    ("MANUAL_STR_SPAM_RIGHT_CLICKS", "int", "Spam mix: right-point clicks per cycle (default 3)"),
     ("MANUAL_STR_HUD_STALL_SECONDS", "float", "HUD stall timeout (seconds)"),
     ("MANUAL_STR_DETECTION", "str", "Detection type (stone / surge level)"),
     ("MANUAL_STR_STONE_TARGET", "float", "Stone threshold - stone detection (default 1.36e152)"),
@@ -1342,9 +1339,12 @@ def config_post():
         if "BOSS_FIGHT_A1_MODE" in typed:
             from config import normalize_bramble_mode
             typed["BOSS_FIGHT_A1_MODE"] = normalize_bramble_mode(typed["BOSS_FIGHT_A1_MODE"])
-        if "MANUAL_STR_CLICK_METHOD" in typed:
-            _m = str(typed["MANUAL_STR_CLICK_METHOD"]).strip().lower()
-            typed["MANUAL_STR_CLICK_METHOD"] = _m if _m in ("default", "classic") else "default"
+        for _ck in ("MANUAL_STR_SPAM_LEFT_CLICKS", "MANUAL_STR_SPAM_RIGHT_CLICKS"):
+            if _ck in typed:
+                try:
+                    typed[_ck] = max(1, min(10, int(typed[_ck])))
+                except Exception:
+                    typed[_ck] = 1 if _ck.endswith("LEFT_CLICKS") else 3
         if "MANUAL_STR_DETECTION" in typed:
             _msd = str(typed["MANUAL_STR_DETECTION"]).strip().lower()
             typed["MANUAL_STR_DETECTION"] = _msd if _msd in ("stone", "surge") else "stone"
@@ -5393,8 +5393,8 @@ const CFG_TOOLTIPS = {
   REBIRTH_CHECK_DELAY: 'Seconds to wait before checking if a rebirth screen appeared.',
   QUEST_MINE_TIMEOUT_SECONDS: 'Daily Quests: max seconds to hold LMB on one star rock before the bot gives up and auto-finishes that quest (default 90).',
   MANUAL_STR_OPEN: 'Manual Strength Open: when checked (default) the bot opens the strength window itself (monitor key -> left click). Unchecked = the bot never opens it — your macros must open the window; the buying loop just waits for it to appear.',
-  MANUAL_STR_CLICK_DELAY_MS: 'Manual Strength: delay between one click and the next (release -> next press), in milliseconds. Default 1ms, minimum 1ms (0ms makes the game merge and eat clicks entirely — they register nothing; the bot forces 1ms even if you enter 0).',
-  MANUAL_STR_CLICK_HOLD_MS: 'Manual Strength: hold time between mouse down and mouse up for each click, in milliseconds. Default 1ms, minimum 1ms (0ms makes the game merge and eat clicks entirely; the bot forces 1ms even if you enter 0).',
+  MANUAL_STR_CLICK_DELAY_MS: 'Manual Strength: delay between one click and the next (release -> next press), in milliseconds. Default 5ms, minimum 1ms (0ms makes the game merge and eat clicks entirely — they register nothing; the bot forces 1ms even if you enter 0).',
+  MANUAL_STR_CLICK_HOLD_MS: 'Manual Strength: hold time between mouse down and mouse up for each click, in milliseconds. Default 20ms, minimum 1ms (0ms makes the game merge and eat clicks entirely; the bot forces 1ms even if you enter 0).',
   HATCH_CLOSE_MIN_PCT: 'Daily Quests: yellow-pixel percentage needed to consider the hatch GUI (and its close button) detected. The hatch button is thinner than the quest board close, reading ~0.27 when open, so the default is 0.20.',
   DAILY_QUEST_ALIASES: 'Daily Quests: OCR aliases per quest type. Pick the quest type in the dropdown (Break N Star Rocks / Open Chests / Hatch Pets / Combine Pets / Hatch GUI: Area 1 Egg), then add translated names with +. For rocks, {$NUMBER} marks where the rock-count digit sits (BREAK {$NUMBER} STAR ROCKS). Matching is case-insensitive and ignores spaces.',
   GAME_DETECT_IMAGE: 'Pick an always-visible in-game HUD element as proof we are in the MT2 map: the Miner Tycoon 2 logo, the stone icon or the shard icon. Press Pick, then F2 in-game, drag a box around it. The box and point are recorded with the image and save immediately. Nothing is shipped by default — Force Restart refuses to start until this is picked (global Config, top gear). The image is NOT searched for on screens where the HUD is hidden (menus, Manual Strength overlays) — those paths already skip the stone/shard checks.',
@@ -5429,17 +5429,14 @@ const CFG_TOOLTIPS = {
   STONE_FOR_UNLOCK_DRILLS: 'Stone amount at which the bot will automatically unlock drills (once per run).',
   BASE_ROCK_DRILL_PRESSES: 'How many times to press the drill activation key per base-rock burst in manual-strength mode. Default 6.',
   AUTO_ROCK_MAX_GRIND_SECONDS: 'Auto Strength only: max seconds to stay on one stage rock before forcing a route retry. Does not apply to baserock.',
-  HIT_ROCKS: 'ON: the bot performs its built-in stage-rock swings. OFF: the bot never swings itself — use this when your own macro already includes the swings; the bot still monitors stone progress and handles routing.',
-  HIT_BASEROCK: 'ON: the bot performs its built-in baserock hits (hit macro, prime clicks, drill bursts). OFF: never swings itself — use this when your own macro already swings the baserock; the bot still monitors stone and reroutes if nothing moves for 30s.',
-  HIT_A5_METEOR: 'ON: the bot performs its built-in A5 Meteor hits. OFF: the bot never swings itself — use this when your own macro already hits the meteor; the bot still monitors progress.',
   USE_SHORTCUTS: 'ON: after baserock in Area 5 Meteor, walk the baserock→A6 shortcut (p1_shortcut) then teleport A5. OFF: after baserock, teleport to A5 and run base_to_meteor_shortcut_p1 instead of walking to A6. Stage-rock *_shortcut.macro files are also used when present.',
   FORCE_RESTART_ON_FAILURE: 'When enabled, non-user failures play force_restart.macro (engine), then the bot starts a fresh lobby/run. Works in Rebirth, Kraken, Zytos and Crater.',
   PAUSE_ON_LAG: 'When Windows goes offline or 1.1.1.1 / 8.8.8.8 fail, freeze the current action and wait until the connection is back. Does not force restart.',
   UI_CLICK_SETTLE: 'Pause after UI clicks (teleport, map, loadout, rebirth menus) before the next action. Raise if menus eat clicks. Default 0.1s (100ms).',
   UI_BTN_SETTLE: 'Pause after a menu button click before the next screen check. Default 0.1s.',
-  MAP_LOAD_FIXED_SECONDS: 'The single map-load wait: after every teleport the bot just settles this many seconds, then continues. Default 0.5s. Raise it if actions ever run on a map that is still loading.',
-  METEOR_HEALTH_CHECK: 'ON: watch the A5 Meteor health bar and stop the grind as soon as the red bar disappears. OFF: skip the health bar and use the Fixed A5 hit hold below instead. Default ON.',
-  FIXED_A5_HIT_TIME: 'Used only when Check A5 Meteor health is OFF. One left-mouse hold instead of the meteor_hit macro: 0 = a single 100ms tap; 1 = hold 200ms + 1s (1.2s total); 5 = 5.2s total — then it stops and continues to base + rebirth.',
+  MAP_LOAD_FIXED_SECONDS: 'The single map-load wait: after every teleport the bot just settles this many seconds, then continues. Default 0.0s (slim timing — no extra pause). Raise it if actions ever run on a map that is still loading.',
+  METEOR_HEALTH_CHECK: 'Not used by the a5-meteor mode (that always uses the Fixed A5 hit time). ON: for other paths that reach A5, watch the meteor health bar and stop when the red bar disappears. Default ON.',
+  FIXED_A5_HIT_TIME: 'a5-meteor mode: one left-mouse hold instead of the meteor_hit macro — 0 = a single 100ms tap; 1 = hold 200ms + 1s (1.2s total); 5 = 5.2s total — then it stops and continues to base + rebirth. The A5 meteor phase always uses this; the health check only applies to other paths that reach A5.',
   LOBBY_SETTLE: 'After the shard is seen in lobby, wait this long before continuing the run. Default 5s.',
   LOBBY_READY_SETTLE: 'After the Ready button is seen, wait this long before clicking it. Default 10s.',
   LOBBY_STEP_DELAY: 'Pause after ESC / each lobby click before the next check. Default 0.5s.',
@@ -5452,12 +5449,12 @@ const CFG_TOOLTIPS = {
   A5_POST_MACRO_VERIFY_DELAY: 'Extra delay after an Area 5 navigation macro before post-navigation settle. Lower saves time; raise only if transitions are flaky.',
   MANUAL_STR_ONLY_LAST_ROW: 'When enabled, manual strength buys only the bottom row left/right buttons and ignores upper rows.',
   MANUAL_STR_DETECTION: 'What baserock manual strength watches to decide it is done. Stone: stop when the stone amount reaches the Stone threshold below (default 1.36e152 - the standard base-rock threshold). Surge level: stop when the bottom-row Surge level reaches the Surge threshold. Surge needs Bottom Row Only ON (Features tab); with it off, stone detection is always used.',
-  MANUAL_STR_CLICK_METHOD: 'How manual strength paces its clicks. Default: current profile (1ms clicks, 5s stall watchdog, 0.5s open waits, 30s give-up). Classic: the original timing profile tuned by the author - same 1ms clicks but patient watchdogs (60s stall, 0.25s post-monitor open wait, 60s give-up).',
-  MANUAL_STR_BOTTOM_RIGHT_CLICKS: 'Bottom-row spam: how many RIGHT-side buys per cycle (default 5). With Left clicks = 1 this is the classic 5-right/1-left pattern.',
-  MANUAL_STR_BOTTOM_LEFT_CLICKS: 'Bottom-row spam: how many LEFT (unlock) clicks per cycle (default 1). Set Right=1 and Left=1 for plain alternation.',
+  MANUAL_STR_SPAM_POINTS: 'Bottom-row spam click points, 1:1 with the click_routine: absolute screen positions in the exact order to repeat (default: left button once 1289,946 then right button three times 1653,934). Format: x,y;x,y',
+  MANUAL_STR_SPAM_LEFT_CLICKS: 'Bottom-row spam mix: clicks on the LEFT point per cycle (default 1).',
+  MANUAL_STR_SPAM_RIGHT_CLICKS: 'Bottom-row spam mix: clicks on the RIGHT point per cycle (default 3). Classic rhythm: 1 left / 3 right.',
   MANUAL_STR_STONE_TARGET: 'Stone detection: stop buying when stone reaches this amount. Default 1.36e152 (the standard base-rock threshold). Applies everywhere the baserock grinds with manual strength on (start gate, meteor shortcut, boss A1) - it replaces the per-route thresholds.',
   KRAKEN_HB_CONFIRM_WINDOW_SECONDS: 'After the boss health bar disappears, watch this many seconds: black screen = death (you died), no black screen = boss killed. The reward walk also keeps checking for the death screen while it runs. Default 3.5s.',
-  KRAKEN_POST_HB_LOSS_SHOOT_SECONDS: 'Keep the left mouse held this long after the health bar disappears, so a flicker does not stop DPS. Default 1.5s.',
+  KRAKEN_POST_HB_LOSS_SHOOT_SECONDS: 'Keep the left mouse held this long after the health bar disappears, so a flicker does not stop DPS. Default 1.75s.',
   KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS: 'Max seconds to wait for the boss health bar to appear after clicking Join. Default 8s.',
   KRAKEN_DEATH_WAIT_SECONDS: 'Wait this long for respawn after a death before continuing the loop. Default 5s.',
   KRAKEN_MENU_WAIT_SECONDS: 'Settle wait after opening the boss menu (F4 → Area 7 → kraken macro). Default 0.5s.',
@@ -5598,9 +5595,8 @@ const MODE_SETTINGS_TABS = {
       {title:'Daily Quests',keys:['QUEST_MINE_TIMEOUT_SECONDS','DAILY_QUEST_ALIASES','HATCH_CLOSE_MIN_PCT']},
     ]},
     {id:'finetuning', label:'Fine-Tuning', sections:[
-      {title:'Manual Strength',keys:['MANUAL_STR_OPEN','MANUAL_STR_DETECTION','MANUAL_STR_STONE_TARGET','MANUAL_STR_SURGE_TARGET','MANUAL_STR_CLICK_METHOD','MANUAL_STR_CLICK_DELAY_MS','MANUAL_STR_CLICK_HOLD_MS','MANUAL_STR_BOTTOM_RIGHT_CLICKS','MANUAL_STR_BOTTOM_LEFT_CLICKS','MANUAL_STR_OPEN_AFTER_HIT_WAIT','MANUAL_STR_OPEN_AFTER_MONITOR_WAIT','MANUAL_STR_MAX_SECONDS','MANUAL_STR_IDLE_WAIT','MANUAL_STR_NO_STRENGTH_TIMEOUT','MANUAL_STR_HUD_STALL_SECONDS','MANUAL_STR_CLOSE_YELLOW_THRESH','MANUAL_STR_POST_CLOSE_SETTLE_SECONDS','MANUAL_STR_POST_CLOSE_TOPUP_SECONDS','MANUAL_STR_POST_CLOSE_CONFIRM_TIMEOUT_SECONDS']},
+      {title:'Manual Strength',keys:['MANUAL_STR_OPEN','MANUAL_STR_DETECTION','MANUAL_STR_STONE_TARGET','MANUAL_STR_SURGE_TARGET','MANUAL_STR_CLICK_DELAY_MS','MANUAL_STR_CLICK_HOLD_MS','MANUAL_STR_SPAM_POINTS','MANUAL_STR_SPAM_LEFT_CLICKS','MANUAL_STR_SPAM_RIGHT_CLICKS','MANUAL_STR_OPEN_AFTER_HIT_WAIT','MANUAL_STR_OPEN_AFTER_MONITOR_WAIT','MANUAL_STR_MAX_SECONDS','MANUAL_STR_IDLE_WAIT','MANUAL_STR_NO_STRENGTH_TIMEOUT','MANUAL_STR_HUD_STALL_SECONDS','MANUAL_STR_CLOSE_YELLOW_THRESH','MANUAL_STR_POST_CLOSE_SETTLE_SECONDS','MANUAL_STR_POST_CLOSE_TOPUP_SECONDS','MANUAL_STR_POST_CLOSE_CONFIRM_TIMEOUT_SECONDS']},
       {title:'A5 Meteor',keys:['METEOR_HEALTH_CHECK','FIXED_A5_HIT_TIME']},
-      {title:'Hit Controls',keys:['HIT_ROCKS','HIT_BASEROCK','HIT_A5_METEOR']},
     ]},
   ],
   delve: [
@@ -5977,13 +5973,6 @@ function renderConfigField(key, values) {
       <option value="surge"${cur==='surge'?' selected':''}>Surge level</option>
     </select></div>`;
   }
-  if(key==='MANUAL_STR_CLICK_METHOD'){
-    const cur = String(values[key]||'default').toLowerCase()==='classic' ? 'classic' : 'default';
-    return `<div class="cfg-group">${labelHtml}<select class="cfg-input" id="cfg_${key}">
-      <option value="default"${cur==='default'?' selected':''}>Default</option>
-      <option value="classic"${cur==='classic'?' selected':''}>Classic (original pacing)</option>
-    </select></div>`;
-  }
   if(key==='MANUAL_STR_STONE_TARGET'){
     const show = String(values['MANUAL_STR_DETECTION']||'stone').toLowerCase() !== 'surge';
     const v = Number(values[key]);
@@ -5995,8 +5984,8 @@ function renderConfigField(key, values) {
     return `<div id="cfg_dep_MANUAL_STR_SURGE_TARGET" style="display:${show?'':'none'};"><div class="cfg-group">${labelHtml}<input class="cfg-input" id="cfg_${key}" value="${values[key]??160}"></div></div>`;
   }
   if(key==='FIXED_A5_HIT_TIME'){
-    const showHC = values['METEOR_HEALTH_CHECK']===false;
-    return `<div id="cfg_dep_FIXED_A5_HIT_TIME" style="display:${showHC?'':'none'};"><div class="cfg-group">${labelHtml}<input class="cfg-input" id="cfg_${key}" value="${values[key]??''}"></div></div>`;
+    // a5-meteor mode always uses the fixed hit time — show it unconditionally.
+    return `<div id="cfg_dep_FIXED_A5_HIT_TIME"><div class="cfg-group">${labelHtml}<input class="cfg-input" id="cfg_${key}" value="${values[key]??0}"></div></div>`;
   }
   if(key==='BOSS_FIGHT_A1_MODE_OCR') return '';
   if(key==='GAME_DETECT_IMAGE'){
@@ -6047,8 +6036,8 @@ function onManualStrDetectionChange(val){
   if (surge) surge.style.display = isSurge ? '' : 'none';
 }
 function onMeteorHealthCheckChange(checked){
-  const wrap = document.getElementById('cfg_dep_FIXED_A5_HIT_TIME');
-  if (wrap) wrap.style.display = checked ? 'none' : '';
+  // FIXED_A5_HIT_TIME always shows now (a5-meteor mode uses it regardless
+  // of the health-check toggle, which only governs non-mode A5 paths).
 }
 function renderConfigForm(values) {
   const showTabs = CFG_TABS.length > 1;

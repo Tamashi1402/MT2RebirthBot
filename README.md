@@ -74,7 +74,7 @@ code/              bot, dashboard, macro engine and all modules
   macro_engine/    standalone macro recorder/editor app
 data/              config.json, calibration defaults, wizard state
 data/fastocr/      per-resolution FastOCR glyph template caches
-                   (<name>_screen<WIDTHxHEIGHT>.npz - Full HD file ships
+                   (<name>_screen<WIDTHxHEIGHT>.npz — Full HD file ships
                    with the bot; other resolutions harvest their own)
 macros/           recorded macros + image checks
 modules/           future mode addons

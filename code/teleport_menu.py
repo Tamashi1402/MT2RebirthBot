@@ -56,6 +56,7 @@ _DEST_SAMPLE_W = 14
 _DEST_SAMPLE_H = 10
 _BTN_SETTLE = 0.05          # extra after a button is seen, before click
 _STEP_SETTLE = 0.15         # after F4 and after every click (uniform)
+_UI_EXTRA_GAP = 0.25        # v2016: extra pause between teleport UI clicks and after teleporting
 
 
 def _step_settle() -> float:
@@ -345,8 +346,8 @@ def _dest_ready_pct(xy: tuple[int, int]) -> float:
 
 def _wait_dest_ready(destination: str, shift_dx: float = 0.0) -> bool:
     if destination in _DEST_FIXED_DELAY:
-        wait = max(0.0, float(getattr(_cfg, "MAP_LOAD_FIXED_SECONDS", 0.5) or 0.5))
-        log.info(f"[TELEPORT] {destination}: no color sample yet — fixed settle {wait*1000:.0f}ms")
+        wait = max(0.0, float(getattr(_cfg, "MAP_LOAD_FIXED_SECONDS", 0.0)))
+        log.debug(f"[TELEPORT] {destination}: no color sample yet — fixed settle {wait*1000:.0f}ms")
         return _sleep_with_kill_abort(wait)
     attr = _DEST_SAMPLE_ATTR.get(destination)
     if not attr:
@@ -408,7 +409,7 @@ def _close_if_open(
         if not _click_xy(*click_xy):
             return False
         closed += 1
-        if not _sleep_with_kill_abort(max(_step_settle(), 0.22)):
+        if not _sleep_with_kill_abort(max(_step_settle(), 0.22) + _UI_EXTRA_GAP):
             return False
     still = _close_yellow_at(sample_xy)
     if still:
@@ -431,20 +432,20 @@ def _force_close_menu(
     log.info(f"{tag} forcing menu close ({int(click_xy[0])},{int(click_xy[1])})")
     if not _click_xy(*click_xy):
         return False
-    if not _sleep_with_kill_abort(max(_step_settle(), 0.22)):
+    if not _sleep_with_kill_abort(max(_step_settle(), 0.22) + _UI_EXTRA_GAP):
         return False
     if not _close_yellow_at(sample_xy):
         return True
     log.warning(f"{tag} still open after force close — click again")
     if not _click_xy(*click_xy):
         return False
-    if not _sleep_with_kill_abort(max(_step_settle(), 0.22)):
+    if not _sleep_with_kill_abort(max(_step_settle(), 0.22) + _UI_EXTRA_GAP):
         return False
     if _close_yellow_at(sample_xy):
         log.warning(f"{tag} still open — F4 toggle")
         if not _press_f4():
             return False
-        if not _sleep_with_kill_abort(max(_step_settle(), 0.22)):
+        if not _sleep_with_kill_abort(max(_step_settle(), 0.22) + _UI_EXTRA_GAP):
             return False
     return True
 
@@ -486,7 +487,7 @@ def _shift_pt(pt: tuple[int, int], dx: float) -> tuple[int, int]:
     return int(round(pt[0] - dx)), int(pt[1])
 
 
-def teleport(destination: str, attempts: int | None = None, wait_seconds: float = 0.0) -> bool:
+def teleport(destination: str, attempts: int | None = None, wait_seconds: float = 0.0, menu_open: bool = False) -> bool:
     """Open F4, wait for close-yellow, click Teleport, click destination."""
     destination = str(destination or "").strip().lower()
     attr = _DEST_POINT_ATTR.get(destination)
@@ -511,22 +512,23 @@ def teleport(destination: str, attempts: int | None = None, wait_seconds: float 
     for attempt in range(1, max_tries + 1):
         if _is_killed():
             return False
-        log.info(f"[TELEPORT] {destination} attempt {attempt}/{max_tries}")
-        if not _press_f4():
-            return False
-        if not _sleep_with_kill_abort(_step_settle()):
+        log.debug(f"[TELEPORT] {destination} attempt {attempt}/{max_tries}")
+        if menu_open and attempt == 1:
+            # Respawn detect left the F4 menu open — reuse it, skip the press.
+            log.debug("[TELEPORT] menu already open (respawn) — skipping F4 press")
+        elif not _press_f4():
             return False
 
         use_shift = False
         shifted_close_sample = _shift_pt(close_sample, shift_dx) if shift_dx else None
-        if not _wait_close_yellow(close_sample, timeout=2.0, interval=0.10):
+        if not _wait_close_yellow(close_sample, timeout=0.5, interval=0.10):
             # Menu-shift bug: the whole F4 panel can render further left than
             # normal. Check the shifted spot before assuming a stuck leftover
             # menu — if it's there, the menu opened fine, just shifted; work
             # this whole attempt with every F4-menu coordinate shifted the
             # same amount instead of force-closing + reopening.
             if shifted_close_sample and _close_yellow_at(shifted_close_sample):
-                log.info(f"[TELEPORT] menu shifted left ~{shift_dx:.0f}px — using shifted coords, no reopen needed")
+                log.debug(f"[TELEPORT] menu shifted left ~{shift_dx:.0f}px — using shifted coords, no reopen needed")
                 use_shift = True
             else:
                 # Not shifted, and not open at the normal spot either. Could
@@ -537,12 +539,10 @@ def teleport(destination: str, attempts: int | None = None, wait_seconds: float 
                 log.warning(f"[TELEPORT] F4 close-yellow not seen ({attempt}/{max_tries}) — quick re-press before force-close")
                 if not _press_f4():
                     return False
-                if not _sleep_with_kill_abort(_step_settle()):
-                    return False
                 if _wait_close_yellow(close_sample, timeout=1.0, interval=0.10):
                     use_shift = False
                 elif shifted_close_sample and _close_yellow_at(shifted_close_sample):
-                    log.info(f"[TELEPORT] menu shifted left ~{shift_dx:.0f}px after re-press — using shifted coords")
+                    log.debug(f"[TELEPORT] menu shifted left ~{shift_dx:.0f}px after re-press — using shifted coords")
                     use_shift = True
                 else:
                     log.warning(f"[TELEPORT] still not open after re-press ({attempt}/{max_tries}) — dismiss leftover menu, wait 4s")
@@ -557,13 +557,11 @@ def teleport(destination: str, attempts: int | None = None, wait_seconds: float 
         eff_dest_xy       = _shift_pt(dest_xy, shift_dx) if use_shift else dest_xy
         eff_shift_for_sample = shift_dx if use_shift else 0.0
 
-        if not _sleep_with_kill_abort(_btn_settle()):
+        if not _sleep_with_kill_abort(_btn_settle() + _UI_EXTRA_GAP):
             return False
-        log.info(f"[TELEPORT] F4 open — clicking panel {eff_panel_xy}")
+        log.debug(f"[TELEPORT] F4 open — clicking panel {eff_panel_xy}")
         if not _click_xy(*eff_panel_xy, attempt=attempt):
             _force_close_menu(eff_close_sample, eff_close_click, close_rgb, "[TELEPORT]")
-            return False
-        if not _sleep_with_kill_abort(_step_settle()):
             return False
         if not _wait_dest_ready(destination, shift_dx=eff_shift_for_sample):
             log.warning(f"[TELEPORT] dest list not ready ({attempt}/{max_tries})")
@@ -577,14 +575,14 @@ def teleport(destination: str, attempts: int | None = None, wait_seconds: float 
                 break
             continue
         dest_dark_streak = 0
-        if not _sleep_with_kill_abort(_btn_settle()):
+        if not _sleep_with_kill_abort(0.05 + _UI_EXTRA_GAP):
             return False
-        log.info(f"[TELEPORT] clicking {destination} {eff_dest_xy}")
+        log.debug(f"[TELEPORT] clicking {destination} {eff_dest_xy}")
         if not _click_xy(*eff_dest_xy, attempt=attempt):
             _force_close_menu(eff_close_sample, eff_close_click, close_rgb, "[TELEPORT]")
             return False
-        _close_if_open(eff_close_sample, eff_close_click, close_rgb, "[TELEPORT]", wait=0.15)
-        log.info(f"[TELEPORT] {destination} clicked")
+        _close_if_open(eff_close_sample, eff_close_click, close_rgb, "[TELEPORT]", wait=_UI_EXTRA_GAP)
+        log.debug(f"[TELEPORT] {destination} clicked")
         return True
 
     _force_close_menu(close_sample, close_click, close_rgb, "[TELEPORT]")
@@ -616,6 +614,27 @@ def _wait_luma_at(xy: tuple[int, int], timeout: float = 2.0) -> bool:
             return False
         if not _sleep_with_kill_abort(0.10):
             return False
+
+
+def spam_f4_until_menu(timeout: float = 30.0, interval: float = 0.1) -> bool:
+    """Respawn detect: press F4 every `interval` until the menu opens.
+
+    The F4 menu can only open once the game has respawned us, so the close
+    button appearing IS the respawn signal. Returns True with the menu
+    left OPEN (the caller closes it or reuses it for the teleport).
+    """
+    close_sample = _pt("TELEPORT_CLOSE_SAMPLE", (1001, 957))
+    deadline = time.time() + max(1.0, float(timeout))
+    while time.time() < deadline:
+        if _is_killed():
+            return False
+        if not _press_f4():
+            return False
+        if not _sleep_with_kill_abort(max(0.05, float(interval))):
+            return False
+        if _close_yellow_at(close_sample):
+            return True
+    return False
 
 
 def select_loadout(slot: int, attempts: int | None = None) -> bool:
@@ -739,14 +758,14 @@ def wait_map_loaded(area: str, timeout: float | None = None) -> bool:
 
     The old per-area load detection (base / A5 / A6 box colors, 5s timeout,
     Detect Map Loading toggle) is gone - every area now gets the same short
-    MAP_LOAD_FIXED_SECONDS settle (default 0.5s).
+    MAP_LOAD_FIXED_SECONDS settle (default 0.0s — slim timing).
     """
     key = str(area or "").strip().lower().replace(" ", "") or "map"
     try:
-        settle = max(0.0, float(getattr(_cfg, "MAP_LOAD_FIXED_SECONDS", 0.5) or 0.5))
+        settle = max(0.0, float(getattr(_cfg, "MAP_LOAD_FIXED_SECONDS", 0.0)))
     except Exception:
-        settle = 0.5
-    log.info(f"[MAP] {key} settle {settle:.2f}s")
+        settle = 0.0
+    log.debug(f"[MAP] {key} settle {settle:.2f}s")
     return _sleep_with_kill_abort(settle)
 
 
@@ -799,7 +818,7 @@ def wait_black_screen_gone(timeout: float = 8.0, settle: float = 1.0) -> bool:
         elapsed = time.time() - t0
         if phase == "wait_fade_in":
             last_in = _black_screen_pct(wide=True)
-            log.info(f"[MAP] rebirth fade {phase}  t={elapsed:.2f}s  black_in={last_in:.0%}")
+            log.debug(f"[MAP] rebirth fade {phase}  t={elapsed:.2f}s  black_in={last_in:.0%}")
             if last_in >= 0.40:
                 black_hits += 1
                 if black_hits >= 1:
@@ -817,7 +836,7 @@ def wait_black_screen_gone(timeout: float = 8.0, settle: float = 1.0) -> bool:
                     )
         else:
             last_out = _black_screen_pct(wide=False)
-            log.info(f"[MAP] rebirth fade {phase}  t={elapsed:.2f}s  black_out={last_out:.0%}")
+            log.debug(f"[MAP] rebirth fade {phase}  t={elapsed:.2f}s  black_out={last_out:.0%}")
             if last_out < 0.45:
                 gone_hits += 1
                 if gone_hits >= 2 and elapsed >= min_alive:

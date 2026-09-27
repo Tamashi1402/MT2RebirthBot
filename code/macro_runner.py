@@ -321,7 +321,7 @@ def _prepare_windows_mouse_compatibility() -> tuple[tuple[int, int, int], int] |
     mouse, speed = current
     if not _mouse_environment_warned:
         _mouse_environment_warned = True
-        log.info(
+        log.debug(
             "[INPUT] Windows pointer speed=%s accel(EPP)=%s. "
             "Camera inject=SendInput. Windows mouse settings are never changed.",
             speed, mouse[2],

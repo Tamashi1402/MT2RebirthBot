@@ -62,6 +62,7 @@ from stats         import StatsTracker
 from overlay       import start_overlay, set_overlay
 # auth: login only, no suspension checks
 from teleport_menu import (
+    spam_f4_until_menu as _spam_f4_until_menu,
     teleport as _builtin_teleport,
     set_killed_fn as _teleport_set_killed_fn,
     confirm_rebirth_ui as _confirm_rebirth_ui,
@@ -284,7 +285,70 @@ _RUN_MODE           = "a1s1"  # explicit start point key, e.g. a1s1..a5s4 / a5me
 _ACTIVATE_DRILLS    = _CFG_ACTIVATE_DRILLS  # press I before every hit macro ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â toggled via dashboard
 # _suspended_flag removed — no suspension checks
 _STONE_LOST         = False   # set by watcher thread when stone icon missing; cleared after recovery
-_ACTIVE_HIT_MACRO   = None    # name of the hit macro (rock_hit/meteor_hit/baserock_hit) currently
+_ACTIVE_HIT_MACRO   = None
+
+# ── Rebirth cycle timing (v2018: per-step duration report after rebirth) ──────
+_RB_TIMING_STEPS: list[tuple[str, float, int]] = []  # (label, ms, depth) in end-order
+_RB_TIMING_STACK: list[tuple[str, float]] = []   # (label, t0) for open steps
+
+def _rb_time_reset() -> None:
+    """Clear the timing report at the start of each fast-meteor cycle."""
+    global _RB_TIMING_STEPS, _RB_TIMING_STACK
+    _RB_TIMING_STEPS = []
+    _RB_TIMING_STACK = []
+    for _k in _MS_READ_STATS:
+        _MS_READ_STATS[_k] = 0 if isinstance(_MS_READ_STATS[_k], int) else 0.0
+
+# ── Manual-strength read-cost stats (v2021) ────────────────────────────────────
+_MS_READ_STATS = {
+    "alive_calls": 0, "alive_secs": 0.0,
+    "surge_reads": 0, "surge_secs": 0.0,
+    "stone_reads": 0, "stone_secs": 0.0,
+}
+
+def _ms_read_stat(count_key: str, secs: float) -> None:
+    """Accumulate one read: increments its counter and adds seconds to the
+    matching *_secs key (alive_calls -> alive_secs, surge_reads -> surge_secs)."""
+    _MS_READ_STATS[count_key] = _MS_READ_STATS.get(count_key, 0) + 1
+    secs_key = count_key.replace("_calls", "_secs").replace("_reads", "_secs")
+    _MS_READ_STATS[secs_key] = _MS_READ_STATS.get(secs_key, 0.0) + secs
+
+def _rb_time_push(step: str) -> None:
+    """Begin a timed step (may nest — manual strength inside baserock, etc.)."""
+    _RB_TIMING_STACK.append((step, time.time()))
+
+def _rb_time_pop(final_label: str | None = None) -> None:
+    """End the most recently pushed step and record its duration."""
+    if not _RB_TIMING_STACK:
+        return
+    step, t0 = _RB_TIMING_STACK.pop()
+    # depth AFTER pop = how many steps this one was nested inside.
+    # TOTAL only sums depth-0 steps — nested spans (manual strength inside
+    # baserock, respawn/verify inside the rebirth attempt) were being
+    # double-counted in v1.10.5's report.
+    depth = len(_RB_TIMING_STACK)
+    _RB_TIMING_STEPS.append((final_label or step, (time.time() - t0) * 1000.0, depth))
+
+def _rb_time_report(title: str = "REBIRTH CYCLE TIMING") -> None:
+    """Log the per-step duration breakdown after rebirth finished."""
+    if not _RB_TIMING_STEPS:
+        return
+    total = sum(ms for _, ms, d in _RB_TIMING_STEPS if d == 0)
+    bar = "─" * 58
+    log.info(f"[RB-TIME] {bar}")
+    log.info(f"[RB-TIME] {title}")
+    for step, ms, depth in _RB_TIMING_STEPS:
+        log.info(f"[RB-TIME]   {'  ' * depth}{step:<30} {ms:8.0f}ms ({ms/1000:.1f}s)")
+    log.info(f"[RB-TIME]   {'TOTAL':<30} {total:8.0f}ms ({total/1000:.1f}s)")
+    _ms = _MS_READ_STATS
+    if _ms.get("surge_reads") or _ms.get("stone_reads") or _ms.get("alive_calls"):
+        log.info(
+            f"[RB-TIME]   MS stop-check cost: alive {_ms['alive_calls']}x "
+            f"{_ms['alive_secs']:.2f}s | surge reads {_ms['surge_reads']}x "
+            f"{_ms['surge_secs']:.2f}s | stone reads {_ms['stone_reads']}x "
+            f"{_ms['stone_secs']:.2f}s"
+        )
+    log.info(f"[RB-TIME] {bar}")    # name of the hit macro (rock_hit/meteor_hit/baserock_hit) currently
                                # running via _run_hit_macro(wait=False); closed by _close_hit_macro().
 _REBIRTH_IN_PROGRESS = False # suppress stone-lost/Menu Resume checks during rebirth flow
 _menu_resume_fresh_start = False  # True after successful menu resume ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â forces run to start from base
@@ -1775,11 +1839,10 @@ def _wait_for_start():
         time.sleep(0.1)
     log.debug("Start button pressed — beginning run loop")
     try:
-        from macro_runner import log_input_environment, _boost_playback_timing
+        from macro_runner import _boost_playback_timing
         _boost_playback_timing()
-        log_input_environment()
     except Exception as e:
-        log.debug(f"[INPUT] environment dump failed: {e}")
+        log.debug(f"[INPUT] playback boost failed: {e}")
 
 
 def _run_macro(name: str):
@@ -1975,6 +2038,16 @@ def _start_stone_watcher():
             if _KILLED or _stone_frozen or _REBIRTH_IN_PROGRESS:
                 miss_count = 0   # reset while frozen/killed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â don't falsely trigger
                 continue
+            try:
+                from manual_strength import live_active as _ms_live
+                if _ms_live():
+                    # Strength buy loop running: the window covers the HUD,
+                    # so in-game checks always miss. Skip ALL of them (no
+                    # grabs, no template diffs) until the loop stops.
+                    miss_count = 0
+                    continue
+            except Exception:
+                pass
             if _stone_icon_visible_restart_image():
                 miss_count = 0
             else:
@@ -2254,7 +2327,7 @@ def _run_hit_macro(macro: str, wait: bool = True, skip_center: bool = False):
         "baserock_hit": bool(getattr(_cfg_hits, "HIT_BASEROCK", True)),
     }.get(macro)
     if _hit_gate is False:
-        log.info(f"[HIT] {macro} disabled in Rebirth → Fine-Tuning (Hit Controls) — skipping built-in hit")
+        log.info(f"[HIT] {macro} disabled via config (HIT_* = false) — skipping built-in hit")
         return True
     drill_target = {
         "rock_hit": "rock",
@@ -2336,60 +2409,61 @@ def _run_baserock_loop_until(
             # 0.5s) -> left click -> 250ms -> manual
             # strength starts buying. No pre-open stone checks — the buying
             # loop's own ~5s HUD stall watchdog is enough.
-            log.info(f"[MANUAL_STR] {manual_reason}: fast open (no pre-open stone checks)")
-            # Claim the manual-strength phase BEFORE opening the window: the
-            # stone watcher must not treat the freshly-opened menu as a stray
-            # menu covering the icon (it closes it and stalls the whole run).
-            _manual_strength_active = True
-            _rec_log_macro("baserock_open_sequence", "start")
-            import config as _cfg_open
-            _open_pre_wait  = max(0.0, float(getattr(_cfg_open, "MANUAL_STR_OPEN_AFTER_HIT_WAIT", 0.5)))
-            _open_post_wait = max(0.0, float(getattr(_cfg_open, "MANUAL_STR_OPEN_AFTER_MONITOR_WAIT", 0.5)))
-            time.sleep(0.10)
-            if _builtin_hits_enabled("HIT_BASEROCK"):
-                _br_click()   # single swing to start the grind — trust it hits
-            import config as _cfg_msopen
-            _ms_open_enabled = bool(getattr(_cfg_msopen, "MANUAL_STR_OPEN", True))
-            if _ms_open_enabled:
-                # Fine-tunable open pacing: hit -> wait -> monitor key -> wait -> open.
-                time.sleep(_open_pre_wait)
-                _select_monitor_item()
-                time.sleep(_open_post_wait)
-                _br_click()      # opens the strength window
-                time.sleep(0.25)
-            else:
-                log.info("[MANUAL_STR] auto-open disabled (Manual Strength Open) — macro must open the window")
-            _rec_log_macro("baserock_open_sequence", "end")
-            # Give the window a moment to appear so the live loop sees it open
-            # and starts buying instantly instead of re-doing its own open clicks.
+            # Direct open sequence (slim fused): no timers between the
+            # nav macro and manual strength — the macros carry their own
+            # delays. Just: [single swing if HIT_BASEROCK on] -> select
+            # monitor item -> left click opens the strength window -> the
+            # live loop starts buying. No pre-open stone checks, no waits.
+            log.info(f"[MANUAL_STR] {manual_reason}: direct open (no timers)")
+            _rb_time_push("manual strength")
             try:
-                from screen import _manual_strength_window_open as _win_open
-            except Exception:
-                _win_open = None
-            _win_deadline = time.time() + 0.75
-            while _win_open and time.time() < _win_deadline and not _KILLED and not _STONE_LOST:
-                if _win_open():
-                    break
-                time.sleep(0.10)
-            _manual_handle = _start_manual_strength_live(
-                manual_reason, activity_callback=activity_callback
-            )
-            if _manual_handle is None:
-                _manual_strength_active = False
-                log.warning(f"[MANUAL_STR] {manual_reason}: manual strength failed to start; retrying route")
-                return
-            while not _KILLED and not _STONE_LOST and not stop_flag_fn():
-                if hasattr(_manual_handle, "is_alive") and not _manual_handle.is_alive():
+                # Claim the manual-strength phase BEFORE opening the window: the
+                # stone watcher must not treat the freshly-opened menu as a stray
+                # menu covering the icon (it closes it and stalls the whole run).
+                _manual_strength_active = True
+                _rec_log_macro("baserock_open_sequence", "start")
+                if _builtin_hits_enabled("HIT_BASEROCK"):
+                    _br_click()   # single swing to start the grind — trust it hits
+                import config as _cfg_msopen
+                _ms_open_enabled = bool(getattr(_cfg_msopen, "MANUAL_STR_OPEN", False))
+                if _ms_open_enabled:
+                    _select_monitor_item()
+                    _br_click()      # opens the strength window
+                else:
+                    log.info("[MANUAL_STR] auto-open disabled (Manual Strength Open) — macro must open the window")
+                _rec_log_macro("baserock_open_sequence", "end")
+                # Give the window a moment to appear so the live loop sees it open
+                # and starts buying instantly instead of re-doing its own open clicks.
+                try:
+                    from screen import _manual_strength_window_open as _win_open
+                except Exception:
+                    _win_open = None
+                _win_deadline = time.time() + 0.75
+                while _win_open and time.time() < _win_deadline and not _KILLED and not _STONE_LOST:
+                    if _win_open():
+                        break
+                    time.sleep(0.10)
+                _manual_handle = _start_manual_strength_live(
+                    manual_reason, activity_callback=activity_callback
+                )
+                if _manual_handle is None:
                     _manual_strength_active = False
-                    log.warning(f"[MANUAL_STR] {manual_reason}: live loop ended before target — re-navigating")
+                    log.warning(f"[MANUAL_STR] {manual_reason}: manual strength failed to start; retrying route")
                     return
-                time.sleep(0.08)
+                while not _KILLED and not _STONE_LOST and not stop_flag_fn():
+                    if hasattr(_manual_handle, "is_alive") and not _manual_handle.is_alive():
+                        _manual_strength_active = False
+                        log.warning(f"[MANUAL_STR] {manual_reason}: live loop ended before target — re-navigating")
+                        return
+                    time.sleep(0.08)
+            finally:
+                _rb_time_pop()
             return
 
         if _hit_off:
             # Auto strength + hit disabled: the player's macro does the swinging —
             # nothing to click, just watch the stone HUD.
-            log.info("[HIT] built-in baserock hit disabled (Rebirth → Fine-Tuning → Hit Controls) — watching stone")
+            log.info("[HIT] built-in baserock hit disabled via config (HIT_BASEROCK = false) — watching stone")
             _peak = None
             _last_gain = time.time()
             while not _KILLED and not _STONE_LOST and not stop_flag_fn():
@@ -2535,7 +2609,36 @@ def _wait_stone_change(
 
 # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Navigation helpers ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
-def _teleport_to_base():
+_phase_stamps: list = []   # [(label, perf_counter)] from conf to conf
+
+
+def _phase_stamp(label: str) -> None:
+    """Stamp a phase boundary (phase = time since the previous stamp)."""
+    try:
+        _phase_stamps.append((str(label), time.perf_counter()))
+    except Exception:
+        pass
+
+
+def _phase_emit_cycle() -> None:
+    """Emit the phase breakdown of the finished cycle, then reset."""
+    global _phase_stamps
+    stamps = _phase_stamps
+    _phase_stamps = []
+    try:
+        if len(stamps) < 2 or stamps[0][0] != "conf":
+            return    # cycle wasn't tracked from its start (restart/kill)
+        parts = []
+        for idx in range(1, len(stamps)):
+            label, t = stamps[idx]
+            parts.append(f"{label}={t - stamps[idx - 1][1]:.1f}s")
+        total = stamps[-1][1] - stamps[0][1]
+        log.info(f"[CYCLE] {' '.join(parts)} total={total:.1f}s")
+    except Exception:
+        pass
+
+
+def _teleport_to_base(phase: str = "", menu_open: bool = False):
     global _at_base
     _clear_current_stage_point("teleport to base")
     if _manual_strength_enabled():
@@ -2548,12 +2651,15 @@ def _teleport_to_base():
     else:
         _disable_auto_strength_for_manual("teleport to base")
     _console_status("NAVIGATING", "Base")
-    ok = bool(_builtin_teleport_safe("base"))
+    _rb_time_push(f"teleport to base{' (' + phase + ')' if phase else ''}")
+    try:
+        ok = bool(_builtin_teleport_safe("base", menu_open=menu_open))
+    finally:
+        _rb_time_pop()
     _at_base = bool(ok)
-    if not ok:
-        log.warning("Teleport to base failed")
-    set_overlay(status="NAVIGATING", goal="Base")
-    return bool(ok)
+    if ok and phase:
+        _phase_stamp(phase)
+    return ok
 
 
 def _equip_pickaxe(reason: str = "teleport") -> None:
@@ -2579,7 +2685,7 @@ def _equip_pickaxe(reason: str = "teleport") -> None:
     log.info(f"[PICKAXE] {used} after {reason}")
 
 
-def _builtin_teleport_safe(destination: str, *, attempts: int | None = None, wait_seconds: float = 0.0) -> bool:
+def _builtin_teleport_safe(destination: str, *, attempts: int | None = None, wait_seconds: float = 0.0, menu_open: bool = False) -> bool:
     """Detect-based F4 teleport (no teleport_to_*.macro)."""
     destination = str(destination or "").strip().lower()
     _freeze_stone(True)
@@ -2587,7 +2693,7 @@ def _builtin_teleport_safe(destination: str, *, attempts: int | None = None, wai
     try:
         n = _route_redo_limit() if attempts is None else max(1, min(int(attempts), _route_redo_limit()))
         log.info(f"[TELEPORT] {destination} via F4 detect ({n} attempts)")
-        ok = bool(_builtin_teleport(destination, attempts=n, wait_seconds=wait_seconds))
+        ok = bool(_builtin_teleport(destination, attempts=n, wait_seconds=wait_seconds, menu_open=menu_open))
         if ok:
             # F during the load screen is eaten — wait for the map, then pickaxe.
             _wait_map_loaded(destination)
@@ -4186,9 +4292,9 @@ def _fixed_a5_hold_seconds() -> float:
     """
     try:
         import config as _cfg_ft
-        n = float(getattr(_cfg_ft, "FIXED_A5_HIT_TIME", 60))
+        n = float(getattr(_cfg_ft, "FIXED_A5_HIT_TIME", 0))
     except Exception:
-        n = 60.0
+        n = 0.0
     if n <= 0:
         return 0.1
     return 0.2 + n
@@ -4401,28 +4507,12 @@ def _farm_meteor_with_validation(label: str = "Meteor", max_retries: int | None 
         pre_votes = 1 if hb_seen else 0
         if hb_seen:
             log.info(f"[METEOR] health bar pre-hit  color={hb_pct:.1%} span={hb_span}px")
-        if not _meteor_health_check_enabled():
-            # Health check OFF: no meteor_hit macro — one fixed LMB hold, then
-            # straight on (caller teleports to base + rebirths).
-            return _fixed_a5_single_hit(label)
-        if _run_hit_macro("meteor_hit", wait=False) is None:
-            return False
-        _console_status("FARMING", label, stone=start_stone)
-
-        broken = _wait_meteor_broken(
-            break_timeout, label, start_stone=start_stone, seen_votes=pre_votes
-        )
-        if _KILLED or _STONE_LOST:
-            return False
-        if not broken and _meteor_break_retry_short_circuit(label):
-            broken = True
-        if not broken:
-            log.warning(f"[{label}] no stone gain; redoing meteor approach ({attempt}/{max_retries})")
-            _close_hit_macro()
-            stop_macro()
-            _stop_drill_loop()
-            continue
-        return _finish_meteor_hit(label)
+        # a5-meteor mode: fixed-time hit only — no health check, no
+        # meteor_hit macro, no bar watching. The health-check machinery stays
+        # available for anything that reaches A5 by another route (e.g. the
+        # from-current-position shortcut miner, which still gates on
+        # METEOR_HEALTH_CHECK).
+        return _fixed_a5_single_hit(label)
 
     log.warning(f"[{label}] failed after {max_retries} no-gain retries")
     _rec_set_failure("redo_limit:meteor")
@@ -4474,172 +4564,119 @@ def _farm_meteor_from_current_position(label: str = "Meteor Shortcut") -> bool:
     return _finish_meteor_hit(label)
 
 
-def _run_meteor_shortcut_cycle() -> bool:
-    """Meteor mode: baserock -> shortcut p1/p3 macros -> meteor_hit -> base -> rebirth."""
+def _run_fast_meteor_cycle() -> bool:
+    """Fast meteor: baserock -> teleport to base -> base_to_meteor macro -> rebirth.
+
+    base_to_meteor does everything after the base teleport, so the bot skips
+    its own A5 teleport, meteor mining and post-mining base teleport.
+    On a failed rebirth: back to base, re-run base_to_meteor, retry.
+    """
+    global _at_base
     _set_stage("base")
-    _did_baserock_trip = False
+    _rb_time_reset()
+    # Zero-latency decision: no OCR precheck. Decide from the trusted last
+    # live stone alone. Post-rebirth it is 0.0 -> baserock immediately. If it
+    # is stale/None the worst case is a walk to the baserock the background
+    # watcher immediately ends (stone already at target) - a few seconds,
+    # cheaper than every run paying a multi-read OCR check.
     _shortcut_stone = _last_live_stone
     if _shortcut_stone is not None and float(_shortcut_stone) <= 0:
-        log.info("[Meteor Shortcut] stone=0 — skip precheck, farm baserock")
+        log.info("[Fast Meteor] stone=0 — farm baserock (no precheck)")
         _shortcut_stone = 0.0
-    else:
-        _shortcut_stone = _read_stone_checked(
-            "[METEOR SHORTCUT] precheck",
-            attempts=3,
-            delay=0.08,
-            min_reads=2,
-            min_expected=STONE_FOR_AREA6_SHORTCUT,
-            fallback_to_last_if_plausible=False,
-        )
     if _shortcut_stone is not None and _shortcut_stone >= STONE_FOR_AREA6_SHORTCUT:
         log.info(
-            f"[Meteor Shortcut] precheck ok: {_fmt_stone(_shortcut_stone)} >= "
+            f"[Fast Meteor] precheck ok: {_fmt_stone(_shortcut_stone)} >= "
             f"{_fmt_stone(STONE_FOR_AREA6_SHORTCUT)} - skipping baserock trip"
         )
     else:
         if _shortcut_stone is None:
-            log.info("[Meteor Shortcut] precheck unreadable - using baserock fallback")
+            log.info("[Fast Meteor] no trusted stone yet - using baserock fallback")
         else:
             log.info(
-                f"[Meteor Shortcut] precheck below threshold: {_fmt_stone(_shortcut_stone)} < "
+                f"[Fast Meteor] precheck below threshold: {_fmt_stone(_shortcut_stone)} < "
                 f"{_fmt_stone(STONE_FOR_AREA6_SHORTCUT)} - farming baserock"
             )
-        if not _do_base_rock(target_stone=STONE_FOR_AREA6_SHORTCUT):
-            return False
-        _did_baserock_trip = True
+        _rb_time_push("farm baserock (total)")
+        try:
+            if not _do_base_rock(target_stone=STONE_FOR_AREA6_SHORTCUT):
+                return False
+        finally:
+            _rb_time_pop()
 
-    try:
-        import config as _cfg_shortcut
-        _use_shortcuts = bool(getattr(_cfg_shortcut, "USE_SHORTCUTS", True))
-    except Exception:
-        _use_shortcuts = False
-    _direct_shortcut = bool(_use_shortcuts and _did_baserock_trip)
-    if _direct_shortcut:
-        log.info("[Meteor Shortcut] Use Shortcuts=ON: direct baserock -> area6 shortcut walk")
-    elif _did_baserock_trip:
-        log.info("[Meteor Shortcut] Use Shortcuts=OFF: teleport to base then p1")
-    else:
-        log.info(f"[Meteor Shortcut] shortcuts={'ON' if _use_shortcuts else 'OFF'} (no baserock trip) — base p1 route")
-
-    # Allow more recovery attempts when meteor is temporarily unhittable on some map states.
-    SHORTCUT_TRIES = _route_redo_limit()
+    # Single-macro meteor phase: base_to_meteor starts and ends AT base
+    # (the macro teleports back to base itself).
+    _set_stage("meteor")
     mined = False
+    SHORTCUT_TRIES = _route_redo_limit()
     for _try in range(1, SHORTCUT_TRIES + 1):
         if _KILLED or _STONE_LOST:
             return False
-        _set_stage("meteor")
-        _use_direct_this_try = _direct_shortcut and _try == 1
-        if not _use_direct_this_try:
-            # From baserock with shortcuts OFF (and every retry): F4 back to
-            # spawn first. p1 is a from-base walk — A5 from the rock stalls F4.
-            if not _teleport_to_base():
+        if not _at_base:
+            if not _teleport_to_base(phase="tele_back"):
                 return False
-        _console_status("NAVIGATING", "Meteor Shortcut")
-        _p1_macro = "base_to_meteor_shortcut_p1_shortcut" if _use_direct_this_try else "base_to_meteor_shortcut_p1"
-        log.info(f"[Meteor Shortcut] try {_try}/{SHORTCUT_TRIES} macro={_p1_macro}")
-        r = _nav_or_redo(_p1_macro)
+        _console_status("NAVIGATING", "Meteor (fast)")
+        log.info(f"[Fast Meteor] try {_try}/{SHORTCUT_TRIES} macro=base_to_meteor")
+        _rb_time_push("base_to_meteor macro")
+        r = _nav_or_redo("base_to_meteor")
+        _rb_time_pop()
         if r == "kill":
             return False
         if r == "fail":
-            log.warning(
-                "[Meteor Shortcut] P1 failed — retry from base "
-                f"(try {_try}/{SHORTCUT_TRIES})"
-            )
-            _direct_shortcut = False
+            log.warning(f"[Fast Meteor] base_to_meteor failed (try {_try}/{SHORTCUT_TRIES})")
             continue
         if r == "redo":
-            log.warning("[NET] lag during meteor shortcut p1 — redo path")
-            _direct_shortcut = False
+            log.warning("[NET] lag during base_to_meteor — redo path")
             continue
-        if not _builtin_teleport_safe("area5", attempts=1, wait_seconds=4.0):
-            # One F4 open. Dest button missing = A6 shortcut didn't unlock A5.
-            # Do not re-open F4. Next loop teleports to base and redoes P1.
-            log.warning(
-                "[Meteor Shortcut] area5 dest button missing — redo P1 from base "
-                f"(try {_try}/{SHORTCUT_TRIES})"
-            )
-            _direct_shortcut = False
-            continue
-        _mark_area5_unlocked_if_visible("builtin_teleport_area5", attempts=8, delay=0.25)
-        r = _nav_or_redo("base_to_meteor_shortcut_p3")
-        if r == "kill":
-            return False
-        if r == "fail":
-            return False
-        if r == "redo":
-            log.warning("[NET] lag during meteor shortcut p3 — redo path")
-            continue
-        _mark_area5_unlocked_if_visible("meteor_shortcut_p3", attempts=8, delay=0.25)
-        if _KILLED or _STONE_LOST:
-            return False
-        if _farm_meteor_from_current_position("Meteor Shortcut"):
-            _mark_area5_unlocked_if_visible("meteor_shortcut_farm", attempts=1, delay=0.0)
-            mined = True
-            stats.mark_step("Meteor")
-            break
-        stats.record_error()
-        log.warning(f"[Meteor Shortcut] attempt {_try}/{SHORTCUT_TRIES} failed - retrying shortcut")
-
+        _phase_stamp("meteor")
+        mined = True
+        _at_base = True   # macro ends with its own F4 teleport to base
+        stats.mark_step("Meteor")
+        break
     if not mined:
-        _rec_set_failure("redo_limit:meteor_shortcut")
+        _rec_set_failure("redo_limit:fast_meteor")
         return False
 
-    if not _at_base:
-        if not _teleport_to_base():
-            return False
-
+    # Rebirth phase — the macro already left us at base.
     REBIRTH_MAX_RETRIES = 3
     _set_stage("rebirth")
     for _rebirth_attempt in range(1, REBIRTH_MAX_RETRIES + 1):
-        if _do_rebirth():
+        _rb_time_push(f"rebirth (attempt {_rebirth_attempt})")
+        _ok = _do_rebirth()
+        _rb_time_pop()
+        if _ok:
             stats.mark_step("Rebirth")
+            _rb_time_report()
             return True
         if _KILLED or _STONE_LOST:
             return False
         stats.record_error()
-        log.warning(f"[Meteor Shortcut] rebirth retry {_rebirth_attempt}/{REBIRTH_MAX_RETRIES}")
+        log.warning(f"[Fast Meteor] rebirth retry {_rebirth_attempt}/{REBIRTH_MAX_RETRIES}")
         if not _at_base:
             if not _teleport_to_base():
                 return False
-        _console_status("NAVIGATING", "Meteor Shortcut Retry")
-        r = _nav_or_redo("base_to_meteor_shortcut_p1")
+        _console_status("NAVIGATING", "Meteor Retry (fast)")
+        r = _nav_or_redo("base_to_meteor")
         if r == "kill":
             return False
-        if r in ("fail", "redo"):
-            if r == "fail":
-                return False
-            log.warning("[NET] lag during meteor shortcut retry — redo path")
+        if r == "fail":
+            return False
+        if r == "redo":
+            log.warning("[NET] lag during base_to_meteor retry — redo path")
             continue
-        if not _builtin_teleport_safe("area5", attempts=10, wait_seconds=4.0):
-            # Same as above: a missing A5 button means the shortcut P1 didn't
-            # actually unlock Area 5. Don't kill the run — re-do the full P1
-            # on the next rebirth attempt (it re-runs base_to_meteor_shortcut_p1
-            # from base, which is the only thing that unlocks A5).
-            log.warning(
-                "[Meteor Shortcut] area5 dest button missing (retry) — A6 "
-                "shortcut interact didn't register; re-doing full P1"
-            )
-            continue
-        _mark_area5_unlocked_if_visible("builtin_teleport_area5_retry", attempts=8, delay=0.25)
-        r = _nav_or_redo("base_to_meteor_shortcut_p3")
-        if r == "kill":
-            return False
-        if r in ("fail", "redo"):
-            if r == "fail":
-                return False
-            continue
-        _mark_area5_unlocked_if_visible("meteor_shortcut_retry_p3", attempts=8, delay=0.25)
-        if _KILLED or _STONE_LOST:
-            return False
-        if not _farm_meteor_from_current_position("Meteor Shortcut Retry"):
-            return False
-        _mark_area5_unlocked_if_visible("meteor_shortcut_retry_farm", attempts=1, delay=0.0)
-        if not _teleport_to_base():
-            return False
+        _at_base = True
     return False
 
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Rebirth ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+def _run_meteor_shortcut_cycle() -> bool:
+    """Meteor mode (fast route): the user-recorded base_to_meteor macro does the
+    whole A5 phase after the base teleport — A6 walk + shortcut interact, F4
+    teleport to A5, break the meteor, F4 teleport back to base."""
+    if not macro_exists("base_to_meteor"):
+        log.error("[METEOR] base_to_meteor macro missing — record it in the Macros tab")
+        _rec_set_failure("missing_macro:base_to_meteor")
+        return False
+    return _run_fast_meteor_cycle()
+
 
 def _quests_enabled(ds_snap: dict | None = None) -> bool:
     """Daily Quests rail toggle (dashboard state)."""
@@ -4669,7 +4706,7 @@ def _quest_mine_one(panel: int, star: int) -> bool:
     if _KILLED or _STONE_LOST:
         return False
 
-    # Hold LMB and watch the HUD quest slot for completion (v1.9.2: the
+    # Hold LMB and watch the HUD quest slot for completion (v1.11: the
     # slot's panel background disappears once the game auto-confirms).
     timeout = max(5.0, float(getattr(_cfg_q, "QUEST_MINE_TIMEOUT_SECONDS", 60)))
     poll = max(0.05, float(getattr(_cfg_q, "QUEST_HUD_POLL_SECONDS", 0.15)))
@@ -4723,7 +4760,7 @@ def _quest_mimic_one(panel: int) -> bool:
 
 
 def _quest_wait_hud_done(panel: int, timeout: float = 6.0) -> bool:
-    """Poll the HUD quest slot until it disappears (v1.9.2 done signal:
+    """Poll the HUD quest slot until it disappears (v1.11 done signal:
     the game auto-confirms the quest and removes the slot)."""
     import quest_menu as qm
     deadline = time.time() + max(0.0, float(timeout))
@@ -5002,7 +5039,7 @@ def _do_daily_quests() -> None:
     the saved plan and checks the HUD FIRST for every quest: already-Done
     quests skip the whole teleport+macro trip.
 
-    v1.9.2: the game auto-confirms finished quests now — there is no claim
+    v1.11: the game auto-confirms finished quests now — there is no claim
     phase anymore. Quest done = the HUD slot itself disappears (background
     check in quest_menu.quest_hud_done). The bot never re-opens the quest
     board after the run-start accept; completed quests just count in stats."""
@@ -5143,7 +5180,7 @@ def _do_daily_quests() -> None:
                                 "(enable SAVE_DEBUG_CROPS and check the quest_combine_* crops to recalibrate "
                                 "the COMBINE_* click points)")
 
-        # 4) v1.9.2: claiming removed — the game auto-confirms finished
+        # 4) v1.11: claiming removed — the game auto-confirms finished
         # quests (no board visit, no reward buttons). Done quests just
         # count toward the run stats.
         for panel in completed:
@@ -5161,7 +5198,7 @@ def _do_daily_quests() -> None:
             pass
         _freeze_stone(False)
         # base_to_rebirth only works from the fresh tp-base spawn. Re-teleport
-        # ONLY when quest actions actually moved the character (v1.9.2: with
+        # ONLY when quest actions actually moved the character (v1.11: with
         # claiming gone, all-done runs stay at base and skip this entirely).
         if (quest_moved or not _at_base) and not _KILLED and not _STONE_LOST:
             try:
@@ -5179,13 +5216,15 @@ def _do_daily_quests() -> None:
 
 
 def _do_rebirth() -> bool:
-    """Navigate to rebirth NPC and confirm. Returns True when rebirth confirmed.
+    """Play base_to_rebirth (it does all the clicking: walk to the NPC,
+    interact, confirm, respawn). Returns True when the stone reads 0 after
+    the macro ends. No stone detected = failed.
 
     The stone watcher is suppressed for the whole rebirth flow because the
     rebirth macro, animation, blank HUD, and post-confirm settle can all hide
     the stone icon without meaning the run failed.
     """
-    global _REBIRTH_IN_PROGRESS
+    global _REBIRTH_IN_PROGRESS, _last_live_stone
     _REBIRTH_IN_PROGRESS = True
     try:
         _console_status("REBIRTH", "Rebirthing")
@@ -5201,84 +5240,115 @@ def _do_rebirth() -> bool:
                 return False
         # Daily Quests rail: run the quest phase between meteor and rebirth.
         if _quests_enabled():
-            _do_daily_quests()
+            _rb_time_push("daily quests")
+            try:
+                _do_daily_quests()
+            finally:
+                _rb_time_pop()
             if _KILLED or _STONE_LOST:
                 return False
         _mark_left_base()
-        if not _run_macro("base_to_rebirth"):
-            return False
 
-        _console_status("REBIRTH", "Confirming")
+        # base_to_rebirth does ALL the clicking (walk, interact, confirm,
+        # respawn). The bot just plays it to the end and then judges the
+        # result purely by the stone read — no button watching.
+        _console_status("REBIRTH", "Playing base_to_rebirth")
         _rec_log_macro("rebirth_confirm", "start")
-        ui_ok, ui_reason = _confirm_rebirth_ui()
-        if not ui_ok:
-            log.warning(f"[REBIRTH] confirm UI failed ({ui_reason})")
-            _rec_log_macro("rebirth_confirm", "error", error=str(ui_reason))
-            if ui_reason == "no_confirm":
-                _rec_set_failure("rebirth_no_confirm:meteor_not_broken")
-            else:
-                _rec_set_failure(f"rebirth_ui:{ui_reason}")
+        _rb_time_push("base_to_rebirth macro")
+        try:
+            _ok_rb = _run_macro("base_to_rebirth")
+        finally:
+            _rb_time_pop()
+        if not _ok_rb:
+            return False
+        _phase_stamp("rebirth")
+
+        _console_status("REBIRTH", "Waiting respawn")
+        # Short settle (0.3s), then F4 spam right away: the menu can only
+        # open once the game has respawned us, so the close button appearing
+        # IS the respawn signal — no need to hard-wait for the full respawn.
+        _rb_time_push("waiting for rebirth (respawn)")
+        _wr_t = time.time() + 0.3
+        while time.time() < _wr_t:
+            if _KILLED or _STONE_LOST:
+                _rb_time_pop()
+                return False
+            time.sleep(0.1)
+        if not _spam_f4_until_menu(timeout=30.0, interval=0.1):
+            _rb_time_pop()
+            if _KILLED or _STONE_LOST:
+                return False
+            log.warning("[REBIRTH] respawn menu never appeared after F4 spam")
+            _rec_log_macro("rebirth_confirm", "error", error="no_respawn_menu")
+            _rec_set_failure("rebirth_failed:no_respawn_menu")
+            _console_status("REBIRTH", "Failed - no respawn")
             _teleport_to_base()
             return False
 
-        _console_status("REBIRTH", "Respawning")
-        try:
-            from teleport_menu import wait_black_screen_gone
-            wait_black_screen_gone(timeout=8.0, settle=1.0)
-        except Exception:
-            _wait_polling(1.0, "Post-rebirth cooldown")
-
-        stone = None
-        non_zero_reads = 0
+        # The F4 menu DOES cover the stone HUD — close the cycle on the
+        # respawn signal itself, go to base first (reusing the open menu),
+        # then read stone there. Either stone result leads to the same
+        # next step; only the confirm/failure markers differ.
+        _phase_stamp("verify")
+        _phase_emit_cycle()
+        _phase_stamp("conf")
+        _console_status("REBIRTH", "Respawned")
+        _rb_time_pop()
+        if not _teleport_to_base(phase="tele_base", menu_open=True):
+            return False
+        # v2023: whole verify read phase is capped at 500ms (default) —
+        # post-rebirth time is cycle time. One immediate read; retries only
+        # inside the budget. (v2017's 3x0.4s loop could spend >1.5s here.)
         try:
             import config as _cfg_ver
             _verify_budget = max(0.05, float(getattr(
                 _cfg_ver, "REBIRTH_VERIFY_BUDGET_SECONDS", 0.5)))
         except Exception:
             _verify_budget = 0.5
-        # v1.9.2: post-rebirth reads are cycle time - cap the whole
-        # confirmation window at 500ms (was a fixed 1.0s).
-        deadline = time.time() + _verify_budget
-
-        while time.time() < deadline:
-            if _KILLED or _STONE_LOST:
-                return False
-
+        _rb_time_push("verify stone (OCR)")
+        stone = None
+        _v_deadline = time.perf_counter() + _verify_budget
+        while True:
             stone = _read_stone_live(update_last=False, check_glitch=False)
-            log.debug(f"Rebirth fast poll: stone={stone}")
-
-            if stone == 0.0:
-                log.debug("Rebirth confirmed (stone=0)")
-                _console_status("REBIRTH", "Rebirth confirmed", stone=0)
-                _mark_rebirth_zero_confirmed("stone=0")
-                set_overlay(stone=0.0, auto_str=None, status="REBIRTH")
-                _rec_log_macro("rebirth_confirm", "end")
-                return _teleport_to_base()
-
-            if stone is not None and stone > 0:
-                non_zero_reads += 1
-                if non_zero_reads >= 2:
-                    break
-            else:
-                non_zero_reads = 0
-
-            time.sleep(0.1)
-
-        if stone is None:
-            log.debug("Rebirth confirmed (HUD blank in fast confirmation window)")
+            if stone is not None:
+                break
+            if _KILLED or _STONE_LOST:
+                _rb_time_pop()
+                return False
+            if time.perf_counter() >= _v_deadline:
+                break
+            time.sleep(0.15)
+        _rb_time_pop()
+        if stone == 0.0:
+            log.debug("Rebirth confirmed (stone=0)")
             _console_status("REBIRTH", "Rebirth confirmed", stone=0)
-            _mark_rebirth_zero_confirmed("blank HUD")
+            _mark_rebirth_zero_confirmed("stone=0")
             set_overlay(stone=0.0, auto_str=None, status="REBIRTH")
             _rec_log_macro("rebirth_confirm", "end")
-            return _teleport_to_base()
-
-        log.warning(f"Rebirth not confirmed (stone={stone:.2e}) - retrying")
-        _rec_log_macro("rebirth_confirm", "error", error="stone_nonzero_retry")
-        _console_status("REBIRTH", "Retrying...")
-        _teleport_to_base()
-        return False
+        elif stone is not None:
+            # v2017 dead-loop guard: stone != 0 means the rebirth did NOT
+            # happen (the counter survived base_to_rebirth). The old code
+            # warned and continued, so the fast-meteor precheck kept the
+            # stale trusted stone (target value) and skipped baserock
+            # forever while the HUD sat at the leftover value. Trust the
+            # fresh read, then let the existing rebirth-retry / failed-run
+            # strike / force-restart machinery handle the rest.
+            log.warning(f"Respawned but stone != 0 after base_to_rebirth (stone={stone}) - rebirth failed")
+            _rec_log_macro("rebirth_confirm", "end", error="stone_nonzero")
+            _rec_set_failure("rebirth_failed:stone_nonzero")
+            _last_live_stone = float(stone)
+            try:
+                _dash_update(cur_stone=_last_live_stone)
+            except Exception:
+                pass
+            return False
+        else:
+            log.warning("Respawned (F4 menu opened) but stone unreadable at base - continuing")
+            _rec_log_macro("rebirth_confirm", "end", error="stone_unreadable")
+        return True
     finally:
         _REBIRTH_IN_PROGRESS = False
+
 
 def _do_base_rock(target_stone: float = None) -> bool:
     """Farm base rock until target_stone (default: STONE_FOR_A5_STAGE1). Returns True on success."""
@@ -5372,6 +5442,12 @@ def _do_base_rock(target_stone: float = None) -> bool:
         _manual_strength_watch = _make_manual_strength_watchdog("BASEROCK") if _manual_mode else None
         _manual_activity_stone = None
         _last_manual_buy_log = 0.0
+        # Surge read throttle state (surge mode only, from slim):
+        #   last surge level read  -> None until the first successful read
+        #   last full-check time   -> perf_counter of the last OCR evaluation
+        _surge_throttle_lvl = None
+        _surge_throttle_ts = 0.0
+        _stone_throttle_ts = 0.0
         _stop_why = [""]
         _diag = {
             "buys": 0,
@@ -5416,12 +5492,16 @@ def _do_base_rock(target_stone: float = None) -> bool:
 
         def _should_stop_baserock():
             nonlocal last_stone, ok, cur, _br_no_gain_streak, _last_gain_time, _manual_activity_stone
+            nonlocal _surge_throttle_lvl, _surge_throttle_ts, _stone_throttle_ts
             global _last_live_stone
             if _KILLED:
                 return True
             if _peek_net_redo():
                 return True
-            if not _check_alive():
+            _t_a = time.perf_counter()
+            _alive = _check_alive()
+            _ms_read_stat("alive_calls", time.perf_counter() - _t_a)
+            if not _alive:
                 return True
             # Surge-level detection (bottom-row-only): stop buying when the
             # bottom row surge level reaches the user threshold. Stone
@@ -5429,13 +5509,43 @@ def _do_base_rock(target_stone: float = None) -> bool:
             # the "done" signal. Stall watchdogs below still protect the run.
             _surge_mode = _manual_mode and _manual_surge_detection()
             if _surge_mode:
-                lvl = _read_surge_level_live()
-                if lvl is not None and lvl >= _manual_surge_target():
+                # Read throttle (from slim): the fast-read bar is always 10
+                # below the surge target (target 140 -> fast reads from 130
+                # on). Surge stop-signal reads run at 10/s below the bar and
+                # on every check (~12.5/s) at/above it. Stone/gain tracking
+                # stays at 1/s below the bar. Kill/net/alive checks above
+                # stay unthrottled.
+                try:
+                    _fast_lvl = max(0, int(_manual_surge_target()) - 10)
+                except Exception:
+                    _fast_lvl = 130
+                _now_pc = time.perf_counter()
+                _above_bar = (_surge_throttle_lvl is not None
+                              and _surge_throttle_lvl >= _fast_lvl)
+                # Surge read: 10/s below the bar (0.1s), every tick above it.
+                if _above_bar or (_now_pc - _surge_throttle_ts) >= 0.1:
+                    _surge_throttle_ts = _now_pc
+                    _t_s = time.perf_counter()
+                    lvl = _read_surge_level_live()
+                    _ms_read_stat("surge_reads", time.perf_counter() - _t_s)
+                    if lvl is not None:
+                        _surge_throttle_lvl = lvl
+                # Stop as soon as the cached surge level reaches the target.
+                if _surge_throttle_lvl is not None and \
+                        _surge_throttle_lvl >= _manual_surge_target():
                     _stop_why[0] = "surge_target"
-                    log.info(f"[BASEROCK] surge level {lvl} >= {_manual_surge_target()} - target reached; stopping")
+                    log.info(f"[BASEROCK] surge level {_surge_throttle_lvl} >= "
+                             f"{_manual_surge_target()} - target reached; stopping")
                     ok = True
                     return True
+                # Stone/gain tracking: 1/s always (from slim) — the surge read
+                # is the stop signal; stone bookkeeping doesn't need more.
+                if (_now_pc - _stone_throttle_ts) < 1.0:
+                    return False
+                _stone_throttle_ts = _now_pc
+            _t_st = time.perf_counter()
             c = _read_stone_live(update_last=False, check_glitch=False)
+            _ms_read_stat("stone_reads", time.perf_counter() - _t_st)
             if c is not None and c <= 0:
                 c = None
             if c is None:
@@ -5560,7 +5670,7 @@ def _do_base_rock(target_stone: float = None) -> bool:
                     now = time.time()
                     if now - _diag["skip_log_at"] >= 2.0:
                         _diag["skip_log_at"] = now
-                        log.info(
+                        log.debug(
                             f"[STALL] HUD idle {no_gain_for:.1f}/{_manual_no_gain_wait:.1f}s  "
                             f"buys={_diag['buys']}  {_farm_env_bits()}"
                         )
@@ -6270,7 +6380,7 @@ def _run_kraken_loop():
         reassert_s = max(poll_s, float(getattr(_cfg_kraken, "KRAKEN_SHOOT_REASSERT_SECONDS", 0.5)))
         death_wait = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_DEATH_WAIT_SECONDS", 5)))
         hb_confirm_window_s = max(0.5, float(getattr(_cfg_kraken, "KRAKEN_HB_CONFIRM_WINDOW_SECONDS", 3.5)))
-        hb_post_loss_shoot_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_POST_HB_LOSS_SHOOT_SECONDS", 1.5)))
+        hb_post_loss_shoot_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_POST_HB_LOSS_SHOOT_SECONDS", 1.75)))
         first_hb_timeout_s = max(3.0, float(getattr(_cfg_kraken, "KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS", 8.0)))
 
         shooting = False
@@ -6621,11 +6731,6 @@ def run_bot():
         _net_start()
     except Exception:
         pass
-    try:
-        import display_probe as _display_probe
-        _display_probe.start()
-    except Exception as _display_e:
-        log.warning(f"[DISPLAY] probe failed to start: {_display_e}")
     log.info("Bot starting ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â waiting for dashboard Start")
 
     # Outer loop: soft-reset (F9) brings us back here each time
@@ -6932,10 +7037,8 @@ def run_bot():
             start_mode = _RUN_MODE
             start_stone = None
             try:
-                # v1.9.2: skip the run-start OCR when a HUD read just
-                # succeeded (the post-rebirth confirmation read stone=0 a
-                # moment ago) - re-reading the same number steals cycle
-                # time on every rebirth loop.
+                # v2023: post-rebirth the verify read stone=0 a moment ago —
+                # reuse it instead of paying a second HUD OCR every cycle.
                 from screen import get_fresh_stone as _get_fresh_start_stone
                 start_stone = _get_fresh_start_stone(max_age=1.5)
                 if start_stone is None:

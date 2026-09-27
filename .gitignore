@@ -17,3 +17,9 @@ dist/
 # OS
 Thumbs.db
 desktop.ini
+
+# Per-user runtime files (setup by each user via dashboard/wizard)
+data/game_detect/
+data/kraken_stats.json
+data/macro_engine_state.json
+data/crater_stats.json

@@ -319,7 +319,7 @@ def save_pick(path: str, box: list, screen: list, tmpl: str = "in_game") -> None
         log.warning(f"[GAME_DETECT] save_pick failed ({tmpl}): {e}")
 
 
-_GAME_LOGO_MATCH_MIN = 0.80   # template-match score floor for the billboard
+_GAME_LOGO_MATCH_MIN = 0.40   # template-match score floor for the billboard (0.80 before: display-off captures score ~0.5, so blind runs can never pass 0.80)
 
 
 def game_logo_result() -> dict:
