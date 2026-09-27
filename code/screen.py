@@ -348,12 +348,30 @@ def parse_stone(text: str) -> float | None:
 parse_scientific = parse_stone
 
 
-def _manual_strength_window_open() -> bool:
+_MS_WINDOW_CACHE = (0.0, None)   # (expires_at, value)
+
+
+def _manual_strength_window_open(*, max_age: float = 0.25) -> bool:
+    """Window-open check with a short TTL cache (from slim).
+
+    The hot read paths (surge reads at 10/s, stone/baseline reads) call this
+    on every read; the underlying check grabs a region. A 0.25s cache keeps
+    those grabs off the spam loop's back. Open/close flows use
+    manual_strength.is_window_open() directly and stay uncached.
+    """
+    global _MS_WINDOW_CACHE
+    import time as _time
+    now = _time.perf_counter()
+    expires_at, cached = _MS_WINDOW_CACHE
+    if cached is not None and now < expires_at:
+        return cached
     try:
         from manual_strength import is_window_open as _is_window_open
-        return bool(_is_window_open())
+        val = bool(_is_window_open())
     except Exception:
-        return False
+        val = False
+    _MS_WINDOW_CACHE = (now + max_age, val)
+    return val
 
 
 def _f4_menu_probably_open() -> bool:
@@ -637,16 +655,96 @@ def red_percent(img, sat_min=80, val_min=120):
 
 # ── Public API ───────────────────────────────────────────────
 
+# ── Fast template OCR (fastocr.py) ───────────────────────────
+# Tesseract is only used to harvest glyph templates (and as a fallback);
+# once templates for a region exist, reads are ~1ms numpy matches.
+_FAST_READERS: dict = {}
+
+_STONE_TESS_CFG = "--psm 7 --oem 3 -c tessedit_char_whitelist=0123456789.eExXkKmMbBtTqQiIsSpPaAnNoOdDcCuUgGvV"
+_STONE_CLEAN    = r"[0-9]+(?:[.,][0-9]+)?(?:[eExX][0-9]{1,3}|[A-Za-z]{0,4})"
+_SURGE_TESS_CFG = "--psm 7 --oem 3 -c tessedit_char_whitelist=0123456789"
+_SURGE_CLEAN    = r"[0-9]{1,3}"
+
+
+def _fast_reader(name: str, whitelist: str, clean: str):
+    """Lazily create the FastDigits reader for one region (never raises).
+
+    Cache key includes the runtime resolution: a mid-session resolution
+    change creates a fresh reader (and per-resolution template file)."""
+    try:
+        res = (int(getattr(_cfg, "RUNTIME_WIDTH", 0) or 0),
+               int(getattr(_cfg, "RUNTIME_HEIGHT", 0) or 0))
+        key = f"{name}@{res[0]}x{res[1]}"
+        rd = _FAST_READERS.get(key)
+        if rd is None:
+            from fastocr import FastDigits
+            rd = FastDigits(name, whitelist=whitelist, clean_pattern=clean,
+                            res_key=res)
+            _FAST_READERS[key] = rd
+        return rd
+    except Exception as e:
+        log.debug(f"fast reader {name} unavailable: {e}")
+        return None
+
+
+def _fast_or_tess(rd, proc, tess_cfg: str) -> str:
+    """Fast template read first; fall back to tesseract + harvest."""
+    if rd is not None:
+        try:
+            s2 = rd.read_fast(proc)
+            if s2 is not None:
+                return s2
+        except Exception as e:
+            log.debug(f"fast read failed: {e}")
+    raw = pytesseract.image_to_string(proc, config=tess_cfg)
+    if rd is not None:
+        try:
+            rd.harvest(proc, raw, tess_cfg)
+        except Exception:
+            pass
+    return raw
+
+
+# ── Fresh-read cache (v2023) ────────────────────────────────────────────────
+# Remembers the last SUCCESSFUL HUD stone read + timestamp. Lets callers
+# that need "the stone right now" (run start right after the rebirth verify)
+# reuse a read that is at most ~1.5s old instead of paying the OCR again.
+_FRESH_STONE = {"ts": 0.0, "val": None}
+_FRESH_STONE_LOCK = __import__("threading").Lock()
+
+def _stamp_fresh_stone(val: float) -> None:
+    try:
+        with _FRESH_STONE_LOCK:
+            _FRESH_STONE["ts"] = time.time()
+            _FRESH_STONE["val"] = float(val)
+    except Exception:
+        pass
+
+def get_fresh_stone(max_age: float = 1.5) -> float | None:
+    """Last successful HUD stone read if younger than max_age seconds,
+    else None (caller should do a real read)."""
+    try:
+        with _FRESH_STONE_LOCK:
+            ts, val = _FRESH_STONE["ts"], _FRESH_STONE["val"]
+        if val is None or ts <= 0.0:
+            return None
+        if (time.time() - ts) > max(0.0, float(max_age)):
+            return None
+        return float(val)
+    except Exception:
+        return None
+
 def read_stone() -> float | None:
     try:
         img  = grab_region(_cfg.STONE_REGION)
         proc = _preprocess(img)
         # Whitelist includes letters for suffix format (K/M/B/T/Qa/Qi/Dc etc.)
-        raw  = pytesseract.image_to_string(
-            proc, config="--psm 7 --oem 3 -c tessedit_char_whitelist=0123456789.eExXkKmMbBtTqQiIsSpPaAnNoOdDcCuUgGvV")
+        raw  = _fast_or_tess(_fast_reader("stone", _STONE_TESS_CFG.split("char_whitelist=")[-1], _STONE_CLEAN),
+                             proc, _STONE_TESS_CFG)
         debug_on_change("stone_ocr", f"Stone OCR raw: {raw.strip()!r}")
         result = parse_stone(raw)
         if result is not None:
+            _stamp_fresh_stone(result)
             # Auto-detect display mode from the raw OCR text so the overlay
             # mirrors whatever format the game HUD is currently showing.
             _update_display_mode(raw)
@@ -725,12 +823,11 @@ def read_manual_strength_stone() -> float | None:
         used_mode = "full"
         used_img = img
         used_proc = _preprocess(img)
+        _ms_rd = _fast_reader("msstone", _STONE_TESS_CFG.split("char_whitelist=")[-1], _STONE_CLEAN)
         for mode, ocr_img in candidates:
             proc = _preprocess(ocr_img)
-            cur_raw = pytesseract.image_to_string(
-                proc,
-                config="--psm 7 --oem 3 -c tessedit_char_whitelist=0123456789.eExXkKmMbBtTqQiIsSpPaAnNoOdDcCuUgGvV",
-            )
+            cur_raw = _fast_or_tess(_ms_rd, proc,
+                                    "--psm 7 --oem 3 -c tessedit_char_whitelist=0123456789.eExXkKmMbBtTqQiIsSpPaAnNoOdDcCuUgGvV")
             cur_result = parse_stone(cur_raw)
             log.debug(f"Manual strength stone OCR ({mode}) raw: {cur_raw.strip()!r}")
             used_mode, used_img, used_proc, raw = mode, ocr_img, proc, cur_raw
@@ -785,8 +882,10 @@ def read_manual_strength_strength() -> float | None:
         img  = grab_region(_cfg.MANUAL_STR_STRENGTH_REGION)
         # Read full configured manual-strength strength region directly.
         proc = _preprocess(img)
-        raw  = pytesseract.image_to_string(
-            proc, config="--psm 7 --oem 3 -c tessedit_char_whitelist=0123456789.eExXkKmMbBtTqQiIsSpPaAnNoOdDcCuUgGvV")
+        raw  = _fast_or_tess(
+            _fast_reader("msstr", _STONE_TESS_CFG.split("char_whitelist=")[-1], _STONE_CLEAN),
+            proc,
+            "--psm 7 --oem 3 -c tessedit_char_whitelist=0123456789.eExXkKmMbBtTqQiIsSpPaAnNoOdDcCuUgGvV")
         debug_on_change("ms_str_ocr", f"Manual strength OCR raw: {raw.strip()!r}")
         result = parse_stone(raw)
         _save_debug("manual_str_strength_read" if (result is not None) else "manual_str_strength_fail", img, proc)
@@ -807,8 +906,8 @@ def read_manual_strength_surge() -> int | None:
             return None
         img  = grab_region(_cfg.MANUAL_STR_SURGE_REGION)
         proc = _preprocess(img)
-        raw  = pytesseract.image_to_string(
-            proc, config="--psm 7 --oem 3 -c tessedit_char_whitelist=0123456789")
+        raw  = _fast_or_tess(_fast_reader("surge", "0123456789", _SURGE_CLEAN),
+                             proc, _SURGE_TESS_CFG)
         debug_on_change("ms_surge_ocr", f"Manual strength surge OCR raw: {raw.strip()!r}")
         digits = re.sub(r"[^0-9]", "", raw)
         if not digits:

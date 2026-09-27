@@ -73,6 +73,9 @@ code/              bot, dashboard, macro engine and all modules
   dashboard.py     Flask dashboard server (localhost:7373)
   macro_engine/    standalone macro recorder/editor app
 data/              config.json, calibration defaults, wizard state
+data/fastocr/      per-resolution FastOCR glyph template caches
+                   (<name>_screen<WIDTHxHEIGHT>.npz - Full HD file ships
+                   with the bot; other resolutions harvest their own)
 macros/           recorded macros + image checks
 modules/           future mode addons
 scripts/           install / build / utility scripts
