@@ -4,7 +4,7 @@ Blockly.Blocks['pcr_path_running'] = {
   init: function() {
     this.jsonInit({
       type: "pcr_path_running",
-      message0: "running location",
+      message0: "runtime location",
       output: "String",
       colour: 160,
       tooltip: "Root folder of the running app (exe / START.bat)."

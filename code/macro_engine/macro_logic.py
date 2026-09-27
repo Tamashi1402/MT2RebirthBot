@@ -446,13 +446,62 @@ def _expr_color_eq(d: dict[str, Any], vars_state: dict[str, Any] | None = None) 
     return all(abs(int(a) - int(b)) <= tol for a, b in zip(px, want))
 
 
+# ── runtime / desktop location ──────────────────────────────────────────
+# {runtime_dir} / {desktop_dir} expression nodes (the editor's
+# pcr_path_running / pcr_path_desktop blocks): the folder the app runs
+# from (exe / START.bat folder when built) and the user's Desktop.
+
+def _expr_runtime_dir(bot_root: str = "") -> str:
+    """Folder of the running app: a built exe reports the exe's folder
+    (where START.bat / the built .exe lives); a source run falls back
+    to the bot root the runner passes in."""
+    try:
+        if getattr(sys, "frozen", False):
+            return os.path.dirname(os.path.abspath(sys.executable))
+    except Exception:
+        pass
+    if bot_root:
+        return str(bot_root)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _known_desktop_dir() -> str:
+    """User Desktop folder: the real Windows known folder (survives
+    OneDrive redirection); ~/Desktop as the fallback."""
+    try:
+        import uuid as _uuid
+        import ctypes
+        from ctypes import wintypes
+        class _GUID(ctypes.Structure):
+            _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD),
+                        ("Data3", wintypes.WORD), ("Data4", ctypes.c_ubyte * 8)]
+        _u = _uuid.UUID("B4BFCC3A-DB2C-424C-B029-7FE99A87C641")   # FOLDERID_Desktop
+        _g = _GUID()
+        _g.Data1, _g.Data2, _g.Data3 = _u.time_low, _u.time_mid, _u.time_hi_version
+        _g.Data4[:] = list(_u.bytes[8:16])
+        _ptr = ctypes.c_void_p()
+        if ctypes.windll.shell32.SHGetKnownFolderPath(
+                ctypes.byref(_g), 0, None, ctypes.byref(_ptr)) == 0:
+            _path = ctypes.wstring_at(_ptr)
+            try:
+                ctypes.windll.ole32.CoTaskMemFree(_ptr)
+            except Exception:
+                pass
+            return _path
+    except Exception:
+        pass
+    return os.path.join(os.path.expanduser("~"), "Desktop")
+
+
 def eval_expr(expr: Any, vars_state: dict[str, Any],
               bot_root: str = "", macro_dir: str | None = None) -> Any:
     """Evaluate an expression tree from the expanded .macro format.
 
     Nodes: {lit}, {get}, {cmp}, {and}/{or}, {not}, {arith},
     {img_eq}, {img_on_screen}, {color_eq}, {color_diff}, {img_diff},
-    {point}, {box}, {res_spec}, {res_scale}.
+    {point}, {box}, {res_spec}, {res_scale},
+    {runtime_dir}, {desktop_dir},
+    {list_get}, {list_size}, {list_is_empty}, {type_is},
     Plain values pass through.
     """
     if not isinstance(expr, dict):
@@ -461,6 +510,10 @@ def eval_expr(expr: Any, vars_state: dict[str, Any],
         return expr.get("lit")
     if "get" in expr:
         return vars_state.get(str(expr.get("get") or ""), False)
+    if "runtime_dir" in expr:
+        return _expr_runtime_dir(bot_root)
+    if "desktop_dir" in expr:
+        return _known_desktop_dir()
     if "grab" in expr:
         return _grab_expr_path(expr.get("grab") or {}, vars_state)
     if "screen_color" in expr:

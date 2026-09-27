@@ -465,7 +465,9 @@ Blockly.Blocks['mfm_raw'] = {
 // survive the save → load round trip and the runner can evaluate them.
 const _MFM_CMP_OPS = { EQ: '==', NEQ: '!=', LT: '<', LTE: '<=', GT: '>', GTE: '>=' };
 const _MFM_FUNC_NAMES = ['get', 'img_eq', 'img_on_screen', 'color_eq', 'color_diff',
-  'img_diff', 'ratio', 'point', 'box', 'scale', 'grab', 'grab_at', 'screen_color'];
+  'img_diff', 'ratio', 'point', 'box', 'scale', 'grab', 'grab_at', 'screen_color',
+  'runtime_dir', 'desktop_dir', 'hue_list', 'hue_diag', 'color_avg', 'list_get',
+  'list_size', 'list_is_empty', 'type_is'];
 
 function _mfm_q(s) {
   return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -576,6 +578,8 @@ function _mfm_render(node) {
     });
     return ['grab(' + args.join(', ') + ')', 9];
   }
+  if ('runtime_dir' in node) return ['runtime_dir()', 9];
+  if ('desktop_dir' in node) return ['desktop_dir()', 9];
   if ('screen_color' in node) {
     const d = node.screen_color || {};
     const args = ['x', 'y'].map(function (k) {
@@ -830,6 +834,12 @@ function _mfm_expr(b) {
     }
     case 'pcr_res_location':
       return { lit: _mfm_str(b, 'PATH', '') };
+    case 'pcr_path_running':
+      // runtime location — folder of the running exe / START.bat
+      return { runtime_dir: true };
+    case 'pcr_path_desktop':
+      // desktop location — the user's Desktop folder
+      return { desktop_dir: true };
     case 'pcr_color_hex':
       return { lit: String(b.getFieldValue('HEX') || '#FFFFFF') };
     // resolution blocks — 1:1 with the flow editor (ratio / scale)
@@ -972,7 +982,8 @@ function _mfm_exprXml(v, doc) {
   }
 
   if (v && typeof v === 'object' && !Array.isArray(v)) {
-    if ('lit' in v) return mkLit(v.lit);
+    if ('runtime_dir' in v) return mkBlk('pcr_path_running');
+    if ('desktop_dir' in v) return mkBlk('pcr_path_desktop');
     if ('get' in v) {
       // inside an ITERATE body, a reference to the loop's component name
       // reloads as the `component` block (not a typed getter)

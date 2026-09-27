@@ -59,6 +59,8 @@ class MacroTextError(ValueError):
 #   {point: {x, y}} / {box: {x1..y2}}   recorded point/box
 #   {res_scale: {a, spec}}     scale a point/box to the current screen (spec optional)
 #   {img_diff: {a, b}}        a/b: '' | str | {get}
+#   {runtime_dir: true}        folder of the running exe / START.bat
+#   {desktop_dir: true}        user Desktop folder
 # ─────────────────────────────────────────────────────────────────────────
 
 # precedence levels (higher binds tighter)
@@ -68,7 +70,10 @@ _CMP_OPS = {"EQ": "==", "NEQ": "!=", "LT": "<", "LTE": "<=", "GT": ">", "GTE": "
 _CMP_OPS_REV = {v: k for k, v in _CMP_OPS.items()}
 _ARITH_OPS = {"+", "-", "*", "/", "^"}
 _FUNC_NAMES = ("get", "img_eq", "img_on_screen", "color_eq", "color_diff", "img_diff",
-               "ratio", "point", "box", "scale", "grab", "grab_at", "screen_color")
+               "ratio", "point", "box", "scale", "grab", "grab_at", "screen_color",
+               "runtime_dir", "desktop_dir",
+               "hue_list", "hue_diag", "color_avg", "list_get", "list_size",
+               "list_is_empty", "type_is")
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -282,6 +287,15 @@ def _render(node):
             s = sub(d.get("spec"), _P_ATOM, False)
             return "scale(%s, %s)" % (a, s), _P_ATOM
         return "scale(%s)" % a, _P_ATOM
+
+    if "runtime_dir" in node:
+        # folder of the running exe / START.bat — runtime_dir()
+        return "runtime_dir()", _P_ATOM
+
+    if "desktop_dir" in node:
+        # user Desktop folder — desktop_dir()
+        return "desktop_dir()", _P_ATOM
+
 
     if "color_diff" in node:
         d = node.get("color_diff") or {}
@@ -499,6 +513,14 @@ class _P:
                 "w": _coord_arg(args[2]),
                 "h": _coord_arg(args[3]),
             }}
+        if name == "runtime_dir":
+            if args:
+                raise MacroTextError("runtime_dir() takes no args")
+            return {"runtime_dir": True}
+        if name == "desktop_dir":
+            if args:
+                raise MacroTextError("desktop_dir() takes no args")
+            return {"desktop_dir": True}
         if name == "screen_color":
             if len(args) != 2:
                 raise MacroTextError("screen_color() needs 2 args")
