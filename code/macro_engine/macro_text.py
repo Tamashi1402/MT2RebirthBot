@@ -82,6 +82,21 @@ def _fmt_num(v) -> str:
     return repr(f)
 
 
+# NOTE/SECTION colour convention — same default-green rule as the
+# app.py normalizers: the colour rides as an @c:#rrggbb prefix in the
+# value, so v1 ("# @c:#hex text") and pretty ("// @c:#hex text",
+# 'SECTION "name" @c:#hex {') both round-trip.
+_NOTE_COLOUR_DEFAULT = "#5ba65b"
+
+
+def _step_note_colour(st) -> str:
+    """Validated non-default colour of a step dict, '' when absent."""
+    c = str((st or {}).get("color") or "").strip()
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", c) and c.lower() != _NOTE_COLOUR_DEFAULT:
+        return c
+    return ""
+
+
 def _q(s: str) -> str:
     out = str(s).replace("\\", "\\\\").replace('"', '\\"')
     out = out.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
@@ -826,6 +841,12 @@ def canonicalize_lines(lines) -> list:
         if re.match(r"^BREAK\s*$", line):
             out.append("BREAK_LOOP")
             continue
+        m = re.match(r'^(GROUP|SECTION)\s+"((?:[^"\\]|\\.)*)"(?:\s+@c:(#[0-9a-fA-F]{6}))?\s*\{\s*$', line)
+        if m:
+            val = _unq('"' + m.group(2) + '"')
+            if m.group(3) and m.group(3).lower() != _NOTE_COLOUR_DEFAULT:
+                val = "@c:%s %s" % (m.group(3), val)
+            out.append("# %s:%s" % (m.group(1), val))
             stack.append(m.group(1))
             continue
         if re.match(r"^LOCK\s*\{\s*$", line):
@@ -839,7 +860,7 @@ def canonicalize_lines(lines) -> list:
         # "PRINT" when the value is empty; keep it a real instruction
         # ("PRINT:") so the runner prints the empty line instead of
         # silently dropping it on the passthrough path
-        if re.match(r"^(PRINT|LABEL)$", line):
+        if re.match(r"^(PRINT|LOG|LABEL)$", line):
             out.append(line + ":")
             continue
         # pretty keyword instructions: KEYWORD <rest>  (no colon → not v1)
@@ -1023,7 +1044,11 @@ def pretty_body(steps) -> list:
             depth = max(0, depth - 1)
             out.append(ind() + "}")
         elif t == "SECTION":
-            out.append('%sSECTION %s {' % (ind(), _q(v)))
+            sc = _step_note_colour(st)
+            if sc:
+                out.append('%sSECTION %s @c:%s {' % (ind(), _q(v), sc))
+            else:
+                out.append('%sSECTION %s {' % (ind(), _q(v)))
             depth += 1
         elif t == "SECTION_END":
             depth = max(0, depth - 1)
@@ -1035,10 +1060,11 @@ def pretty_body(steps) -> list:
             depth = max(0, depth - 1)
             out.append(ind() + "}")
         elif t == "COMMENT":
+            sc = _step_note_colour(st)
             if v.startswith("STRAY:"):
                 out.append(ind() + "# " + v)
             elif v:
-                out.append(ind() + "// " + v)
+                out.append(ind() + ("// @c:%s %s" % (sc, v) if sc else "// " + v))
         elif t == "IF":
             out.append("%sIF (%s) {" % (ind(), _pretty_cond(v)))
             depth += 1

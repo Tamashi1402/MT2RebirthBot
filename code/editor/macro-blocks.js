@@ -94,8 +94,8 @@ Blockly.Blocks['mfm_delay'] = {
   },
 };
 
-// Flow — Print (app console)
-Blockly.Blocks['mfm_print'] = {
+// Flow — Log (bot log file)
+Blockly.Blocks['mfm_log'] = {
   init: function () {
     this.jsonInit({
       "type": "mfm_print",
@@ -246,11 +246,36 @@ function mfmGroupEditField() {
   return field;
 }
 
+// NOTE/SECTION colour swatch — click it and Blockly's preset palette
+// opens (same picker style the user knows from the colour block).
+// Picking a colour recolours the whole block; the default swatch value
+// matches the original flow green (Blockly hue 120 -> #5ba65b), so
+// old .macro files without a colour marker load unchanged.
+var MFM_NOTE_DEFAULT_COLOUR = '#5ba65b';
+function mfmNoteColourValidator(block) {
+  return function (v) {
+    try { block.setColour(v || MFM_NOTE_DEFAULT_COLOUR); } catch (e) {}
+    return v;
+  };
+}
+function mfmMakeNoteColourField(block) {
+  var f = new Blockly.FieldColour(MFM_NOTE_DEFAULT_COLOUR);
+  f.setValidator(mfmNoteColourValidator(block));
+  // The swatch is a picture, not a word: contribute NO text. Without
+  // this, the colour hex ('#5ba65b'...) leaks into every text summary
+  // of the block — block.toString() and the collapsed-block mini
+  // label both showed it. With an empty text the summaries show the
+  // note itself, and the hex never appears when minimized.
+  f.getText = function () { return ''; };
+  return f;
+}
+
 // Flow — Comment (single # line in the .macro file)
 Blockly.Blocks['mfm_comment'] = {
   init: function () {
     this.appendDummyInput()
       .appendField('#', 'HASH')
+      .appendField(mfmMakeNoteColourField(this), 'COLOUR')
       .appendField(new Blockly.FieldTextInput('note'), 'TEXT');
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);
@@ -267,6 +292,7 @@ Blockly.Blocks['mfm_section'] = {
   init: function () {
     this.appendDummyInput('HEADER')
       .appendField('\u2500\u2500\u2500')
+      .appendField(mfmMakeNoteColourField(this), 'COLOUR')
       .appendField(new Blockly.FieldTextInput('note'), 'TEXT')
       .appendField('\u2500\u2500\u2500');
     this.appendStatementInput('DO').setCheck(null);
@@ -1510,8 +1536,9 @@ function mfmListToXml(blocks) {
         addShadowNum(el, 'MS', value);
         break;
       }
-      case 'PRINT': {
-        el = mk('mfm_print');
+      case 'PRINT': case 'LOG': {
+        // load as LOG blocks and resave as LOG: lines
+        el = mk('mfm_log');
         const tw = document.createElement('value'); tw.setAttribute('name', 'TEXT');
         const s = value || '';
         // ${…} occurrences that are full expressions come pre-parsed from
@@ -2067,6 +2094,14 @@ function mfmWorkspaceToList(workspace, includeLocals) {
   function push(type, value, locked) {
     out.push({ type: type, value: value === undefined ? '' : String(value), locked: !!locked });
   }
+  // push with a NOTE/SECTION colour — the colour rides as an extra step
+  // key and never changes execution (these blocks are comments on disk)
+  function pushC(type, value, locked, colour) {
+    const step = { type: type, value: value === undefined ? '' : String(value), locked: !!locked };
+    const c = String(colour || '');
+    if (/^#[0-9a-fA-F]{6}$/.test(c) && c !== MFM_NOTE_DEFAULT_COLOUR) step.color = c;
+    out.push(step);
+  }
 
   // legacy recorder payload → expression tree (old macros keep loading)
   function condData(block) {
@@ -2110,7 +2145,7 @@ function mfmWorkspaceToList(workspace, includeLocals) {
         }
         b = b.getNextBlock();
       } else if (b.type === 'mfm_section') {
-        push('SECTION', b.getFieldValue('TEXT') || 'note', locked);
+        pushC('SECTION', b.getFieldValue('TEXT') || 'note', locked, b.getFieldValue('COLOUR'));
         emitStack(b.getInputTargetBlock('DO'), locked);
         push('SECTION_END', '', locked);
         b = b.getNextBlock();
@@ -2144,6 +2179,7 @@ function mfmWorkspaceToList(workspace, includeLocals) {
         // one composed text: literals inline, ${var} refs for getters,
         // "create text with" recursion — numbers etc. become text
         push('PRINT', _mfm_value_text(b.getInputTargetBlock('TEXT')), locked);
+        push('LOG', _mfm_value_text(b.getInputTargetBlock('TEXT')), locked);
         break;
       }
       case 'mfm_repeat': {
@@ -2268,7 +2304,7 @@ function mfmWorkspaceToList(workspace, includeLocals) {
         push(b.getFieldValue('TYPE') || 'UNKNOWN', b.getFieldValue('VALUE') || '', locked);
         break;
       case 'mfm_comment':
-        push('COMMENT', b.getFieldValue('TEXT') || '', locked);
+        pushC('COMMENT', b.getFieldValue('TEXT') || '', locked, b.getFieldValue('COLOUR'));
         break;
       case 'mfm_group': {
         push('GROUP', b.getFieldValue('NAME') || 'recording', locked);
@@ -2292,8 +2328,8 @@ function mfmWorkspaceToList(workspace, includeLocals) {
       const d = { name: name,
                   var_type: t === 'logic' ? 'boolean' : t === 'text' ? 'text'
                     : t === 'image' ? 'image' : t === 'resloc' ? 'resloc'
-                    : t === 'color' ? 'color' : 'number',
-                  value: t === 'logic' ? false : (t === 'text' || t === 'image' || t === 'resloc' || t === 'color') ? '' : 0 };
+                    : t === 'color' ? 'color' : t === 'list' ? 'list' : 'number',
+                  value: t === 'logic' ? false : t === 'list' ? [] : (t === 'text' || t === 'image' || t === 'resloc' || t === 'color') ? '' : 0 };
       push('VARIABLE', JSON.stringify(d));
     });
   }
@@ -2350,6 +2386,123 @@ if (typeof Blockly !== 'undefined' && Blockly.Blocks) {
       "message0": "break loop",
       "previousStatement": null,
       "nextStatement": null,
+      "colour": 120,
+      "tooltip": "Stop the innermost repeat / while / until loop and continue right after it."
+    });
+  });
+
+  // color on the screen at a point — a color value (store / compare / diff)
+  def('mfm_grab_color', function () {
+    this.jsonInit({
+      "type": "mfm_grab_color",
+      "message0": "color at %1",
+      "args0": [{ "type": "input_value", "name": "POINT", "check": "Box" }],
+      "inputsInline": true,
+      "output": ["Color", "String"],
+      "colour": 20,
+      "tooltip": "The color currently on the screen at a point. Store it in a color variable, compare it, or diff it."
+    });
+  });
+
+  // is the screen color at a point (≈) another color?
+  def('mfm_color_check', function () {
+    this.jsonInit({
+      "type": "mfm_color_check",
+      "message0": "color at %1 is %2 tolerance %3",
+      "args0": [
+        { "type": "input_value", "name": "POINT", "check": "Box" },
+        { "type": "input_value", "name": "RGBA", "check": ["Color", "String"] },
+        { "type": "input_value", "name": "TOL", "check": "Number" }
+      ],
+      "inputsInline": true,
+      "output": "Boolean",
+      "colour": 20,
+      "tooltip": "True when the screen color at the point matches the given color within the tolerance (0-255 per channel)."
+    });
+  });
+
+  // live screenshot region — an image value without saving a file
+  def('mfm_grab_image', function () {
+    this.jsonInit({
+      "type": "mfm_grab_image",
+      "message0": "grab image at %1 size %2",
+      "args0": [
+        { "type": "input_value", "name": "POINT", "check": "Box" },
+        { "type": "input_value", "name": "SIZE", "check": "Box" }
+      ],
+      "inputsInline": true,
+      "output": "Image",
+      "colour": 260,
+      "tooltip": "Grab a live region of the screen as an image value — use it in image checks or store it in an image variable. The crosshair picks the region from the screen (F2)."
+    });
+    if (Blockly.icons && Blockly.icons.MFPickIcon) {
+      try { this.addIcon(new Blockly.icons.MFPickIcon("grab", this)); } catch (e) {}
+    }
+  });
+
+  // is an image visible on screen (optionally inside a region)?
+  def('mfm_image_on_screen', function () {
+    this.jsonInit({
+      "type": "mfm_image_on_screen",
+      "message0": "image %1 on screen \u2265 %2 %% in %3",
+      "args0": [
+        { "type": "input_value", "name": "IMAGE", "check": "Image" },
+        { "type": "input_value", "name": "THRESH", "check": "Number" },
+        { "type": "input_value", "name": "REGION", "check": "Box" }
+      ],
+      "inputsInline": true,
+      "output": "Boolean",
+      "colour": 260,
+      "tooltip": "True when the template image is visible anywhere on screen (or inside the region) at or above the match threshold. Leave the region empty to search the whole screen."
+    });
+  });
+
+  // image check — search and write the result into a variable
+  def('mfm_image_check', function () {
+    this.jsonInit({
+      "type": "mfm_image_check",
+      "message0": "find image %1 \u2265 %2 %% in %3",
+      "args0": [
+        { "type": "input_value", "name": "IMAGE", "check": "Image" },
+        { "type": "input_value", "name": "THRESH", "check": "Number" },
+        { "type": "input_value", "name": "REGION", "check": "Box" }
+      ],
+      "message1": "result %1 %2",
+      "args1": [
+        { "type": "field_input", "name": "VAR", "text": "image_found" },
+        { "type": "field_dropdown", "name": "MODE",
+          "options": [["true/false", "bool"], ["x/y coords", "coords"], ["both", "both"]] }
+      ],
+      "inputsInline": true,
+      "previousStatement": null,
+      "nextStatement": null,
+      "colour": 260,
+      "tooltip": "Search for a template image and write the result into a variable: true/false, coordinates (var_x / var_y), or both. The crosshair on the image block can pick and crop a fresh template from the screen (F2)."
+    });
+  });
+
+  function _mfm_listDropdown() {
+    try {
+      if (typeof pcrVarDropdown === 'function') return pcrVarDropdown('list');
+    } catch (e) {}
+    return new Blockly.FieldDropdown([['(add a list in the panel)', '']]);
+  }
+
+  // ── color-pixel blocks (Color category) — map-change detection ──
+  // pixel lists are purple like every list block
+      "colour": 260,
+      "colour": 260,
+      "tooltip": "Lighter variant: sample every Nth pixel (10 = every 10th). The seed picks the pattern's starting phase, so the same box + step + seed always samples the exact same pixels — a stable fingerprint to compare captures against."
+    });
+  });
+
+      "colour": 20,
+      "tooltip": "The average of a list of colors — ONE color that stands for the whole area. Compare two (before / after) with 'color difference between' to detect a map or loading change without find-image templates."
+    });
+  });
+
+  // kept so old macros with the diagonal block still open 1:1
+      "colour": 260,
   // ── List category (purple 260) ──
   def('mfm_list_add', function () {
     // add [value] to [list] at position [number] (item 2)

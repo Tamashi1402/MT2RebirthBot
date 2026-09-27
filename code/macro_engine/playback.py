@@ -15,6 +15,7 @@ if _CODE_DIR not in sys.path:
 from macro_engine.macro_logic import (
     branch_active,
     find_break_target,
+    macro_log_line,
     find_break_target,
     define_variable,
     scan_loop_background,
@@ -1375,6 +1376,14 @@ class MacroEngine:
                 if raw == "PRINT" or raw.startswith("PRINT:"):
                     _print_console(raw[6:] if raw.startswith("PRINT:") else "",
                                    vars_state, bot_root, m_dir)
+                    continue
+                # --- LOG (bot log file) ---
+                if raw == "LOG" or raw.startswith("LOG:"):
+                    try:
+                        macro_log_line(raw[4:] if raw.startswith("LOG:") else "",
+                                       vars_state, bot_root, m_dir)
+                    except Exception:
+                        pass
                     continue
 
                 if raw.startswith("REPEAT:"):

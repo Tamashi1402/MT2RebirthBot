@@ -82,6 +82,29 @@ log = get_logger()
 _MACRO_COORD_BASE_W = 1920
 _MACRO_COORD_BASE_H = 1080
 _BOT_ROOT = os.path.dirname(MACROS_DIR)
+
+
+# ── LOG (macro line → bot log file) ─────────────────────────────
+# Same LOG block as the blockly editor: ${var}/${expression}
+# interpolated at run time, one line into logs/logs-DATE.txt.
+# Reuses the macro_engine writer (identical semantics there); if it
+# is not importable for some reason, fall back to a plain ${var}
+# substitution through the bot logger — never break a playback.
+def _macro_log_line(text: str, vars_state: dict, macro_dir: str | None = None) -> None:
+    try:
+        from macro_engine.macro_logic import macro_log_line
+        macro_log_line(text, vars_state, _BOT_ROOT, macro_dir)
+        return
+    except Exception:
+        pass
+    try:
+        def _sub(m):
+            inner = m.group(1).strip()
+            return str(vars_state[inner]) if inner in vars_state else m.group(0)
+        log.info("[MACRO] %s", re.sub(r"\$\{([^}]*)\}", _sub, str(text)))
+    except Exception:
+        pass
+
 _macro_preset = ""
 
 
@@ -1386,6 +1409,12 @@ class MacroPlayer:
                 ms = int(round(_resolve_macro_number(raw[6:].strip(), vars_state)[0]))
                 next_due += ms / 1000.0
                 _sleep_until(next_due, self._check_stop)
+                continue
+
+            # --- LOG (bot log file, blockly parity) ---
+            if raw == "LOG" or raw.startswith("LOG:"):
+                _macro_log_line(raw[4:] if raw.startswith("LOG:") else "",
+                                vars_state, macro_dir)
                 continue
 
             # --- REPEAT ---

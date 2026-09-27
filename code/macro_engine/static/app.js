@@ -34,6 +34,7 @@ const blockDefaults = {
   REPEAT:           '2',
   ENDREPEAT:        '',
   BREAK_LOOP:       '',
+  LOG:              '',
   WHILE:            '{"mode":"boolean","name":"flag","value":true}',
   UNTIL:            '{"mode":"boolean","name":"flag","value":false}',
   END_WHILE:        '',
@@ -389,7 +390,13 @@ function normalizeBlock(block) {
     const parts = value.split(',').map(p => p.trim());
     value = parts.length >= 2 ? `${parts[0]},${parts[1]}` : value;
   }
-  return { type, value, locked: !!block.locked };
+  const out = { type, value, locked: !!block.locked };
+  // NOTE/SECTION colour swatch (editor) — keep the validated colour so
+  // saves round-trip it; anything else drops the key (default green)
+  if ((type === 'COMMENT' || type === 'SECTION') && /^#[0-9a-fA-F]{6}$/.test(String(block.color || ''))) {
+    out.color = String(block.color);
+  }
+  return out;
 }
 
 function normalizeBlocksList(list) {

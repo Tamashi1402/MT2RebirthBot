@@ -15,6 +15,7 @@ from logger import get_logger
 from config import MACROS_DIR
 from macro_engine.macro_logic import (
     find_break_target,
+    macro_log_line,
     _macro_res_scale,
     branch_active,
     find_break_target,
@@ -1154,6 +1155,7 @@ def is_mouse_pressed(button="left") -> bool:
 #   LABEL:<name>
 #   GOTO:<name>
 #   DELAY:<ms>
+#   LOG:<text>                          (one line in the bot's log file)
 #   PRINT:<text>            ${var} interpolated, one line in the app console
 #   KEY_DOWN:<vk_hex>
 #   KEY_UP:<vk_hex>
@@ -1508,6 +1510,14 @@ class MacroPlayer:
             if raw == "PRINT" or raw.startswith("PRINT:"):
                 _print_console(raw[6:] if raw.startswith("PRINT:") else "",
                                vars_state, _BOT_ROOT, macro_dir)
+                continue
+            # --- LOG (bot log file) ---
+            if raw == "LOG" or raw.startswith("LOG:"):
+                try:
+                    macro_log_line(raw[4:] if raw.startswith("LOG:") else "",
+                                   vars_state, _BOT_ROOT, macro_dir)
+                except Exception:
+                    pass
                 continue
 
             # --- REPEAT ---

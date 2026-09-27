@@ -207,21 +207,40 @@
 
 
   <xml id="mfm-toolbox" style="display:none">
-    <!-- MACROS STAY CHEAP: record them or build them by hand. A lean
-         Mouse / Keyboard set, plus Flow — nothing else; heavy lifting
-         belongs to modes / flows / procedures. -->
+    <!-- Layout: Color/Image/Mouse/Keyboard | Components/Variables |
+         Flow/Logic/Math/Text. Color and Image stay lean (values + diffs);
+         Components: point/box/resource + resource/runtime/desktop
+         locations; log writes to the bot's log file. -->
+    <category name="Color" colour="20">
+      <block type="pcr_color_rgba">
+        <value name="R"><block type="math_number"><field name="NUM">255</field></block></value>
+        <value name="G"><block type="math_number"><field name="NUM">255</field></block></value>
+        <value name="B"><block type="math_number"><field name="NUM">255</field></block></value>
+        <value name="A"><block type="math_number"><field name="NUM">255</field></block></value>
+      </block>
+      <block type="mfm_grab_color">
+        <value name="POINT"><block type="pcr_point_xy"><value name="X"><block type="math_number"><field name="NUM">0</field></block></value><value name="Y"><block type="math_number"><field name="NUM">0</field></block></value></block></value>
+      </block>
+      <block type="pcr_color_diff">
+        <value name="COLOR1"><block type="pcr_color_rgba"><value name="R"><block type="math_number"><field name="NUM">255</field></block></value><value name="G"><block type="math_number"><field name="NUM">255</field></block></value><value name="B"><block type="math_number"><field name="NUM">255</field></block></value><value name="A"><block type="math_number"><field name="NUM">255</field></block></value></block></value>
+        <value name="COLOR2"><block type="pcr_color_rgba"><value name="R"><block type="math_number"><field name="NUM">255</field></block></value><value name="G"><block type="math_number"><field name="NUM">255</field></block></value><value name="B"><block type="math_number"><field name="NUM">255</field></block></value><value name="A"><block type="math_number"><field name="NUM">255</field></block></value></block></value>
+      </block>
+    <category name="Image" colour="260">
+      <block type="mfm_grab_image">
+        <value name="POINT"><block type="pcr_point_xy"><value name="X"><block type="math_number"><field name="NUM">0</field></block></value><value name="Y"><block type="math_number"><field name="NUM">0</field></block></value></block></value>
+        <value name="SIZE"><block type="pcr_box_xyxy"><value name="X1"><block type="math_number"><field name="NUM">0</field></block></value><value name="Y1"><block type="math_number"><field name="NUM">0</field></block></value><value name="X2"><block type="math_number"><field name="NUM">100</field></block></value><value name="Y2"><block type="math_number"><field name="NUM">100</field></block></value></block></value>
+      </block>
+      <block type="pcr_img_diff">
+        <value name="IMG1"><block type="pcr_image_from_res"><value name="TEXT"><block type="text"><field name="TEXT">images/template.png</field></block></value></block></value>
+        <value name="IMG2"><block type="pcr_image_from_res"><value name="TEXT"><block type="text"><field name="TEXT">images/template.png</field></block></value></block></value>
+      </block>
+    </category>
     <category name="Mouse" colour="40">
       <block type="mfm_scaled_move">
-        <value name="POINT"><block type="pcr_point_xy">
-          <value name="X"><block type="math_number"><field name="NUM">0</field></block></value>
-          <value name="Y"><block type="math_number"><field name="NUM">0</field></block></value>
-        </block></value>
+        <value name="POINT"><block type="pcr_point_xy"><value name="X"><block type="math_number"><field name="NUM">0</field></block></value><value name="Y"><block type="math_number"><field name="NUM">0</field></block></value></block></value>
       </block>
       <block type="mfm_abs_move">
-        <value name="POINT"><block type="pcr_point_xy">
-          <value name="X"><block type="math_number"><field name="NUM">0</field></block></value>
-          <value name="Y"><block type="math_number"><field name="NUM">0</field></block></value>
-        </block></value>
+        <value name="POINT"><block type="pcr_point_xy"><value name="X"><block type="math_number"><field name="NUM">0</field></block></value><value name="Y"><block type="math_number"><field name="NUM">0</field></block></value></block></value>
       </block>
       <block type="mfm_click">
         <value name="BUTTON"><block type="pcr_mouse"><field name="BUTTON">left</field></block></value>
@@ -245,6 +264,65 @@
       </block>
     </category>
     <sep></sep>
+    <category name="Components" colour="230">
+      <block type="pcr_point_xy">
+        <value name="X"><block type="math_number"><field name="NUM">0</field></block></value>
+        <value name="Y"><block type="math_number"><field name="NUM">0</field></block></value>
+      </block>
+      <block type="pcr_box_xyxy">
+        <value name="X1"><block type="math_number"><field name="NUM">0</field></block></value>
+        <value name="Y1"><block type="math_number"><field name="NUM">0</field></block></value>
+        <value name="X2"><block type="math_number"><field name="NUM">100</field></block></value>
+        <value name="Y2"><block type="math_number"><field name="NUM">100</field></block></value>
+      </block>
+      <block type="pcr_scale_res">
+        <value name="INPUT"><block type="pcr_box_xyxy"><value name="X1"><block type="math_number"><field name="NUM">0</field></block></value><value name="Y1"><block type="math_number"><field name="NUM">0</field></block></value><value name="X2"><block type="math_number"><field name="NUM">1920</field></block></value><value name="Y2"><block type="math_number"><field name="NUM">1080</field></block></value></block></value>
+        <value name="DEFAULT"><block type="pcr_res_ratio"><value name="RW"><block type="math_number"><field name="NUM">16</field></block></value><value name="RH"><block type="math_number"><field name="NUM">9</field></block></value><value name="DW"><block type="math_number"><field name="NUM">1920</field></block></value><value name="DH"><block type="math_number"><field name="NUM">1080</field></block></value></block></value>
+      </block>
+      <block type="pcr_res_ratio">
+        <value name="RW"><block type="math_number"><field name="NUM">16</field></block></value>
+        <value name="RH"><block type="math_number"><field name="NUM">9</field></block></value>
+        <value name="DW"><block type="math_number"><field name="NUM">1920</field></block></value>
+        <value name="DH"><block type="math_number"><field name="NUM">1080</field></block></value>
+      </block>
+      <block type="pcr_image_from_res">
+        <value name="TEXT"><block type="text"><field name="TEXT">images/template.png</field></block></value>
+      </block>
+      <block type="pcr_res_location">
+        <value name="PATH"><block type="text"><field name="TEXT">images/template.png</field></block></value>
+      </block>
+      <block type="pcr_path_running"></block>
+      <block type="pcr_path_desktop"></block>
+    </category>
+    <category name="Variables" colour="#b25081">
+      <block type="pcr_set_number">
+        <value name="VALUE"><block type="math_number"><field name="NUM">0</field></block></value>
+      </block>
+      <block type="pcr_get_number"></block>
+      <block type="pcr_set_text">
+        <value name="VALUE"><block type="text"><field name="TEXT"></field></block></value>
+      </block>
+      <block type="pcr_get_text"></block>
+      <block type="pcr_set_logic">
+        <value name="VALUE"><block type="logic_boolean"><field name="BOOL">TRUE</field></block></value>
+      </block>
+      <block type="pcr_get_logic"></block>
+      <block type="pcr_set_color">
+        <value name="VALUE"><block type="pcr_color_rgba"><value name="R"><block type="math_number"><field name="NUM">255</field></block></value><value name="G"><block type="math_number"><field name="NUM">255</field></block></value><value name="B"><block type="math_number"><field name="NUM">255</field></block></value><value name="A"><block type="math_number"><field name="NUM">255</field></block></value></block></value>
+      </block>
+      <block type="pcr_get_color"></block>
+      <block type="pcr_set_image"></block>
+      <block type="pcr_get_image"></block>
+      <block type="pcr_set_resloc">
+        <value name="VALUE"><block type="pcr_res_location"><value name="PATH"><block type="text"><field name="TEXT">images/template.png</field></block></value></block></value>
+      </block>
+      <block type="pcr_get_resloc"></block>
+      <block type="pcr_set_list">
+        <value name="VALUE"><block type="mfm_empty_list"></block></value>
+      </block>
+      <block type="pcr_get_list"></block>
+    </category>
+    <category name="List" colour="260">
       <block type="mfm_list_add">
         <value name="POS"><block type="math_number"><field name="NUM">0</field></block></value>
       </block>
@@ -296,7 +374,41 @@
         <value name="PATH"><block type="text"><field name="TEXT">other.macro</field></block></value>
       </block>
     </category>
-  </xml>
+    <category name="Logic" colour="210">
+      <block type="pcr_compare_number">
+        <value name="A"><block type="math_number"><field name="NUM">0</field></block></value>
+        <value name="B"><block type="math_number"><field name="NUM">0</field></block></value>
+      </block>
+      <block type="pcr_compare_text">
+        <value name="A"><block type="text"><field name="TEXT"></field></block></value>
+        <value name="B"><block type="text"><field name="TEXT"></field></block></value>
+      </block>
+      <block type="pcr_compare_logic">
+        <value name="A"><block type="logic_boolean"><field name="BOOL">TRUE</field></block></value>
+        <value name="B"><block type="logic_boolean"><field name="BOOL">TRUE</field></block></value>
+      </block>
+      <block type="pcr_compare_color">
+        <value name="A"><block type="pcr_color_rgba"><value name="R"><block type="math_number"><field name="NUM">255</field></block></value><value name="G"><block type="math_number"><field name="NUM">255</field></block></value><value name="B"><block type="math_number"><field name="NUM">255</field></block></value><value name="A"><block type="math_number"><field name="NUM">255</field></block></value></block></value>
+        <value name="B"><block type="pcr_color_rgba"><value name="R"><block type="math_number"><field name="NUM">255</field></block></value><value name="G"><block type="math_number"><field name="NUM">255</field></block></value><value name="B"><block type="math_number"><field name="NUM">255</field></block></value><value name="A"><block type="math_number"><field name="NUM">255</field></block></value></block></value>
+      </block>
+      <block type="logic_operation"></block>
+      <block type="logic_negate"></block>
+    </category>
+    <category name="Math" colour="230">
+      <block type="math_number"><field name="NUM">0</field></block>
+      <block type="math_arithmetic">
+        <value name="A"><block type="math_number"><field name="NUM">0</field></block></value>
+        <value name="B"><block type="math_number"><field name="NUM">0</field></block></value>
+      </block>
+    </category>
+    <category name="Text" colour="160">
+      <block type="text"><field name="TEXT"></field></block>
+      <block type="text_join"></block>
+      <block type="mfm_log">
+        <value name="TEXT"><block type="text"><field name="TEXT"></field></block></value>
+      </block>
+    </category>
+</xml>
 
   <script src="/blockly/lib/blockly.min.js"></script>
   <script src="/blockly/lib/blockly_action_icons.js"></script>
@@ -304,7 +416,7 @@
   <script src="/blockly/lib/en.js"></script>
   <script src="/blockly/lib/mf-keys.js"></script>
   <script src="/editor/mf-plugins.js"></script>
-  <script src="/editor/macro-blocks.js?v=216"></script>
+  <script src="/editor/macro-blocks.js?v=222"></script>
   <script src="/editor/macro-picker.js"></script>
   <script>
   (function () {

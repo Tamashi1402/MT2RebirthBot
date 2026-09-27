@@ -731,7 +731,7 @@ _PLAIN_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _print_step(val: str) -> dict:
-    """PRINT step for the editor: value stays the composed text, plus the
+    """PRINT / LOG step for the editor: value stays the composed text, plus the
     parsed ${...} occurrences that are full expressions (grab_at(...),
     screen_color(...), comparisons…) as nodes — the blockly loader rebuilds
     those as real blocks. Plain ${var} refs stay text (the getter path)."""
@@ -751,6 +751,35 @@ def _print_step(val: str) -> dict:
         step["exprs"] = exprs
     return step
 
+
+# ── NOTE/SECTION colour (v2035) ───────────────────────────────────────────
+# The editor lets the user colour note (#) and section blocks from a
+# preset palette. The colour persists in the .macro TEXT as a compact
+# marker at the start of the comment value:
+#     # @c:#ff5500 my note
+#     # SECTION:@c:#ff5500 my note
+# Playback ignores every # line, so the marker changes nothing at run
+# time. Old files without a marker keep their default green (#5ba65b,
+# Blockly hue 120) — they load and re-save unchanged.
+_NOTE_COLOUR_DEFAULT = "#5ba65b"
+_NOTE_COLOUR_RE = re.compile(r"^@c:(#[0-9a-fA-F]{6})\s*(.*)$")
+
+def _note_colour_of(block: dict) -> str:
+    """Validated colour for a NOTE/SECTION block, '' when default/absent."""
+    c = str((block or {}).get("color") or "").strip()
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", c) and c.lower() != _NOTE_COLOUR_DEFAULT:
+        return c
+    return ""
+
+def _split_note_colour(value: str) -> tuple[str, str]:
+    """Split an optional '@c:#rrggbb ' prefix from a comment value."""
+    m = _NOTE_COLOUR_RE.match(str(value or "").strip())
+    if m:
+        colour = m.group(1)
+        if colour.lower() != _NOTE_COLOUR_DEFAULT:
+            return m.group(2).strip(), colour
+        return m.group(2).strip(), ""
+    return str(value or ""), ""
 
 def _parse_macro_text(text: str) -> dict:
     """Parse .macro text into blocks.
@@ -799,7 +828,11 @@ def _parse_macro_text(text: str) -> dict:
             blocks.append({"type": "SECTION_END", "value": ""})
             continue
         if line.startswith("# SECTION:"):
-            blocks.append({"type": "SECTION", "value": line[len("# SECTION:"):].strip()})
+            val, colour = _split_note_colour(line[len("# SECTION:"):].strip())
+            entry = {"type": "SECTION", "value": val}
+            if colour:
+                entry["color"] = colour
+            blocks.append(entry)
             continue
         if line.startswith("# Macro:"):
             continue
@@ -814,7 +847,11 @@ def _parse_macro_text(text: str) -> dict:
             # playback skips every # line, engine needs zero changes)
             comment = line[1:].strip()
             if comment:
-                blocks.append({"type": "COMMENT", "value": comment})
+                val, colour = _split_note_colour(comment)
+                entry = {"type": "COMMENT", "value": val}
+                if colour:
+                    entry["color"] = colour
+                blocks.append(entry)
             continue
         t, _, rest = line.partition(":")
         btype = t.strip()
@@ -833,6 +870,11 @@ def _parse_macro_text(text: str) -> dict:
                 val = f"{parts[0]},{parts[1]}"
         if btype == "PRINT":
             blocks.append(_print_step(val))
+            continue
+        if btype == "LOG":
+            step = _print_step(val)
+            step["type"] = "LOG"
+            blocks.append(step)
             continue
         blocks.append({"type": btype, "value": val})
     # LOCKED indices count EXECUTABLE blocks only (markers/comments are
@@ -928,7 +970,12 @@ def _normalize_blocks(blocks: list[dict]) -> list[dict]:
             continue
         if btype in ("GROUP", "GROUP_END", "COMMENT", "SECTION", "SECTION_END", "LOCK", "LOCK_END"):
             # structural markers — order-preserving pass-through, no value munging
-            normalized.append({"type": btype, "value": val, "locked": bool(block.get("locked"))})
+            entry = {"type": btype, "value": val, "locked": bool(block.get("locked"))}
+            if btype in ("COMMENT", "SECTION"):
+                c = _note_colour_of(block)
+                if c:
+                    entry["color"] = c
+            normalized.append(entry)
             continue
         if btype in ("SMOOTH_MOVE", "LOOK"):
             parts = [p.strip() for p in val.split(",")]
@@ -1067,13 +1114,13 @@ def _build_macro_text(name: str, sensitivity: dict, blocks: list[dict],
         if not btype:
             continue
         if btype == "COMMENT":
-            body.append(f"# {val}")
+            body.append(f"# {_note_colour_of(block) and ('@c:' + _note_colour_of(block) + ' ') or ''}{val}")
         elif btype == "GROUP":
             body.append(f"# GROUP:{val}")
         elif btype == "GROUP_END":
             body.append("# GROUP_END")
         elif btype == "SECTION":
-            body.append(f"# SECTION:{val}")
+            body.append(f"# SECTION:{_note_colour_of(block) and ('@c:' + _note_colour_of(block) + ' ') or ''}{val}")
         elif btype == "SECTION_END":
             body.append("# SECTION_END")
         elif btype == "LOCK":

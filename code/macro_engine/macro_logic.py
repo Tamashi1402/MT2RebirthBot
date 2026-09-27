@@ -3,6 +3,7 @@ import logging
 import math
 import os
 import re
+import sys
 import tempfile
 import threading
 import time
@@ -43,6 +44,9 @@ def define_variable(vars_state: dict[str, Any], data: dict[str, Any]) -> None:
         vars_state[name] = truthy(data.get("value", False))
     elif vtype == "text" or vtype in ("image", "resloc"):
         vars_state[name] = str(data.get("value", "") or "")
+    elif vtype == "list":
+        v = data.get("value")
+        vars_state[name] = list(v) if isinstance(v, list) else []
     else:
         try:
             vars_state[name] = float(data.get("value", 0) or 0)
@@ -1713,6 +1717,14 @@ class BackgroundLoop(threading.Thread):
                     try:
                         self.print_cb(raw[6:] if raw.startswith("PRINT:") else "",
                                       vars_state)
+                    except Exception:
+                        pass
+                continue
+            if raw == "LOG" or raw.startswith("LOG:"):
+                if branch_active(if_stack):
+                    try:
+                        macro_log_line(raw[4:] if raw.startswith("LOG:") else "",
+                                       vars_state, self.bot_root, self.macro_dir)
                     except Exception:
                         pass
                 continue
