@@ -5429,7 +5429,7 @@ const CFG_TOOLTIPS = {
   STONE_FOR_UNLOCK_DRILLS: 'Stone amount at which the bot will automatically unlock drills (once per run).',
   BASE_ROCK_DRILL_PRESSES: 'How many times to press the drill activation key per base-rock burst in manual-strength mode. Default 6.',
   AUTO_ROCK_MAX_GRIND_SECONDS: 'Auto Strength only: max seconds to stay on one stage rock before forcing a route retry. Does not apply to baserock.',
-  USE_SHORTCUTS: 'ON: after baserock in Area 5 Meteor, walk the baserock→A6 shortcut (p1_shortcut) then teleport A5. OFF: after baserock, teleport to A5 and run base_to_meteor_shortcut_p1 instead of walking to A6. Stage-rock *_shortcut.macro files are also used when present.',
+  USE_SHORTCUTS: 'ON: when a stage route has a matching <route>_shortcut.macro recorded, the bot uses it to jump between stages without the standard teleport route. OFF: always use the standard teleport routes. The old base_to_meteor_shortcut_p1/p3 macros are gone - the a5-meteor mode runs the single base_to_meteor macro.',
   FORCE_RESTART_ON_FAILURE: 'When enabled, non-user failures play force_restart.macro (engine), then the bot starts a fresh lobby/run. Works in Rebirth, Kraken, Zytos and Crater.',
   PAUSE_ON_LAG: 'When Windows goes offline or 1.1.1.1 / 8.8.8.8 fail, freeze the current action and wait until the connection is back. Does not force restart.',
   UI_CLICK_SETTLE: 'Pause after UI clicks (teleport, map, loadout, rebirth menus) before the next action. Raise if menus eat clicks. Default 0.1s (100ms).',

@@ -183,9 +183,6 @@ _NAV_MACROS: frozenset = frozenset({
     "base_to_a2_teleport",
     "base_to_a3_teleport",
     "base_to_a4_teleport",
-    "base_to_meteor_shortcut_p1",
-    "base_to_meteor_shortcut_p1_shortcut",
-    "base_to_meteor_shortcut_p3",
     "area5_to_delve",
     "area7_to_kraken",
     "a8_to_zytos",
@@ -1915,8 +1912,6 @@ def _run_macro(name: str):
         log.debug(f"[WATCHER] resumed after nav macro: {name}")
     _map_area = {
         "base_to_a5_teleport": "area5",
-        "base_to_meteor_shortcut_p1": "area6",
-        "base_to_meteor_shortcut_p1_shortcut": "area6",
         "base_to_area6": "area6",
     }.get(name)
     if _map_area:
