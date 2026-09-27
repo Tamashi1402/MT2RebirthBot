@@ -13,7 +13,7 @@ const supportedBlocks = [
   'IF','ELSE_IF','END_IF',
   'PLAY_MACRO',
   'GROUP','GROUP_END','COMMENT','SECTION','SECTION_END','ELSE',
-  'PRINT','LOCK','LOCK_END',
+  'PRINT','LOG','BREAK_LOOP','LOCK','LOCK_END',
   'BG_BEGIN','BG_END',
   'LIST_ADD','LIST_REMOVE','ITERATE','END_ITERATE',
 ];
@@ -33,6 +33,7 @@ const blockDefaults = {
   SMOOTH_MOVE:      '60,0',
   REPEAT:           '2',
   ENDREPEAT:        '',
+  BREAK_LOOP:       '',
   WHILE:            '{"mode":"boolean","name":"flag","value":true}',
   UNTIL:            '{"mode":"boolean","name":"flag","value":false}',
   END_WHILE:        '',
@@ -68,6 +69,7 @@ const valueLessBlocks = new Set([
   'LOCK_END',
   'BG_BEGIN',
   'BG_END',
+  'BREAK_LOOP',
   'END_ITERATE',
 ]);
 

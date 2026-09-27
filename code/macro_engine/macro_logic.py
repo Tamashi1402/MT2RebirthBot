@@ -681,6 +681,85 @@ def handle_end_if(stack: list[dict[str, Any]]) -> None:
 WHILE_MAX_ITERATIONS = 100_000  # safety net against a never-false condition
 
 
+
+# ── BREAK_LOOP ──────────────────────────────────────────────────────
+# BREAK_LOOP (pretty: BREAK) stops the innermost REPEAT / WHILE / UNTIL
+# and continues right after its END marker. The runner that meets it
+# scans forward (nesting-aware over loop markers only — IF/ELSE stay
+# transparent), pops the loop's stacks, and jumps past the END.
+
+def find_break_target(lines: list, pc: int) -> int | None:
+    """Index of the loop-END marker that closes the innermost open loop
+    around pc (pc points just past the BREAK_LOOP line), or None when the
+    BREAK sits in no loop. Only loop markers are counted."""
+    depth = 1
+    i = pc
+    n = len(lines)
+    while i < n:
+        head = str(lines[i]).split(":", 1)[0]
+        if head in ("WHILE", "UNTIL", "REPEAT", "ITERATE"):
+            depth += 1
+        elif head in ("END_WHILE", "END_UNTIL", "ENDREPEAT", "END_ITERATE"):
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return None
+
+# ── LOG (macro line -> bot log file) ────────────────────────────────────
+# LOG:<text> - ${var} / ${expression} interpolation with the same rules
+# as PRINT, then one line into the bot's log file (logs/logs-DATE.txt
+# via code/logger.py) so detection trails and macro checkpoints can be
+# checked after a run. Falls back to this module's logger when the
+# bot's logger is not importable (standalone editor runs).
+
+def macro_log_line(text: str, vars_state: dict[str, Any], bot_root: str = "",
+                   macro_dir: str | None = None) -> None:
+    from macro_engine.macro_text import expr_from_str
+
+    def _fmt(v) -> str:
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        if isinstance(v, (tuple, list)):
+            return ", ".join(_fmt(x) for x in v)
+        return str(v)
+
+    def _sub(m):
+        inner = m.group(1).strip()
+        if inner in vars_state:
+            return _fmt(vars_state.get(inner))
+        try:
+            node = expr_from_str(inner)
+        except Exception:
+            return m.group(0)
+        if isinstance(node, dict) and list(node.keys()) == ["get"]:
+            return m.group(0)
+        try:
+            return _fmt(eval_expr(node, vars_state, bot_root, macro_dir))
+        except Exception:
+            return m.group(0)
+
+    line = re.sub(r"\$\{([^}]*)\}", _sub, str(text or ""))
+    try:
+        from logger import get_logger as _get_bot_logger   # bot layout (code/logger.py)
+        _get_bot_logger().info("[macro] %s", line)
+        return
+    except Exception:
+        pass
+    # fallback: the plain module logger often has NO handlers (INFO is then
+    # dropped by logging's lastResort) — never let a LOG line vanish
+    try:
+        logging.getLogger(__name__).info("[macro] %s", line)
+    except Exception:
+        pass
+    try:
+        print("[macro] %s" % line, flush=True)
+    except Exception:
+        pass
+
+
 def handle_while(stack: list[dict[str, Any]], vars_state: dict[str, Any], data: dict[str, Any],
                  bot_root: str = "", macro_dir: str | None = None,
                  invert: bool = False) -> None:
@@ -1564,6 +1643,42 @@ class BackgroundLoop(threading.Thread):
                                         self.bot_root, self.macro_dir)
                 if jump is not None:
                     pc = jump
+                continue
+            if raw.startswith("ITERATE:"):
+                handle_iterate(if_stack, vars_state, parse_payload(raw, "ITERATE"),
+                               self.bot_root, self.macro_dir)
+                if if_stack[-1].get("iterate") and if_stack[-1].get("active"):
+                    iterate_stack.append(pc)   # body start
+                continue
+            if raw == "END_ITERATE" or raw.startswith("END_ITERATE:"):
+                jump = handle_end_iterate(if_stack, iterate_stack, vars_state)
+                if jump is not None:
+                    pc = jump
+                continue
+            if raw == "BREAK_LOOP" or raw.startswith("BREAK_LOOP:"):
+                if branch_active(if_stack) and (repeat_stack or while_stack or iterate_stack):
+                    end_pc = find_break_target(lines, pc)
+                    if end_pc is not None:
+                        head = str(lines[end_pc]).split(":", 1)[0]
+                        if head == "ENDREPEAT":
+                            if repeat_stack:
+                                repeat_stack.pop()
+                        elif head == "END_ITERATE":
+                            if iterate_stack:
+                                iterate_stack.pop()
+                            while if_stack:
+                                top = if_stack.pop()
+                                if top.get("iterate"):   # the loop frame itself
+                                    break
+                        else:
+                            if while_stack:
+                                while_stack.pop()
+                            while if_stack:
+                                top = if_stack.pop()
+                                if "invert" in top:   # the loop frame itself
+                                    break
+                        pc = end_pc + 1
+                        continue
                 continue
             if raw.startswith("REPEAT:"):
                 try:

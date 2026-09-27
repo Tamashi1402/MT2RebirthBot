@@ -824,6 +824,8 @@ def canonicalize_lines(lines) -> list:
             continue
         # BREAK (pretty) — stop the innermost loop, continue after its END
         if re.match(r"^BREAK\s*$", line):
+            out.append("BREAK_LOOP")
+            continue
             stack.append(m.group(1))
             continue
         if re.match(r"^LOCK\s*\{\s*$", line):
@@ -1073,6 +1075,8 @@ def pretty_body(steps) -> list:
             out.append("%s%s" % (ind(), _pretty_instr("LIST_ADD", v)))
         elif t == "LIST_REMOVE":
             out.append("%s%s" % (ind(), _pretty_instr("LIST_REMOVE", v)))
+        elif t == "BREAK_LOOP":
+            out.append(ind() + "BREAK")
         elif t in ("WHILE", "UNTIL"):
             out.append("%s%s (%s) {" % (ind(), t, _pretty_cond(v)))
             depth += 1

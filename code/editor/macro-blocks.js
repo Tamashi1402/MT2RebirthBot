@@ -1740,6 +1740,10 @@ function mfmListToXml(blocks) {
         cur = stacks[stacks.length - 1];
         continue;
       }
+      case 'BREAK_LOOP': {
+        el = mk('mfm_break_loop');
+        break;
+      }
       case 'LABEL': {
         el = mk('mfm_label');
         addField(el, 'NAME', value);
@@ -1838,7 +1842,7 @@ function mfmListToXml(blocks) {
           const raw = String(d.var_type || 'number').toLowerCase();
           const t = raw === 'boolean' ? 'logic' : raw === 'text' ? 'text'
             : raw === 'image' ? 'image' : raw === 'resloc' ? 'resloc'
-            : raw === 'color' ? 'color' : 'number';
+            : raw === 'color' ? 'color' : raw === 'list' ? 'list' : 'number';
           window._pcrLocalVars = window._pcrLocalVars || {};
           window._pcrLocalVars[d.name || ''] = t;
         } catch (e) {}
@@ -1848,6 +1852,21 @@ function mfmListToXml(blocks) {
         let d = {};
         try { d = JSON.parse(value || '{}'); } catch (e) { d = {}; }
         const t = (window._pcrLocalVars || {})[d.name] || 'number';
+        if (t === 'list') {
+          el = mk('pcr_set_list');
+          addField(el, 'VAR', d.name || '');
+          const v = d.value !== undefined ? d.value : { lit: [] };
+          // {lit: []} (the empty-list default) loads as an empty socket
+          const isEmpty = (v && typeof v === 'object' && 'lit' in v
+                           && Array.isArray(v.lit) && v.lit.length === 0
+                           && Object.keys(v).length === 1);
+          if (!isEmpty) {
+            const w = document.createElement('value'); w.setAttribute('name', 'VALUE');
+            w.appendChild(_mfm_exprXml(v, document));
+            el.appendChild(w);
+          }
+          break;
+        }
         if (t === 'color') {
           el = mk('pcr_set_color');
           addField(el, 'VAR', d.name || '');
@@ -2133,6 +2152,9 @@ function mfmWorkspaceToList(workspace, includeLocals) {
         push('ENDREPEAT', '', locked);
         break;
       }
+      case 'mfm_break_loop':
+        push('BREAK_LOOP', '', locked);
+        break;
       case 'mfm_label':
         push('LABEL', b.getFieldValue('NAME'), locked);
         break;
@@ -2309,6 +2331,25 @@ function mfmEnsureHat(workspace, name, hatType) {
   }
   return hat;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v2.1.272 — break loop + the color / image variable blocks.
+// The loaders/generators above have referenced these types since the
+// blockly round-trip existed; the toolbox now exposes them 1:1 with the
+// flow editor's color / image / variable categories.
+if (typeof Blockly !== 'undefined' && Blockly.Blocks) {
+(function () {
+  function def(name, initFn) {
+    if (!Blockly.Blocks[name]) Blockly.Blocks[name] = { init: initFn };
+  }
+
+  // BREAK_LOOP — stop the innermost REPEAT / WHILE / UNTIL, continue after it
+  def('mfm_break_loop', function () {
+    this.jsonInit({
+      "type": "mfm_break_loop",
+      "message0": "break loop",
+      "previousStatement": null,
+      "nextStatement": null,
   // ── List category (purple 260) ──
   def('mfm_list_add', function () {
     // add [value] to [list] at position [number] (item 2)

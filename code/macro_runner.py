@@ -19,6 +19,7 @@ from config import MACROS_DIR, FOCUS_RECHECK_DELAY
 # stripped legacy copy
 from macro_engine.macro_logic import (
     branch_active,
+    find_break_target,
     define_variable,
     handle_else_if,
     handle_end_if,
@@ -1402,6 +1403,35 @@ class MacroPlayer:
                         pc = start_pc
                     else:
                         repeat_stack.pop()
+                continue
+            # ITERATE <list> AS "name" ... END_ITERATE — List category loop
+            if raw.startswith("ITERATE:"):
+                handle_iterate(if_stack, vars_state, parse_payload(raw, "ITERATE"), _BOT_ROOT, macro_dir)
+                if if_stack[-1].get("iterate") and if_stack[-1].get("active"):
+                    iterate_stack.append(pc)   # body start
+                continue
+            if raw == "END_ITERATE" or raw.startswith("END_ITERATE:"):
+                jump = handle_end_iterate(if_stack, iterate_stack, vars_state)
+                if jump is not None:
+                    pc = jump
+                    next_due = time.perf_counter()
+                continue
+            if raw == "BREAK_LOOP" or raw.startswith("BREAK_LOOP:"):
+                if branch_active(if_stack) and (repeat_stack or iterate_stack):
+                    end_pc = find_break_target(lines, pc)
+                    if end_pc is not None:
+                        _bk_head = str(lines[end_pc]).split(":", 1)[0]
+                        if _bk_head == "ENDREPEAT":
+                            if repeat_stack:
+                                repeat_stack.pop()
+                        elif _bk_head == "END_ITERATE":
+                            if iterate_stack:
+                                iterate_stack.pop()
+                            while if_stack:
+                                top = if_stack.pop()
+                                if top.get("iterate"):   # the loop frame itself
+                                    break
+                        pc = end_pc + 1
                 continue
 
             # --- KEY ---

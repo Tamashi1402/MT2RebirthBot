@@ -103,6 +103,32 @@ def branch_active(stack: list[dict[str, Any]]) -> bool:
     return all(bool(item.get("active")) for item in stack)
 
 
+
+# ── BREAK_LOOP ──────────────────────────────────────────────────────
+# BREAK_LOOP (pretty: BREAK) stops the innermost REPEAT loop and
+# continues right after its ENDREPEAT marker. The runner scans forward
+# (nesting-aware over loop markers only — IF/ELSE stay transparent),
+# pops the loop, and jumps past the END. The live runner has no
+# WHILE/UNTIL loops; the engine interpreters use the same helper.
+
+def find_break_target(lines: list, pc: int) -> int | None:
+    """Index of the loop-END marker that closes the innermost open loop
+    around pc (pc points just past the BREAK_LOOP line), or None when the
+    BREAK sits in no loop. Only loop markers are counted."""
+    depth = 1
+    i = pc
+    n = len(lines)
+    while i < n:
+        head = str(lines[i]).split(":", 1)[0]
+        if head in ("WHILE", "UNTIL", "REPEAT"):
+            depth += 1
+        elif head in ("END_WHILE", "END_UNTIL", "ENDREPEAT"):
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return None
+
 def handle_if(stack: list[dict[str, Any]], vars_state: dict[str, Any], data: dict[str, Any]) -> None:
     parent_active = branch_active(stack)
     active = bool(parent_active and evaluate_condition(vars_state, data))

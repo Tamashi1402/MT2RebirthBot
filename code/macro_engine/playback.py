@@ -14,6 +14,8 @@ if _CODE_DIR not in sys.path:
 
 from macro_engine.macro_logic import (
     branch_active,
+    find_break_target,
+    find_break_target,
     define_variable,
     scan_loop_background,
     handle_else,
@@ -1305,6 +1307,50 @@ class MacroEngine:
                     elif pre_ws > 0 and len(while_stack) < pre_ws and pre_body_pc in loop_bg:
                         # the loop ran and exited — retire its BACKGROUND arm
                         loop_bg.pop(pre_body_pc).stop()
+                    continue
+                # ITERATE <list> AS "name" ... END_ITERATE — List category loop
+                if raw.startswith("ITERATE:"):
+                    handle_iterate(if_stack, vars_state, parse_payload(raw, "ITERATE"), bot_root, m_dir)
+                    if if_stack[-1].get("iterate") and if_stack[-1].get("active"):
+                        iterate_stack.append(pc)   # body start
+                    continue
+                if raw == "END_ITERATE" or raw.startswith("END_ITERATE:"):
+                    jump = handle_end_iterate(if_stack, iterate_stack, vars_state)
+                    if jump is not None:
+                        pc = jump
+                        # fresh DELAY budget for the next pass
+                        next_due = time.perf_counter()
+                    continue
+                if raw == "BREAK_LOOP" or raw.startswith("BREAK_LOOP:"):
+                    if branch_active(if_stack) and (repeat_stack or while_stack or iterate_stack):
+                        end_pc = find_break_target(lines, pc)
+                        if end_pc is not None:
+                            _bk_head = str(lines[end_pc]).split(":", 1)[0]
+                            if _bk_head == "ENDREPEAT":
+                                if repeat_stack:
+                                    repeat_stack.pop()
+                            elif _bk_head == "END_ITERATE":
+                                # ITERATE: pop the frames up to and including
+                                # the loop's component frame
+                                if iterate_stack:
+                                    iterate_stack.pop()
+                                while if_stack:
+                                    top = if_stack.pop()
+                                    if top.get("iterate"):   # the loop frame itself
+                                        break
+                            else:
+                                # WHILE/UNTIL: pop the frames up to and
+                                # including the loop frame, retire its arm
+                                if while_stack:
+                                    body_pc = while_stack.pop()
+                                    arm = loop_bg.pop(body_pc, None)
+                                    if arm is not None:
+                                        arm.stop()
+                                while if_stack:
+                                    top = if_stack.pop()
+                                    if "invert" in top:   # the loop frame itself
+                                        break
+                            pc = end_pc + 1
                     continue
                 if not branch_active(if_stack):
                     continue
