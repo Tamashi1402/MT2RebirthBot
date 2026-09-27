@@ -106,7 +106,7 @@ Blockly.Blocks['mfm_log'] = {
       "previousStatement": null,
       "nextStatement": null,
       "colour": 160,
-      "tooltip": "One line in the app console (dashboard Console panel). Plug a string or \"create text with\" — any other value (numbers, colors, image/color checks) composes through \"create text with\".",
+      "tooltip": "One line in the bot's log file (logs/logs-YYYY-MM-DD.txt) — detection trails, checkpoints. ${var} and ${expression} interpolate at run time.",
     });
   },
 };

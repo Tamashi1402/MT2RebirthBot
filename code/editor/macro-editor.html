@@ -203,8 +203,39 @@
       <div class="gb-loading" id="gbLoading" style="display:none">building blocks&hellip;</div>
     </div>
   </div>
+  <!-- local variables rail — 1:1 with the procedures editor -->
+  <aside id="localVars">
+    <h3>Local variables</h3>
+    <div class="lv-btns">
+      <button type="button" id="lvAdd">+ Add</button>
+      <button type="button" id="lvDel">- Del</button>
+    </div>
+    <div class="lv-list" id="lvList"></div>
+  </aside>
 
 
+
+  <div id="lvDialog">
+    <div class="box">
+      <h4 id="lvTitle">New local variable</h4>
+      <label>Name</label>
+      <input id="lvName" placeholder="variable_name">
+      <label>Type</label>
+      <select id="lvType">
+        <option value="number">number</option>
+        <option value="text">text</option>
+        <option value="logic">logic</option>
+        <option value="color">color</option>
+        <option value="image">image</option>
+        <option value="resloc">resource location</option>
+        <option value="list">list</option>
+      </select>
+      <div class="row">
+        <button type="button" class="no" id="lvCancel">Cancel</button>
+        <button type="button" class="ok" id="lvOk">Add</button>
+      </div>
+    </div>
+  </div>
 
   <xml id="mfm-toolbox" style="display:none">
     <!-- Layout: Color/Image/Mouse/Keyboard | Components/Variables |
@@ -438,6 +469,22 @@
       Blockly.utils.colour.setHsvValue(0.70);
     } catch (e) {}
 
+    // the pcr_set_/pcr_get_ blocks eval from /blockly/blocks_data and only
+    // define their own pcrVarDropdown fallback when nothing else did —
+    // installed first, this one makes every variable dropdown list the
+    // rail's declared locals of that type.
+    window.pcrVarDropdown = function (varType) {
+      return new Blockly.FieldDropdown(function () {
+        var locals = window._pcrLocalVars || {};
+        var opts = [];
+        Object.keys(locals).forEach(function (n) {
+          if (locals[n] === varType) opts.push([n, n]);
+        });
+        if (!opts.length) opts.push(['(add one in the panel)', '']);
+        return opts;
+      });
+    };
+
     function buildDarkTheme() {
       try {
         return new Blockly.Theme('mf_dark', {
@@ -485,8 +532,12 @@
           // blocklyXml: the exact workspace as XML — v3 containers store
           // it 1:1 (layout, strays, groups, mutators); JSON rides along
           // for legacy state
+          var _bj = mfmWorkspaceToJson(ws);
+          if (_bj && window._pcrLocalVars) {
+            try { _bj.mfmLocalVars = window._pcrLocalVars; } catch (e) {}
+          }
           send({ type: 'mfm-changed', blocks: mfmWorkspaceToList(ws),
-                 blockly: mfmWorkspaceToJson(ws), blocklyXml: mfmWorkspaceToXml(ws) });
+                 blockly: _bj, blocklyXml: mfmWorkspaceToXml(ws) });
         } catch (e) {}
       }, 250);
     }
@@ -1575,12 +1626,66 @@
               var vraw = String(vd.var_type || 'number').toLowerCase();
               var vt = vraw === 'boolean' ? 'logic' : vraw === 'text' ? 'text'
                 : vraw === 'image' ? 'image' : vraw === 'resloc' ? 'resloc'
-                : vraw === 'color' ? 'color' : 'number';
+                : vraw === 'color' ? 'color' : vraw === 'list' ? 'list' : 'number';
               if (vd.name) window._pcrLocalVars[vd.name] = vt;
             } catch (e2) {}
           }
         });
       } catch (e) {}
+      // The file's own saved workspace may declare variables its VARIABLE
+      // steps lost — but the saved rail rides inside the blob, and it can
+      // carry junk from a different macro that was open when the file was
+      // last saved (the "variables stack on every open" bug). Trust the
+      // saved rail ONLY for names the incoming workspace actually USES in
+      // a set/get block; declared-but-unused entries are dead weight and
+      // die here, so the next save writes a clean file (self-healing).
+      var _mfmBlobUsedVars = {};
+      try {
+        (function _walkBlobVars(nodes) {
+          (nodes || []).forEach(function (n) {
+            if (!n || typeof n !== 'object') return;
+            var t = String(n.type || '');
+            if ((t.indexOf('pcr_get_') === 0 || t.indexOf('pcr_set_') === 0)
+                && n.fields && n.fields.VAR) {
+              _mfmBlobUsedVars[String(n.fields.VAR)] = true;
+            }
+            var ins = n.inputs || {};
+            for (var ik in ins) {
+              var iv = ins[ik] || {};
+              if (iv.block) _walkBlobVars([iv.block]);
+              if (iv.shadow) _walkBlobVars([iv.shadow]);
+            }
+            if (n.next && n.next.block) _walkBlobVars([n.next.block]);
+          });
+        })((blockly && blockly.blocks && blockly.blocks.blocks) || []);
+        if (blocklyXml) {
+          var _xdoc = (typeof blocklyXml === 'string')
+            ? new DOMParser().parseFromString(blocklyXml, 'text/xml')
+            : blocklyXml;
+          var _xbl = _xdoc.getElementsByTagName('block');
+          for (var xi = 0; xi < _xbl.length; xi++) {
+            var xt = _xbl[xi].getAttribute('type') || '';
+            if (xt.indexOf('pcr_get_') !== 0 && xt.indexOf('pcr_set_') !== 0) continue;
+            var _xfl = _xbl[xi].getElementsByTagName('field');
+            for (var xj = 0; xj < _xfl.length; xj++) {
+              if (_xfl[xj].getAttribute('name') === 'VAR') {
+                var _xv = _xfl[xj].textContent || '';
+                if (_xv) _mfmBlobUsedVars[_xv] = true;
+              }
+            }
+          }
+        }
+      } catch (e9) {}
+      try {
+        var _mfmIncLocals = window.__mfmIncomingLocalVars || null;
+        if (_mfmIncLocals) {
+          Object.keys(_mfmIncLocals).forEach(function (k) {
+            if (window._pcrLocalVars[k] === undefined && _mfmBlobUsedVars[k]) {
+              window._pcrLocalVars[k] = _mfmIncLocals[k];
+            }
+          });
+        }
+      } catch (e4) {}
       try { lvRefresh(); } catch (e3) {}
       // blockly = the .macro's embedded workspace (hash-verified by the
       // server). Exact fidelity: layout, arrangement, group data all
@@ -1593,7 +1698,8 @@
       // without pre-registering these as ghosts, Blockly REJECTS the
       // saved value and the ${var} reference is silently purged.
       var _mfmGhostTypes = { number: 'number', text: 'text', logic: 'logic',
-                             image: 'image', color: 'color', resloc: 'resloc' };
+                             image: 'image', color: 'color', resloc: 'resloc',
+                             list: 'list' };
       function _mfmRegisterGhostsJson(nodes) {
         (nodes || []).forEach(function (n) {
           if (!n || typeof n !== 'object') return;
@@ -1632,6 +1738,25 @@
           }
         });
       }
+      // text/blob split heal (v2033): a file saved before a serializer
+      // fix can carry a workspace blob whose steps are RICHER than the
+      // text body (the LOG lines the old recorder whitelist dropped).
+      // The workspace is the fidelity truth — if its steps differ from
+      // the text-side list the host holds, push them back so the host
+      // (and the next save) materialize them into the .macro text.
+      // Plain text files (no blob) never take this path: there the
+      // text IS the truth, and the workspace was built from it.
+      var _mfmBackPushIfSplit = function () {
+        try {
+          var norm = function (l) {
+            return JSON.stringify((l || []).map(function (s) {
+              return { type: s && s.type, value: (s && s.value) || '' };
+            }));
+          };
+          if (norm(mfmWorkspaceToList(ws)) !== norm(blocks)) schedulePush();
+        } catch (e) {}
+      };
+
       // blocklyXml: the v3 container's blockly.xaml — the editor's own
       // saved workspace, exact fidelity. Preferred over the JSON blob
       // (legacy dual format) when both exist.
@@ -1641,6 +1766,7 @@
           if (_mfmHatHasBody() || !(blocks || []).length) {
             pushAllowed = true;
             send({ type: 'mfm-loaded' });
+            _mfmBackPushIfSplit();
             return;
           }
           try { console.warn('mfm blockly-xml was hat-only — rebuilding from steps'); } catch (e2) {}
@@ -1655,6 +1781,7 @@
           if (_mfmHatHasBody() || !(blocks || []).length) {
             pushAllowed = true;
             send({ type: 'mfm-loaded' });
+            _mfmBackPushIfSplit();
             return;
           }
           try { console.warn('mfm blockly-json was hat-only — rebuilding from steps'); } catch (e2) {}
@@ -1672,7 +1799,7 @@
       try {
         Blockly.Events.disable();
         try { ws.setResizesEnabled(false); } catch (e2) {}
-        ws.clear();
+        _mfmCullClear();
         // hat = entry point: created FIRST so a bad line in the .macro list
         // can never leave the workspace hatless again
         var hat = mfmEnsureHat(ws, name || '');
@@ -1763,13 +1890,40 @@
       if (node.next && node.next.block) _mfmMigrateWhileBg(node.next.block);
     }
 
+    // ── ghost-sweep clear ─────────────────────────────────────────────
+    // The cull flattens long chains: members' svg roots are MOVED out of
+    // their parent groups onto the canvas (absolute transforms). Blockly's
+    // ws.clear() then leaks every reparented root — switching macros
+    // (File Open) left the PREVIOUS macro's blocks painted on the canvas
+    // as immovable, undeletable ghosts. Re-nest the flatten first (so
+    // clear() sees blockly's expected DOM), then sweep any surviving
+    // blocklyDraggable roots off the canvas — belt and braces for any
+    // other reparenting path.
+    var _mfmCullClear = function () {
+      if (mainCull) { try { mainCull.revertFlatten(); } catch (e) {} }
+      try { ws.clear(); } catch (e) {}
+      try {
+        var cv = ws && ws.getCanvas && ws.getCanvas();
+        if (cv) {
+          var kids = [];
+          for (var i = 0; i < cv.childNodes.length; i++) kids.push(cv.childNodes[i]);
+          kids.forEach(function (n) {
+            try {
+              var cl = (n.getAttribute && n.getAttribute('class')) || '';
+              if (String(cl).indexOf('blocklyDraggable') >= 0 && n.parentNode) n.parentNode.removeChild(n);
+            } catch (e2) {}
+          });
+        }
+      } catch (e3) {}
+    };
+
     function loadBlocklyWorkspace(json, name) {
       loading = true;
       if (mainCull) mainCull.markAll(true);
       try {
         Blockly.Events.disable();
         try { ws.setResizesEnabled(false); } catch (e2) {}
-        ws.clear();
+        _mfmCullClear();
         try { _mfmMigrateWhileBg(json && json.blocks); } catch (e1) {}
         Blockly.serialization.workspaces.load(json, ws);
         // safety net: a saved workspace always carries its hat, but a
@@ -1819,7 +1973,7 @@
       try {
         Blockly.Events.disable();
         try { ws.setResizesEnabled(false); } catch (e2) {}
-        ws.clear();
+        _mfmCullClear();
         var dom = Blockly.Xml.textToDom(xmlText);
         _mfmRegisterGhostsXml([dom]);       // before deserialize: empty rail must not purge ${var}s
         try { _mfmMigrateWhileBgXml(dom); } catch (e1) {}
@@ -1857,7 +2011,17 @@
     function lvRefresh() {
       var list = document.getElementById('lvList');
       if (!list || !ws) return;
-      var seen = window._pcrLocalVars;
+      var seen = window._pcrLocalVars || (window._pcrLocalVars = {});
+      // a variable used by a set/get block is real — a blob reload or an
+      // older file can leave the rail empty while the workspace uses vars
+      try {
+        ws.getAllBlocks(false).forEach(function (b) {
+          var m = /^pcr_(?:set|get)_(number|text|logic|image|resloc|color|list)$/.exec(b.type);
+          if (!m) return;
+          var name = String(b.getFieldValue('VAR') || '');
+          if (name && seen[name] === undefined) seen[name] = m[1];
+        });
+      } catch (e) {}
       list.innerHTML = '';
       Object.keys(seen).forEach(function (name) {
         var row = document.createElement('div');
@@ -1905,6 +2069,18 @@
     });
     document.getElementById('lvDel').addEventListener('click', function () {
       if (!_lvSel) return;
+      var usedBy = 0;
+      try {
+        ws.getAllBlocks(false).forEach(function (b) {
+          if (b.type.indexOf('pcr_set_') === 0 || b.type.indexOf('pcr_get_') === 0) {
+            if (String(b.getFieldValue('VAR') || '') === _lvSel) usedBy++;
+          }
+        });
+      } catch (e) {}
+      if (usedBy > 0) {
+        _mfToast(_lvSel + ' is still used by ' + usedBy + ' block(s) — remove them first');
+        return;
+      }
       delete window._pcrLocalVars[_lvSel];
       _lvSel = null;
       lvRefresh();
@@ -1927,7 +2103,13 @@
       _lastInitJson = json;
       _lastInitName = d.name;
       _lastInitKey = key;
+      // the saved workspace may declare locals its text body lost — pass
+      // them to loadBlocks, which merges them AFTER the rail reset (merging
+      // here, before the reset, leaked the PREVIOUS macro's rail merge order
+      // and the rail then never reflected the file being opened)
+      window.__mfmIncomingLocalVars = (d.blockly && d.blockly.mfmLocalVars) ? d.blockly.mfmLocalVars : null;
       loadBlocks(d.blocks, d.name, d.blockly, d.blocklyXml);
+      window.__mfmIncomingLocalVars = null;
     });
 
     // ── boot: editor block defs 1:1 (same source the procedures editor evals) ──
