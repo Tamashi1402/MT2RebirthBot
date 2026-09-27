@@ -5230,7 +5230,15 @@ def _do_rebirth() -> bool:
 
         stone = None
         non_zero_reads = 0
-        deadline = time.time() + 1.0
+        try:
+            import config as _cfg_ver
+            _verify_budget = max(0.05, float(getattr(
+                _cfg_ver, "REBIRTH_VERIFY_BUDGET_SECONDS", 0.5)))
+        except Exception:
+            _verify_budget = 0.5
+        # v1.9.2: post-rebirth reads are cycle time - cap the whole
+        # confirmation window at 500ms (was a fixed 1.0s).
+        deadline = time.time() + _verify_budget
 
         while time.time() < deadline:
             if _KILLED or _STONE_LOST:
@@ -6924,8 +6932,15 @@ def run_bot():
             start_mode = _RUN_MODE
             start_stone = None
             try:
-                from screen import read_stone as _read_start_stone
-                start_stone = _read_start_stone()
+                # v1.9.2: skip the run-start OCR when a HUD read just
+                # succeeded (the post-rebirth confirmation read stone=0 a
+                # moment ago) - re-reading the same number steals cycle
+                # time on every rebirth loop.
+                from screen import get_fresh_stone as _get_fresh_start_stone
+                start_stone = _get_fresh_start_stone(max_age=1.5)
+                if start_stone is None:
+                    from screen import read_stone as _read_start_stone
+                    start_stone = _read_start_stone()
             except Exception:
                 start_stone = None
             if start_stone is None and _last_live_stone is not None:

@@ -1018,6 +1018,9 @@ A5_CHECK_ATTEMPTS     = int(_cfg.get("A5_CHECK_ATTEMPTS",     10))
 REBIRTH_CHECK_DELAY   = int(_cfg.get("REBIRTH_CHECK_DELAY",   5))
 REBIRTH_SETTLE_WAIT   = int(_cfg.get("REBIRTH_SETTLE_WAIT",   3))
 REBIRTH_POST_CONFIRM_WAIT = float(_cfg.get("REBIRTH_POST_CONFIRM_WAIT", 1.0))  # wait AFTER rebirth confirmed before teleporting to base
+# v1.9.2: the post-rebirth stone-confirmation window is capped at this many
+# seconds (was a fixed 1.0s fast poll) - every ms here is rebirth cycle time.
+REBIRTH_VERIFY_BUDGET_SECONDS = float(_cfg.get("REBIRTH_VERIFY_BUDGET_SECONDS", 0.5))
 FOCUS_RECHECK_DELAY   = float(_cfg.get("FOCUS_RECHECK_DELAY",   1.0))
 MENU_RESUME_JOIN_WAIT = int(_cfg.get("MENU_RESUME_JOIN_WAIT",  120))   # seconds to wait after pressing PLAY for the game to load (a join can take 30s-2min)
 
