@@ -5418,6 +5418,37 @@ def _do_base_rock(target_stone: float = None) -> bool:
     except Exception:
         pass
 
+    # v2019: no-needless-trip check — the live stone HUD answers "is it
+    # already enough?" without moving an inch. Every caller pre-checks
+    # before calling, but a failed/stale pre-check read must not cost a
+    # base→baserock→next round trip just to re-read the same number at
+    # the rock: confirm from right here and return success in place.
+    # (Manual-strength mode is excluded — its baserock flow also spends
+    # the surplus on upgrades, which needs the walk.)
+    if not _manual_strength_enabled() and not (_KILLED or _STONE_LOST):
+        _skip_probe = _read_stone_live(update_last=False, check_glitch=False)
+        if _skip_probe is not None and _skip_probe >= target_stone:
+            _skip_ok, _skip_cur = _confirm_stone_at_least(
+                target_stone,
+                "[BASEROCK] skip-trip confirm",
+                first_value=_skip_probe,
+                attempts=5,
+                required_hits=2,
+                delay=0.12,
+            )
+            if _skip_ok:
+                _skip_cur = _skip_cur or _skip_probe
+                _last_live_stone = _skip_cur
+                set_overlay(stone=_skip_cur)
+                _dash_update(cur_stone=_skip_cur)
+                log.info(
+                    f"[BASEROCK] stone {_fmt_stone(_skip_cur)} already >= "
+                    f"{_fmt_stone(target_stone)} — skipping baserock trip"
+                )
+                stats.mark_step("Base Rock")
+                _maybe_unlock_drills()   # same at-base drill check the walk path runs
+                return True
+
     log.debug(f"[BASE_ROCK] _at_base={_at_base} — {'skipping teleport (already at base)' if _at_base else 'teleporting to base'} | target={target_stone:.2e}")
     if not _at_base:
         if not _teleport_to_base():
