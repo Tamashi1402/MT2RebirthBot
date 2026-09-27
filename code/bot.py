@@ -5244,6 +5244,10 @@ def _do_rebirth(skip_quests: bool = False) -> bool:
     _REBIRTH_IN_PROGRESS = True
     try:
         _console_status("REBIRTH", "Rebirthing")
+        # v2030: pre-rebirth stone reference for the verify's artefact check.
+        # (The watcher is suppressed during the whole flow, so this is the
+        # last trusted pre-rebirth value.)
+        _pre_rb_stone = _last_live_stone
         if _auto_strength_enabled():
             disable_auto_strength()
             set_overlay(auto_str=False)
@@ -5377,22 +5381,51 @@ def _do_rebirth(skip_quests: bool = False) -> bool:
             set_overlay(stone=0.0, auto_str=None, status="REBIRTH")
             _rec_log_macro("rebirth_confirm", "end")
         elif stone is not None:
-            # v2017 dead-loop guard: stone != 0 means the rebirth did NOT
-            # happen (the counter survived base_to_rebirth). The old code
-            # warned and continued, so the fast-meteor precheck kept the
-            # stale trusted stone (target value) and skipped baserock
-            # forever while the HUD sat at the leftover value. Trust the
-            # fresh read, then let the existing rebirth-retry / failed-run
-            # strike / force-restart machinery handle the rest.
-            log.warning(f"Respawned but stone != 0 after base_to_rebirth (stone={stone}) - rebirth failed")
-            _rec_log_macro("rebirth_confirm", "end", error="stone_nonzero")
-            _rec_set_failure("rebirth_failed:stone_nonzero")
-            _last_live_stone = float(stone)
-            try:
-                _dash_update(cur_stone=_last_live_stone)
-            except Exception:
-                pass
-            return False
+            # v2030: the respawn fade + F4 menu are the authoritative
+            # rebirth signals (v2027). A nonzero read that is tiny vs the
+            # pre-rebirth stone (same 10% ratio as the low-glitch check) is
+            # the known OCR "7" artefact or a small game leftover — NOT a
+            # refused rebirth. A user's HUD region read a constant 7.0 at
+            # base (their strength-menu reads showed the true 0), so every
+            # rebirth "failed" and the retry loop replayed base_to_meteor
+            # forever instead of starting the fresh run. v2017's refused
+            # case (counter survived) is still caught: either the fade was
+            # never seen (early refuse) or the surviving value is NOT tiny
+            # vs the pre-rebirth reference and falls through to the fail.
+            # Fade seen = the respawn objectively happened (v2027), so trust
+            # it unless the read is a clearly survived LARGE counter: tiny /
+            # unknown / small pre-rebirth references can't separate an
+            # artefact "7" from a leftover, and failing those dead-loops.
+            _survived_counter = (
+                _pre_rb_stone is not None
+                and float(_pre_rb_stone) >= 1000.0
+                and stone >= float(_pre_rb_stone) * _STONE_LOW_GLITCH_RATIO
+            )
+            if _require_fade and _fade_seen and not _survived_counter:
+                log.warning(
+                    f"Respawned (fade seen) but stone reads {stone} != 0 at base "
+                    f"(pre-rebirth {_fmt_stone(_pre_rb_stone)}) - OCR artefact, trusting the respawn fade"
+                )
+                _rec_log_macro("rebirth_confirm", "end", error="stone_nonzero_artifact")
+                _mark_rebirth_zero_confirmed("fade_seen_artifact_read")
+                set_overlay(stone=0.0, auto_str=None, status="REBIRTH")
+            else:
+                # v2017 dead-loop guard: stone != 0 means the rebirth did NOT
+                # happen (the counter survived base_to_rebirth). The old code
+                # warned and continued, so the fast-meteor precheck kept the
+                # stale trusted stone (target value) and skipped baserock
+                # forever while the HUD sat at the leftover value. Trust the
+                # fresh read, then let the existing rebirth-retry / failed-run
+                # strike / force-restart machinery handle the rest.
+                log.warning(f"Respawned but stone != 0 after base_to_rebirth (stone={stone}) - rebirth failed")
+                _rec_log_macro("rebirth_confirm", "end", error="stone_nonzero")
+                _rec_set_failure("rebirth_failed:stone_nonzero")
+                _last_live_stone = float(stone)
+                try:
+                    _dash_update(cur_stone=_last_live_stone)
+                except Exception:
+                    pass
+                return False
         else:
             log.warning("Respawned (F4 menu opened) but stone unreadable at base - continuing")
             _rec_log_macro("rebirth_confirm", "end", error="stone_unreadable")
