@@ -1054,6 +1054,11 @@ REBIRTH_POST_CONFIRM_WAIT = float(_cfg.get("REBIRTH_POST_CONFIRM_WAIT", 1.0))  #
 # v2023: whole post-rebirth verify OCR phase is capped at this many seconds
 # (was 3 reads x 0.4s apart — could steal >1s of cycle time).
 REBIRTH_VERIFY_BUDGET_SECONDS = float(_cfg.get("REBIRTH_VERIFY_BUDGET_SECONDS", 0.5))
+# v2027: a real rebirth ALWAYS fades the screen near-black on respawn. When
+# the F4 menu opens but no fade was ever seen, the game REFUSED the rebirth —
+# fail the attempt fast instead of trusting the menu and re-reading stone
+# (that slow loop is what kept the a5 fast meteor cycle spinning).
+REBIRTH_REQUIRE_RESPAWN_FADE = _cfg_bool("REBIRTH_REQUIRE_RESPAWN_FADE", True)
 FOCUS_RECHECK_DELAY   = float(_cfg.get("FOCUS_RECHECK_DELAY",   0.5))
 MENU_RESUME_JOIN_WAIT = int(_cfg.get("MENU_RESUME_JOIN_WAIT",  120))   # seconds to wait after pressing PLAY for the game to load (a join can take 30s-2min)
 

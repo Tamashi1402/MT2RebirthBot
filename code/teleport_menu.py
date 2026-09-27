@@ -1,5 +1,6 @@
 # F4 teleport + rebirth confirm clicks. Pixel-detect, no teleport macros.
 import random
+import threading
 import time
 
 import cv2
@@ -635,6 +636,55 @@ def spam_f4_until_menu(timeout: float = 30.0, interval: float = 0.1) -> bool:
         if _close_yellow_at(close_sample):
             return True
     return False
+
+
+# ─── rebirth fade watch (v2027: fast refuse detection) ────────────────
+# A real rebirth fades the screen near-black on respawn; a refused rebirth
+# never does. The watch samples the wide near-black window on a tiny thread
+# while the rebirth macro plays and the F4 spam waits, so the caller can
+# tell a real respawn from a menu that simply opened.
+_fade_state = {"armed": False, "seen": False}
+_fade_lock = threading.Lock()
+
+
+def arm_rebirth_fade_watch(sample_s: float = 0.08) -> None:
+    """Arm the fade watch (fresh state). Arm BEFORE the rebirth macro
+    plays — the fade can start at the confirm click, mid-macro."""
+    with _fade_lock:
+        _fade_state["armed"] = False   # stop any previous watcher first
+        _fade_state["seen"] = False
+        _fade_state["armed"] = True
+
+    def _watch():
+        while True:
+            with _fade_lock:
+                if not _fade_state["armed"]:
+                    return
+            try:
+                if _black_screen_pct(wide=True) >= 0.40:
+                    with _fade_lock:
+                        _fade_state["seen"] = True
+                    log.info("[REBIRTH] respawn fade seen")
+                    return
+            except Exception:
+                pass
+            time.sleep(max(0.02, float(sample_s)))
+
+    threading.Thread(target=_watch, daemon=True,
+                     name="mt2-rebirth-fade-watch").start()
+
+
+def disarm_rebirth_fade_watch() -> bool:
+    """Stop the fade watch. True when a fade was seen while armed."""
+    with _fade_lock:
+        _fade_state["armed"] = False
+        return bool(_fade_state["seen"])
+
+
+def rebirth_fade_seen() -> bool:
+    """Read-only peek at the fade watch state."""
+    with _fade_lock:
+        return bool(_fade_state["seen"])
 
 
 def select_loadout(slot: int, attempts: int | None = None) -> bool:

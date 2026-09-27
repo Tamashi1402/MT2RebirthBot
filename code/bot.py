@@ -63,6 +63,8 @@ from overlay       import start_overlay, set_overlay
 # auth: login only, no suspension checks
 from teleport_menu import (
     spam_f4_until_menu as _spam_f4_until_menu,
+    arm_rebirth_fade_watch as _arm_rebirth_fade_watch,
+    disarm_rebirth_fade_watch as _disarm_rebirth_fade_watch,
     teleport as _builtin_teleport,
     set_killed_fn as _teleport_set_killed_fn,
     confirm_rebirth_ui as _confirm_rebirth_ui,
@@ -5270,12 +5272,28 @@ def _do_rebirth(skip_quests: bool = False) -> bool:
         # result purely by the stone read — no button watching.
         _console_status("REBIRTH", "Playing base_to_rebirth")
         _rec_log_macro("rebirth_confirm", "start")
+        # v2027: a real rebirth ALWAYS fades the screen near-black. The
+        # confirm click lives inside base_to_rebirth, so the fade can start
+        # mid-macro — arm the watcher BEFORE the macro plays and read it
+        # after the respawn window closes. Menu-open with no fade = the
+        # game refused the rebirth → fail the attempt fast instead of
+        # trusting the menu and re-reading stone (the a5 dead loop fix).
+        try:
+            import config as _cfg_fade
+            _require_fade = bool(getattr(
+                _cfg_fade, "REBIRTH_REQUIRE_RESPAWN_FADE", True))
+        except Exception:
+            _require_fade = True
+        if _require_fade:
+            _arm_rebirth_fade_watch()
         _rb_time_push("base_to_rebirth macro")
         try:
             _ok_rb = _run_macro("base_to_rebirth")
         finally:
             _rb_time_pop()
         if not _ok_rb:
+            if _require_fade:
+                _disarm_rebirth_fade_watch()
             return False
         _phase_stamp("rebirth")
 
@@ -5290,7 +5308,11 @@ def _do_rebirth(skip_quests: bool = False) -> bool:
                 _rb_time_pop()
                 return False
             time.sleep(0.1)
-        if not _spam_f4_until_menu(timeout=30.0, interval=0.1):
+        try:
+            _menu_seen = _spam_f4_until_menu(timeout=30.0, interval=0.1)
+        finally:
+            _fade_seen = _disarm_rebirth_fade_watch() if _require_fade else False
+        if not _menu_seen:
             _rb_time_pop()
             if _KILLED or _STONE_LOST:
                 return False
@@ -5299,6 +5321,19 @@ def _do_rebirth(skip_quests: bool = False) -> bool:
             _rec_set_failure("rebirth_failed:no_respawn_menu")
             _console_status("REBIRTH", "Failed - no respawn")
             _teleport_to_base()
+            return False
+        if _require_fade and not _fade_seen:
+            # The F4 menu opens whether or not the game respawned us — on a
+            # refused rebirth it opens over the NPC with the stone still
+            # spent on nothing. The fade is the only honest respawn signal.
+            _rb_time_pop()
+            if _KILLED or _STONE_LOST:
+                return False
+            log.warning("[REBIRTH] F4 menu opened but the respawn fade was never seen — rebirth refused")
+            _rec_log_macro("rebirth_confirm", "error", error="rebirth_refused_no_fade")
+            _rec_set_failure("rebirth_refused_no_fade")
+            _console_status("REBIRTH", "Refused - no fade")
+            _teleport_to_base(phase="tele_base", menu_open=True)
             return False
 
         # The F4 menu DOES cover the stone HUD — close the cycle on the
