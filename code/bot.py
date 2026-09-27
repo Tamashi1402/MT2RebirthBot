@@ -192,6 +192,7 @@ _NAV_MACROS: frozenset = frozenset({
     "force_restart",
     "menu_resume",
     "base_to_baserock",
+    "base_to_meteor",
     "unlock_drills",
     "area5_to_meteor",
     "quest_menu",
@@ -2093,7 +2094,7 @@ def _stone_lost_handler():
     if _STONE_LOST or _KILLED:
         return   # already handling
     _STONE_LOST = True
-    log.warning("[WATCHER] Stone icon lost — stopping macros and drills")
+    log.warning("[WATCHER] In-game image detection failure (stone icon not visible) — stopping macros and drills")
     try: stop_macro()
     except Exception: pass
     try: _stop_drill_loop()
@@ -2103,9 +2104,9 @@ def _stone_lost_handler():
         except Exception: pass
         try: set_overlay(auto_str=False)
         except Exception: pass
-    set_overlay(status="STONE LOST", goal="Recovering...")
-    _dash_update(status="STONE LOST", goal="Recovering...")
-    cprint("[WATCHER] Stone icon lost — waiting for recovery", "warn")
+    set_overlay(status="IMAGE DETECT FAIL", goal="Recovering...")
+    _dash_update(status="IMAGE DETECT FAIL", goal="Recovering...")
+    cprint("[WATCHER] In-game image detection failure — waiting for recovery", "warn")
 
 # ——— Alive check ————————————————————————————————————————————————
 
@@ -6993,9 +6994,9 @@ def run_bot():
                     _capture_failure_fullscreen("run_failed")
                     _ds_snap_sl = _ds()
                     _wait_secs = _ds_snap_sl.get("stone_icon_missing_wait") or 5
-                    log.info(f"[KRAKEN] Stone lost — initial wait {_wait_secs}s")
-                    _console_status("STONE LOST", "Recovering...")
-                    set_overlay(status="STONE LOST", goal="Recovering...")
+                    log.info(f"[KRAKEN] In-game image lost — initial wait {_wait_secs}s")
+                    _console_status("IMAGE DETECT FAIL", "Recovering...")
+                    set_overlay(status="IMAGE DETECT FAIL", goal="Recovering...")
                     if not _hold_for_network():
                         continue
                     if _stone_icon_visible_restart_image():
@@ -7075,9 +7076,9 @@ def run_bot():
                     _capture_failure_fullscreen("run_failed")
                     _ds_snap_sl = _ds()
                     _wait_secs = _ds_snap_sl.get("stone_icon_missing_wait") or 5
-                    log.info(f"[ZYTOS] Stone lost — initial wait {_wait_secs}s")
-                    _console_status("STONE LOST", "Recovering...")
-                    set_overlay(status="STONE LOST", goal="Recovering...")
+                    log.info(f"[ZYTOS] In-game image lost — initial wait {_wait_secs}s")
+                    _console_status("IMAGE DETECT FAIL", "Recovering...")
+                    set_overlay(status="IMAGE DETECT FAIL", goal="Recovering...")
                     if not _hold_for_network():
                         continue
                     if _stone_icon_visible_restart_image():
@@ -7245,15 +7246,15 @@ def run_bot():
 
                 # Step 1: brief initial wait (stone icon missing debounce)
                 _wait_secs = _ds_sl_snap.get("stone_icon_missing_wait") or getattr(_cfg_sl, "STONE_ICON_MISSING_WAIT", 5)
-                log.info(f"[WATCHER] Stone lost — initial wait {_wait_secs}s")
-                _console_status("STONE LOST", "Recovering...")
+                log.info(f"[WATCHER] In-game image lost — initial wait {_wait_secs}s")
+                _console_status("IMAGE DETECT FAIL", "Recovering...")
                 if not _hold_for_network():
                     break
                 if _stone_icon_visible_restart_image():
                     log.info("[WATCHER] HUD back after network wait — resume")
                     _STONE_LOST = False
                     continue
-                set_overlay(status="STONE LOST", goal="Recovering...")
+                set_overlay(status="IMAGE DETECT FAIL", goal="Recovering...")
                 _wait_polling(float(_wait_secs), "...", freeze=True)
 
                 if not _KILLED:
@@ -7297,14 +7298,14 @@ def run_bot():
                                 else:
                                     # Stone still gone, menu not found — soft kill
                                     log.warning("[WATCHER] Stone icon still gone after menu resume failed — soft killing")
-                                    _console_status("STONE LOST", "Recovery failed")
-                                    set_overlay(status="WAITING", goal="Stone lost")
+                                    _console_status("IMAGE DETECT FAIL", "Recovery failed")
+                                    set_overlay(status="WAITING", goal="Image detect fail")
                                     _capture_failure_fullscreen("stone_lost_recovery_failed")
                                     _KILLED = True
                     else:
                         log.info("[WATCHER] menu_resume OFF — soft-kill, waiting for Start")
-                        _console_status("STONE LOST", "Stone lost — soft kill (menu resume OFF)")
-                        set_overlay(status="WAITING", goal="Stone lost")
+                        _console_status("IMAGE DETECT FAIL", "Image detect fail — soft kill (menu resume OFF)")
+                        set_overlay(status="WAITING", goal="Image detect fail")
                         _capture_failure_fullscreen("stone_lost_menu_resume_off")
                         _KILLED = True
 

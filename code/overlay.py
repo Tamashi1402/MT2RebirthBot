@@ -377,7 +377,7 @@ def _resolve_header(status: str) -> tuple:
     if "ACTION"      == up: return "Working",     C_HEADER
     if "CHECKING"    == up: return "Checking",    C_HEADER
     if "RETRY"       == up: return "Retrying",    C_HEADER
-    if "STONE LOST"  == up: return "Stone Lost",  C_HEADER
+    if "IMAGE DETECT FAIL" == up: return "Detect Fail", C_HEADER
     if "MENU RESUME" == up: return "Resume",      C_HEADER
     if "RUNNING"     == up: return "Running",     C_HEADER
     if "DELVE"       == up: return "Delve",       C_HEADER
