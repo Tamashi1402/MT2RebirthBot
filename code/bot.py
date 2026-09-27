@@ -4565,15 +4565,34 @@ def _farm_meteor_from_current_position(label: str = "Meteor Shortcut") -> bool:
 
 
 def _run_fast_meteor_cycle() -> bool:
-    """Fast meteor: baserock -> teleport to base -> base_to_meteor macro -> rebirth.
+    """Fast meteor cycle: [quests ->] baserock -> base_to_meteor macro -> rebirth.
 
     base_to_meteor does everything after the base teleport, so the bot skips
     its own A5 teleport, meteor mining and post-mining base teleport.
     On a failed rebirth: back to base, re-run base_to_meteor, retry.
+    v1.11.1: with Daily Quests ON, the quest phase runs at cycle START
+    (after the previous rebirth) instead of inside _do_rebirth — quest stone
+    counts toward the shortcut threshold instead of being wiped by rebirth.
     """
     global _at_base
     _set_stage("base")
     _rb_time_reset()
+    # v1.11.1: Daily Quests run at cycle START — right after the previous
+    # rebirth, BEFORE the baserock/base_to_meteor phase:
+    # - stone from quest rocks counts toward the Area6 shortcut threshold
+    #   instead of being wiped by the rebirth that followed the phase
+    # - the quest phase re-teleports to base itself when quest actions moved
+    #   the character, so base_to_meteor still starts from the base spawn
+    # - finished quests auto-confirm (no board walk / claim buttons), so the
+    #   only HUD signal is the slot-background check
+    if _quests_enabled():
+        _rb_time_push("daily quests")
+        try:
+            _do_daily_quests()
+        finally:
+            _rb_time_pop()
+        if _KILLED or _STONE_LOST:
+            return False
     # Zero-latency decision: no OCR precheck. Decide from the trusted last
     # live stone alone. Post-rebirth it is 0.0 -> baserock immediately. If it
     # is stale/None the worst case is a walk to the baserock the background
@@ -4641,7 +4660,7 @@ def _run_fast_meteor_cycle() -> bool:
     _set_stage("rebirth")
     for _rebirth_attempt in range(1, REBIRTH_MAX_RETRIES + 1):
         _rb_time_push(f"rebirth (attempt {_rebirth_attempt})")
-        _ok = _do_rebirth()
+        _ok = _do_rebirth(skip_quests=True)
         _rb_time_pop()
         if _ok:
             stats.mark_step("Rebirth")
@@ -5215,7 +5234,7 @@ def _do_daily_quests() -> None:
         log.info("[QUESTS] quest phase finished")
 
 
-def _do_rebirth() -> bool:
+def _do_rebirth(skip_quests: bool = False) -> bool:
     """Play base_to_rebirth (it does all the clicking: walk to the NPC,
     interact, confirm, respawn). Returns True when the stone reads 0 after
     the macro ends. No stone detected = failed.
@@ -5239,7 +5258,9 @@ def _do_rebirth() -> bool:
             if not _teleport_to_base():
                 return False
         # Daily Quests rail: run the quest phase between meteor and rebirth.
-        if _quests_enabled():
+        # (The a5-meteor fast cycle passes skip_quests=True — it runs the
+        # quest phase at cycle start instead, right AFTER the rebirth.)
+        if _quests_enabled() and not skip_quests:
             _rb_time_push("daily quests")
             try:
                 _do_daily_quests()
