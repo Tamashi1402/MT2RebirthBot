@@ -1179,8 +1179,7 @@ class _MacroStopped(Exception):
 def _print_console(text: str, vars_state: dict, bot_root: str = "",
                    macro_dir: str | None = None) -> None:
     """PRINT:<text> — ${var} interpolation from macro variables, then one
-    line in the unified app console (the dashboard Console panel; same
-    buffer the flow editor's print block and engine logs feed).
+    line in the engine log (the [MACRO] tag marks it as macro output).
 
     ${name} reads a macro variable; anything else inside ${...} is parsed
     and evaluated as a full expression — grab_at(...), screen_color(...),
@@ -1218,15 +1217,9 @@ def _print_console(text: str, vars_state: dict, bot_root: str = "",
         except Exception:
             return m.group(0)
     msg = re.sub(r"\$\{([^}]*)\}", _sub, str(text))
-    try:
-        from run import console_buffer
-        console_buffer.log(msg, source="macro", level="print")
-    except Exception:
-        # console_buffer unreachable (frozen EXE / odd sys.path) — the
-        # root logger is bridged into the SAME console buffer at INFO+,
-        # so route through it instead of bare print(), which a GUI app
-        # swallows. The [MACRO] tag lands in the console's source slot.
-        log.info("[MACRO] %s", msg)
+    # bare print() is swallowed in a GUI app — the root logger carries
+    # the line to the log file. The [MACRO] tag marks it as macro output.
+    log.info("[MACRO] %s", msg)
 
 
 class MacroPlayer:

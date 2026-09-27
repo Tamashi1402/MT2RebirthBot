@@ -98,10 +98,10 @@ Blockly.Blocks['mfm_delay'] = {
 Blockly.Blocks['mfm_log'] = {
   init: function () {
     this.jsonInit({
-      "type": "mfm_print",
-      "message0": "print %1",
-      // only a plain string or "create text with" — everything else
-      // (numbers, colors, image checks…) composes through text_join
+      "type": "mfm_log",
+      "message0": "log %1",
+      // same composed-text rules as print — the line goes to the bot's
+      // log file (logs/logs-YYYY-MM-DD.txt) instead of the app console
       "args0": [{ "type": "input_value", "name": "TEXT", "check": ["String"] }],
       "previousStatement": null,
       "nextStatement": null,
@@ -1548,6 +1548,7 @@ function mfmListToXml(blocks) {
         break;
       }
       case 'PRINT': case 'LOG': {
+        // PRINT (console) was folded into LOG — old macros' PRINT steps
         // load as LOG blocks and resave as LOG: lines
         el = mk('mfm_log');
         const tw = document.createElement('value'); tw.setAttribute('name', 'TEXT');
@@ -2186,10 +2187,9 @@ function mfmWorkspaceToList(workspace, includeLocals) {
       case 'mfm_delay':
         push('DELAY', _mfm_num(b, 'MS'), locked);
         break;
-      case 'mfm_print': {
-        // one composed text: literals inline, ${var} refs for getters,
-        // "create text with" recursion — numbers etc. become text
-        push('PRINT', _mfm_value_text(b.getInputTargetBlock('TEXT')), locked);
+      case 'mfm_log': {
+        // same composed-text rules as print — the runner routes LOG lines
+        // to the bot's log file instead of the app console
         push('LOG', _mfm_value_text(b.getInputTargetBlock('TEXT')), locked);
         break;
       }
