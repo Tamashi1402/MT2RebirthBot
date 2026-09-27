@@ -15,6 +15,7 @@ const supportedBlocks = [
   'GROUP','GROUP_END','COMMENT','SECTION','SECTION_END','ELSE',
   'PRINT','LOCK','LOCK_END',
   'BG_BEGIN','BG_END',
+  'LIST_ADD','LIST_REMOVE','ITERATE','END_ITERATE',
 ];
 
 const blockDefaults = {
@@ -47,6 +48,9 @@ const blockDefaults = {
   SECTION_END:      '',
   PLAY_MACRO:       '',
   PRINT:            '',
+  LIST_ADD:         '{"list":"list1","value":0,"pos":0}',
+  LIST_REMOVE:      '{"list":"list1","pos":1}',
+  ITERATE:          '{"list":{"get":"list1"},"as":"item"}',
 };
 
 const valueLessBlocks = new Set([
@@ -1351,6 +1355,8 @@ const CATEGORY_MAP = {
   PRINT:            { icon: 'play_macro.png',   label: 'Macro' },
   LOCK:             { icon: '',                  label: 'Lock' },
   LOCK_END:         { icon: '',                  label: 'Lock' },
+  LIST_ADD:         { icon: 'variable.png',      label: 'List Add' },
+  LIST_REMOVE:      { icon: 'variable.png',      label: 'List Remove' },
 };
 
 const ACTION_LABELS = {
@@ -1368,6 +1374,7 @@ const ACTION_LABELS = {
   GROUP: 'Group', GROUP_END: 'End Group', COMMENT: 'Comment',
   SECTION: 'Section', SECTION_END: 'End Section', ELSE: 'Else',
   PRINT: 'Print', LOCK: 'Lock', LOCK_END: 'End Lock',
+  LIST_ADD: 'List Add', LIST_REMOVE: 'List Remove',
 };
 
 const ACTIONS_COL_WIDTH = 58;

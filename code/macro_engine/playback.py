@@ -22,6 +22,8 @@ from macro_engine.macro_logic import (
     handle_end_while,
     handle_if,
     handle_while,
+    list_add,
+    list_remove,
     parse_payload,
     run_grab_image,
     run_image_check,
@@ -1228,6 +1230,15 @@ class MacroEngine:
                 if raw.startswith("SET_VARIABLE:"):
                     if branch_active(if_stack):
                         set_variable(vars_state, parse_payload(raw, "SET_VARIABLE"), bot_root, m_dir)
+                    continue
+                # LIST_ADD / LIST_REMOVE — list variable mutation (List category)
+                if raw.startswith("LIST_ADD:"):
+                    if branch_active(if_stack):
+                        list_add(vars_state, parse_payload(raw, "LIST_ADD"), bot_root, m_dir)
+                    continue
+                if raw.startswith("LIST_REMOVE:"):
+                    if branch_active(if_stack):
+                        list_remove(vars_state, parse_payload(raw, "LIST_REMOVE"), bot_root, m_dir)
                     continue
                 # WATCH <var> WHEN (<cond>) EVERY <ms> — standalone condition
                 # watcher: keeps <var> at 1/0 on a background thread until the

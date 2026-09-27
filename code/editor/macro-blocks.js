@@ -1540,6 +1540,32 @@ function mfmListToXml(blocks) {
         if (stacks.length > 1) stacks.pop();
         cur = stacks[stacks.length - 1];
         continue;
+      case 'LIST_ADD': {
+        flushLock();
+        let d = {};
+        try { d = JSON.parse(value || '{}'); } catch (e) { d = {}; }
+        el = mk('mfm_list_add');
+        addField(el, 'VAR', d.list || '');
+        const wv = document.createElement('value'); wv.setAttribute('name', 'VALUE');
+        wv.appendChild(_mfm_exprXml(d.value !== undefined ? d.value : { lit: 0 }, document));
+        el.appendChild(wv);
+        if (d.pos && typeof d.pos === 'object') {
+          const pw = document.createElement('value'); pw.setAttribute('name', 'POS');
+          pw.appendChild(_mfm_exprXml(d.pos, document)); el.appendChild(pw);
+        } else addShadowNum(el, 'POS', _litNumOf(d.pos, 0));
+        break;
+      }
+      case 'LIST_REMOVE': {
+        flushLock();
+        let d = {};
+        try { d = JSON.parse(value || '{}'); } catch (e) { d = {}; }
+        el = mk('mfm_list_remove');
+        addField(el, 'VAR', d.list || '');
+        if (d.pos && typeof d.pos === 'object') {
+          const pw = document.createElement('value'); pw.setAttribute('name', 'POS');
+          pw.appendChild(_mfm_exprXml(d.pos, document)); el.appendChild(pw);
+        } else addShadowNum(el, 'POS', _litNumOf(d.pos, 1));
+        break;
       }
       case 'WHILE':
       case 'UNTIL': {
@@ -1624,6 +1650,7 @@ function mfmListToXml(blocks) {
         flushLock();
         el = mk('mfm_section');
         addField(el, 'TEXT', value);
+        if (item && /^#[0-9a-fA-F]{6}$/.test(String(item.color || ''))) addField(el, 'COLOUR', item.color);
         const st = document.createElement('statement');
         st.setAttribute('name', 'DO');
         el.appendChild(st);
@@ -2053,6 +2080,29 @@ function mfmWorkspaceToList(workspace, includeLocals) {
         push('SET_VARIABLE', JSON.stringify(d), locked);
         break;
       }
+      case 'pcr_set_list': {
+        // empty socket = empty list (not the generic {lit:true})
+        const tgt = b.getInputTargetBlock('VALUE');
+        const d = { name: b.getFieldValue('VAR') || '',
+                    value: tgt ? _mfm_expr(tgt) : { lit: [] } };
+        push('SET_VARIABLE', JSON.stringify(d), locked);
+        break;
+      }
+      case 'mfm_list_add': {
+        const d = { list: b.getFieldValue('VAR') || '',
+                    value: _mfm_expr(b.getInputTargetBlock('VALUE')),
+                    pos: _mfm_expr(b.getInputTargetBlock('POS')) };
+        push('LIST_ADD', JSON.stringify(d), locked);
+        break;
+      }
+      case 'mfm_list_remove': {
+        const d = { list: b.getFieldValue('VAR') || '',
+                    pos: _mfm_expr(b.getInputTargetBlock('POS')) };
+        push('LIST_REMOVE', JSON.stringify(d), locked);
+        break;
+      }
+        break;
+      }
       case 'mfm_image_check': {
         let raw = {};
         try { raw = JSON.parse(b.mfmRawPayload || '{}'); } catch (e) { raw = {}; }
@@ -2177,3 +2227,76 @@ function mfmEnsureHat(workspace, name, hatType) {
   }
   return hat;
 }
+  // ── List category (purple 260) ──
+  def('mfm_list_add', function () {
+    // add [value] to [list] at position [number] (item 2)
+    this.appendValueInput('VALUE').setCheck(null).appendField('add');
+    this.appendDummyInput().setAlign(Blockly.ALIGN_RIGHT)
+      .appendField('to')
+      .appendField(_mfm_listDropdown(), 'VAR');
+    this.appendValueInput('POS').setCheck('Number').setAlign(Blockly.ALIGN_RIGHT).appendField('at position');
+    this.setInputsInline(true);
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(260);
+    this.setTooltip('Add a value to a list. Position 0 (or empty) appends to the end; 1 = first, 2 = second, ...');
+  });
+
+  def('mfm_list_remove', function () {
+    this.appendDummyInput().appendField('remove from').appendField(_mfm_listDropdown(), 'VAR');
+    this.appendValueInput('POS').setCheck('Number').setAlign(Blockly.ALIGN_RIGHT).appendField('at position');
+    this.setInputsInline(true);
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(260);
+    this.setTooltip('Remove the item at a position from a list. 1 = first, -1 = last.');
+  });
+
+  def('mfm_list_get', function () {
+    // get component from [list] at [number] (item 6)
+    this.appendValueInput('LIST').setCheck('Array').appendField('get component from');
+    this.appendValueInput('NUM').setCheck('Number').setAlign(Blockly.ALIGN_RIGHT).appendField('at');
+    this.setInputsInline(true);
+    this.setOutput(true, null);
+    this.setColour(260);
+    this.setTooltip('The component (item) of a list at a position (1 = first, -1 = last).');
+  });
+
+  def('mfm_list_size', function () {
+    this.appendValueInput('LIST').setCheck('Array').appendField('size of');
+    this.setInputsInline(true);
+    this.setOutput(true, 'Number');
+    this.setColour(230);   // number-typed output (item 4)
+    this.setTooltip('How many items a list holds.');
+  });
+
+  def('mfm_list_is_empty', function () {
+    this.appendValueInput('LIST').setCheck('Array').appendField('is empty');
+    this.setInputsInline(true);
+    this.setOutput(true, 'Boolean');
+    this.setColour(210);   // boolean-typed output (item 4)
+    this.setTooltip('True when the list has no items.');
+  });
+
+  def('mfm_type_is', function () {
+    // is [component] of type [dropdown] (item 5)
+    this.appendValueInput('VALUE').setCheck(null).appendField('is');
+    this.appendDummyInput().setAlign(Blockly.ALIGN_RIGHT)
+      .appendField('of type')
+      .appendField(new Blockly.FieldDropdown([
+        ['number', 'number'], ['text', 'text'], ['logic', 'logic'],
+        ['list', 'list'], ['color', 'color'], ['image', 'image']
+      ]), 'TYPE');
+    this.setInputsInline(true);
+    this.setOutput(true, 'Boolean');
+    this.setColour(210);   // boolean-typed output
+    this.setTooltip("What kind of value a component holds. Color/image values are also text — the specific checks look at their shape.");
+  });
+
+  def('mfm_empty_list', function () {
+    this.appendDummyInput().appendField('create empty list');
+    this.setOutput(true, 'Array');
+    this.setColour(260);
+    this.setTooltip("An empty list — the clean starting point for 'set list' or any list input (item 7).");
+  });
+

@@ -24,6 +24,8 @@ from macro_engine.macro_logic import (
     handle_end_while,
     handle_if,
     handle_while,
+    list_add,
+    list_remove,
     parse_payload,
     run_image_check,
     set_variable,
@@ -1360,6 +1362,15 @@ class MacroPlayer:
             if raw.startswith("SET_VARIABLE:"):
                 if branch_active(if_stack):
                     set_variable(vars_state, parse_payload(raw, "SET_VARIABLE"), _BOT_ROOT, macro_dir)
+                continue
+            # LIST_ADD / LIST_REMOVE — list variable mutation (List category)
+            if raw.startswith("LIST_ADD:"):
+                if branch_active(if_stack):
+                    list_add(vars_state, parse_payload(raw, "LIST_ADD"), _BOT_ROOT, macro_dir)
+                continue
+            if raw.startswith("LIST_REMOVE:"):
+                if branch_active(if_stack):
+                    list_remove(vars_state, parse_payload(raw, "LIST_REMOVE"), _BOT_ROOT, macro_dir)
                 continue
             # WATCH <var> WHEN (<cond>) EVERY <ms> — keeps <var> at 1/0 on a
             # background thread until macro end or STOP WATCH

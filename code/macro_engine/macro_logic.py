@@ -84,6 +84,57 @@ def set_variable(vars_state: dict[str, Any], data: dict[str, Any],
         vars_state[name] = val
 
 
+# ── Lists (List category blocks) ────────────────────────────────────────
+# A list variable holds plain items (colors "rgba(r,g,b,a)", hue numbers,
+# text, numbers, component values). LIST_ADD / LIST_REMOVE are the only
+# mutators; positions are 1-based, pos <= 0 → append (add) / no-op
+# (remove), negative pos removes from the end.
+
+def list_add(vars_state: dict[str, Any], data: dict[str, Any],
+             bot_root: str = "", macro_dir: str | None = None) -> None:
+    name = str((data or {}).get("list") or "").strip()
+    if not name:
+        return
+    if not isinstance(vars_state.get(name), list):
+        vars_state[name] = []
+    try:
+        val = eval_expr((data or {}).get("value"), vars_state, bot_root, macro_dir)
+    except Exception:
+        val = False
+    try:
+        pos = int(eval_expr((data or {}).get("pos"), vars_state, bot_root, macro_dir) or 0)
+    except Exception:
+        pos = 0
+    lst = vars_state[name]
+    try:
+        if pos >= 1:
+            lst.insert(min(pos - 1, len(lst)), val)
+        else:
+            lst.append(val)
+    except Exception:
+        lst.append(val)
+
+
+def list_remove(vars_state: dict[str, Any], data: dict[str, Any],
+                bot_root: str = "", macro_dir: str | None = None) -> None:
+    name = str((data or {}).get("list") or "").strip()
+    lst = vars_state.get(name) if name else None
+    if not isinstance(lst, list):
+        return
+    try:
+        pos = int(eval_expr((data or {}).get("pos"), vars_state, bot_root, macro_dir) or 0)
+    except Exception:
+        pos = 0
+    try:
+        if pos >= 1:
+            if pos <= len(lst):
+                del lst[pos - 1]
+        elif pos < 0 and -pos <= len(lst):
+            del lst[pos]
+    except Exception:
+        pass
+
+
 def _expr_to_num(v: Any) -> float:
     try:
         return float(v)
@@ -484,6 +535,46 @@ def eval_expr(expr: Any, vars_state: dict[str, Any],
             return _expr_img_diff(expr.get("img_diff") or {}, vars_state, bot_root, macro_dir)
         except Exception:
             return -1.0
+    # ── list / component / hue blocks (List category) ──
+    if "list_get" in expr:
+        d = expr.get("list_get") or {}
+        lst = eval_expr(d.get("a"), vars_state, bot_root, macro_dir)
+        try:
+            idx = int(eval_expr(d.get("i"), vars_state, bot_root, macro_dir) or 0)
+        except Exception:
+            idx = 0
+        if isinstance(lst, (list, tuple)):
+            if 1 <= idx <= len(lst):
+                return lst[idx - 1]
+            if idx < 0 and -idx <= len(lst):
+                return lst[idx]
+        return False
+    if "list_size" in expr:
+        v = eval_expr(expr.get("list_size"), vars_state, bot_root, macro_dir)
+        return len(v) if isinstance(v, (list, tuple)) else 0
+    if "list_is_empty" in expr:
+        v = eval_expr(expr.get("list_is_empty"), vars_state, bot_root, macro_dir)
+        return not (isinstance(v, (list, tuple)) and len(v) > 0)
+    if "type_is" in expr:
+        d = expr.get("type_is") or {}
+        v = eval_expr(d.get("a"), vars_state, bot_root, macro_dir)
+        t = str(d.get("t") or "text").strip().lower()
+        if t == "number":
+            return isinstance(v, (int, float)) and not isinstance(v, bool)
+        if t in ("text", "string"):
+            return isinstance(v, str)
+        if t in ("logic", "boolean", "bool"):
+            return isinstance(v, bool)
+        if t == "list":
+            return isinstance(v, (list, tuple))
+        if t == "color":
+            return _parse_color_rgb(v) is not None
+        if t == "image":
+            s = str(v or "")
+            return s.startswith("res://") or s.lower().endswith((".png", ".jpg", ".jpeg", ".bmp"))
+        if t in ("resloc", "resource", "resource location"):
+            return isinstance(v, str)
+        return False
     # ── resolution blocks (1:1 with the flow editor's ratio/scale) ──
     if "point" in expr:
         d = expr.get("point") or {}
@@ -1365,6 +1456,16 @@ class BackgroundLoop(threading.Thread):
                 if branch_active(if_stack):
                     set_variable(vars_state, parse_payload(raw, "SET_VARIABLE"),
                                  self.bot_root, self.macro_dir)
+                continue
+            if raw.startswith("LIST_ADD:"):
+                if branch_active(if_stack):
+                    list_add(vars_state, parse_payload(raw, "LIST_ADD"),
+                             self.bot_root, self.macro_dir)
+                continue
+            if raw.startswith("LIST_REMOVE:"):
+                if branch_active(if_stack):
+                    list_remove(vars_state, parse_payload(raw, "LIST_REMOVE"),
+                                self.bot_root, self.macro_dir)
                 continue
             if raw.startswith("IMAGE:"):
                 if branch_active(if_stack):

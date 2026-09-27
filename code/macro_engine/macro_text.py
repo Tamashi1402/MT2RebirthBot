@@ -808,7 +808,7 @@ def canonicalize_lines(lines) -> list:
             out.append("%s:%s" % (m.group(1), _cond_json(m.group(2))))
             stack.append(m.group(1))
             continue
-        m = re.match(r'^(GROUP|SECTION)\s+"((?:[^"\\]|\\.)*)"\s*\{\s*$', line)
+        # pretty ITERATE <list> AS "name" { ... } — loop a list variable
         if m:
             out.append("# %s:%s" % (m.group(1), _unq('"' + m.group(2) + '"')))
             stack.append(m.group(1))
@@ -831,6 +831,34 @@ def canonicalize_lines(lines) -> list:
         m = re.match(r"^([A-Z][A-Z_0-9]*)\s+(.*)$", line)
         if m and ":" not in line.split()[0]:
             kw, rest = m.group(1), m.group(2)
+            if kw == "ADD":
+                # ADD <value> TO <list> (AT <pos>) — pos 0/absent = append
+                am = re.match(r"^(.+?)\s+TO\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:AT\s+(.+?)\s*)?$", rest)
+                if am:
+                    try:
+                        vexpr = expr_from_str(am.group(1))
+                    except MacroTextError:
+                        vexpr = {"lit": 0}
+                    try:
+                        pexpr = expr_from_str(am.group(3)) if am.group(3) else {"lit": 0}
+                    except MacroTextError:
+                        pexpr = {"lit": 0}
+                    out.append("LIST_ADD:" + json.dumps(
+                        {"list": am.group(2), "value": vexpr, "pos": pexpr},
+                        separators=(",", ":")))
+                    continue
+            if kw == "REMOVE":
+                # REMOVE FROM <list> AT <pos>
+                rm = re.match(r"^FROM\s+([A-Za-z_][A-Za-z0-9_]*)\s+AT\s+(.+?)\s*$", rest)
+                if rm:
+                    try:
+                        pexpr = expr_from_str(rm.group(2))
+                    except MacroTextError:
+                        pexpr = {"lit": 1}
+                    out.append("LIST_REMOVE:" + json.dumps(
+                        {"list": rm.group(1), "pos": pexpr},
+                        separators=(",", ":")))
+                    continue
             if kw == "WATCH":
                 # WATCH <var> WHEN (<cond>) EVERY <ms> — background watcher
                 wm = re.match(r"^([A-Za-z0-9_]+)\s+WHEN\s*\((.*)\)\s+EVERY\s+(.+?)\s*$", rest)
@@ -920,6 +948,23 @@ def _pretty_instr(t: str, v: str) -> str:
             return "GRAB_IMAGE %s" % _emit_kv(json.loads(v or "{}"))
         except Exception:
             return "GRAB_IMAGE:%s" % v
+    if t == "LIST_ADD":
+        try:
+            d = json.loads(v or "{}")
+            pos = d.get("pos")
+            return "ADD %s TO %s%s" % (
+                expr_to_str(d.get("value")),
+                str(d.get("list") or ""),
+                (" AT " + expr_to_str(pos)) if pos is not None else "")
+        except Exception:
+            return "LIST_ADD:%s" % v
+    if t == "LIST_REMOVE":
+        try:
+            d = json.loads(v or "{}")
+            return "REMOVE FROM %s AT %s" % (
+                str(d.get("list") or ""), expr_to_str(d.get("pos")))
+        except Exception:
+            return "LIST_REMOVE:%s" % v
     return ("%s %s" % (t, v)).strip()
 
 
@@ -997,6 +1042,10 @@ def pretty_body(steps) -> list:
         elif t == "ENDREPEAT":
             depth = max(0, depth - 1)
             out.append(ind() + "}")
+        elif t == "LIST_ADD":
+            out.append("%s%s" % (ind(), _pretty_instr("LIST_ADD", v)))
+        elif t == "LIST_REMOVE":
+            out.append("%s%s" % (ind(), _pretty_instr("LIST_REMOVE", v)))
         elif t in ("WHILE", "UNTIL"):
             out.append("%s%s (%s) {" % (ind(), t, _pretty_cond(v)))
             depth += 1
