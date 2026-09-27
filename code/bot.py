@@ -6334,260 +6334,268 @@ def _run_kraken_loop():
     log.info("[KRAKEN] loop started (no ESP, no dodge — walk loop + mouse aim)")
     menu_ready = False
 
-    while not _KILLED and not _TEST_FORCE_FAILURE and not _STONE_LOST and not _boss_strike_stopped("kraken"):
-        if not menu_ready:
-            if not _kraken_open_menu_via_a7():
-                if _boss_strike_stopped("kraken"):
-                    break
-                _console_status("KRAKEN", "Menu retry")
-                _wait_polling(1.0, "Kraken retry", freeze=False)
-                continue
-        menu_ready = False
+    # Boss menu + fight + reward walk all cover the stone HUD — the watcher
+    # false-fired mid-fight (stone icon missing -> STONE_LOST), which stopped
+    # the loop after ONE successful kill. Suppress it for the whole fight
+    # loop; the kraken strike/health-bar checks own failure detection.
+    _freeze_stone(True)
+    try:
+        while not _KILLED and not _TEST_FORCE_FAILURE and not _STONE_LOST and not _boss_strike_stopped("kraken"):
+            if not menu_ready:
+                if not _kraken_open_menu_via_a7():
+                    if _boss_strike_stopped("kraken"):
+                        break
+                    _console_status("KRAKEN", "Menu retry")
+                    _wait_polling(1.0, "Kraken retry", freeze=False)
+                    continue
+            menu_ready = False
 
-        # — Navigation phase: NO timer shown anywhere —
-        _console_status("KRAKEN", "Navigation")
-        _dash_update(status="KRAKEN", goal="Navigation", run_start_time=None)
-        set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
-        _kraken_click_join_twice()
-        _kraken_prepare_weapon()
+            # — Navigation phase: NO timer shown anywhere —
+            _console_status("KRAKEN", "Navigation")
+            _dash_update(status="KRAKEN", goal="Navigation", run_start_time=None)
+            set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
+            _kraken_click_join_twice()
+            _kraken_prepare_weapon()
 
-        # — Wait 1 second after joining before doing anything —
-        log.info("[KRAKEN] waiting 1s after join before aiming/shooting/walking")
-        _wait_polling(1.0, "Kraken post-join settle", freeze=False)
-        if _KILLED:
-            break
+            # — Wait 1 second after joining before doing anything —
+            log.info("[KRAKEN] waiting 1s after join before aiming/shooting/walking")
+            _wait_polling(1.0, "Kraken post-join settle", freeze=False)
+            if _KILLED:
+                break
 
-        # — Smooth mouse aim: -75, -10 over 50ms (sensitivity-scaled) —
-        aim_dx, aim_dy = _scale_smooth_move(-75, -10)
-        log.info("[KRAKEN] smooth mouse aim: raw(-75,-10) scaled(%d,%d) over 50ms", aim_dx, aim_dy)
-        _smooth_move_rel(aim_dx, aim_dy, 50)
+            # — Smooth mouse aim: -75, -10 over 50ms (sensitivity-scaled) —
+            aim_dx, aim_dy = _scale_smooth_move(-75, -10)
+            log.info("[KRAKEN] smooth mouse aim: raw(-75,-10) scaled(%d,%d) over 50ms", aim_dx, aim_dy)
+            _smooth_move_rel(aim_dx, aim_dy, 50)
 
-        # — Activate drill once at start of fight (if enabled) —
-        try:
-            from dashboard import get_state as _ds_krakdrill
-            _krak_drill_on = bool(_ds_krakdrill().get("kraken_activate_drills", True))
-        except Exception:
-            _krak_drill_on = bool(getattr(_cfg_kraken, "KRAKEN_ACTIVATE_DRILLS", True))
-        if _krak_drill_on:
-            log.info("[KRAKEN] activating drill at fight start")
-            _trigger_drill_binding()
-
-        # — Fight phase: timer starts NOW —
-        boss_start = time.time()
-        boss_end_reason = "ended"
-        _console_status("KRAKEN", "Fight")
-        _dash_update(status="KRAKEN", goal="Fight", run_start_time=boss_start)
-        set_overlay(status="KRAKEN", goal="Fight", run_start_time=boss_start)
-        try:
-            from net_guard import set_path_redo as _set_kraken_redo
-            _set_kraken_redo(False)
-        except Exception:
-            pass
-        try:
-            from dashboard import get_state as _ds_kraken_move
-            movement_mode = str(_ds_kraken_move().get("kraken_movement_mode", "linear")).strip().lower()
-        except Exception:
-            movement_mode = str(getattr(_cfg_kraken, "KRAKEN_MOVEMENT_MODE", "linear")).strip().lower()
-        if movement_mode not in {"linear", "square"}:
-            movement_mode = "linear"
-        log.info("[KRAKEN] movement mode: %s", movement_mode)
-
-        poll_s = max(0.03, float(getattr(_cfg_kraken, "KRAKEN_SHOOT_POLL_SECONDS", 0.1)))
-        reassert_s = max(poll_s, float(getattr(_cfg_kraken, "KRAKEN_SHOOT_REASSERT_SECONDS", 0.5)))
-        death_wait = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_DEATH_WAIT_SECONDS", 5)))
-        hb_confirm_window_s = max(0.5, float(getattr(_cfg_kraken, "KRAKEN_HB_CONFIRM_WINDOW_SECONDS", 3.5)))
-        hb_post_loss_shoot_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_POST_HB_LOSS_SHOOT_SECONDS", 1.75)))
-        first_hb_timeout_s = max(3.0, float(getattr(_cfg_kraken, "KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS", 8.0)))
-
-        shooting = False
-        kill_detected_at: float | None = None
-        _walk_stop = threading.Event()
-
-        def _walk_loop():
-            """Background thread: selected movement pattern until _walk_stop."""
-            import keyboard as _kb
+            # — Activate drill once at start of fight (if enabled) —
             try:
-                from macro_runner import live_wasd
-                _wasd = live_wasd()
+                from dashboard import get_state as _ds_krakdrill
+                _krak_drill_on = bool(_ds_krakdrill().get("kraken_activate_drills", True))
             except Exception:
-                _wasd = {"w": ("w", 0x57), "a": ("a", 0x41), "s": ("s", 0x53), "d": ("d", 0x44)}
-            names = {k: (_wasd.get(k, (k, 0))[0] or k) for k in ("w", "a", "s", "d")}
-            held = list(dict.fromkeys(names.values()))
-            pattern = (
-                [("w", 2.0), ("d", 2.0), ("s", 2.0), ("a", 2.0)]
-                if movement_mode == "square"
-                else [("s", 2.0), ("w", 2.0)]
-            )
-            idx = 0
-            phase_start = time.time()
-            log.info("[KRAKEN] walk loop started")
-            while not _walk_stop.is_set():
-                key, phase_secs = pattern[idx]
-                live = names.get(key, key)
-                for k in held:
-                    if k == live:
-                        _kb.press(k)
-                    else:
-                        _kb.release(k)
-                if (time.time() - phase_start) >= phase_secs:
-                    idx = (idx + 1) % len(pattern)
-                    phase_start = time.time()
-                time.sleep(0.05)
-            for k in held:
+                _krak_drill_on = bool(getattr(_cfg_kraken, "KRAKEN_ACTIVATE_DRILLS", True))
+            if _krak_drill_on:
+                log.info("[KRAKEN] activating drill at fight start")
+                _trigger_drill_binding()
+
+            # — Fight phase: timer starts NOW —
+            boss_start = time.time()
+            boss_end_reason = "ended"
+            _console_status("KRAKEN", "Fight")
+            _dash_update(status="KRAKEN", goal="Fight", run_start_time=boss_start)
+            set_overlay(status="KRAKEN", goal="Fight", run_start_time=boss_start)
+            try:
+                from net_guard import set_path_redo as _set_kraken_redo
+                _set_kraken_redo(False)
+            except Exception:
+                pass
+            try:
+                from dashboard import get_state as _ds_kraken_move
+                movement_mode = str(_ds_kraken_move().get("kraken_movement_mode", "linear")).strip().lower()
+            except Exception:
+                movement_mode = str(getattr(_cfg_kraken, "KRAKEN_MOVEMENT_MODE", "linear")).strip().lower()
+            if movement_mode not in {"linear", "square"}:
+                movement_mode = "linear"
+            log.info("[KRAKEN] movement mode: %s", movement_mode)
+
+            poll_s = max(0.03, float(getattr(_cfg_kraken, "KRAKEN_SHOOT_POLL_SECONDS", 0.1)))
+            reassert_s = max(poll_s, float(getattr(_cfg_kraken, "KRAKEN_SHOOT_REASSERT_SECONDS", 0.5)))
+            death_wait = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_DEATH_WAIT_SECONDS", 5)))
+            hb_confirm_window_s = max(0.5, float(getattr(_cfg_kraken, "KRAKEN_HB_CONFIRM_WINDOW_SECONDS", 3.5)))
+            hb_post_loss_shoot_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_POST_HB_LOSS_SHOOT_SECONDS", 1.75)))
+            first_hb_timeout_s = max(3.0, float(getattr(_cfg_kraken, "KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS", 8.0)))
+
+            shooting = False
+            kill_detected_at: float | None = None
+            _walk_stop = threading.Event()
+
+            def _walk_loop():
+                """Background thread: selected movement pattern until _walk_stop."""
+                import keyboard as _kb
                 try:
-                    _kb.release(k)
+                    from macro_runner import live_wasd
+                    _wasd = live_wasd()
                 except Exception:
-                    pass
-            log.info("[KRAKEN] walk loop stopped")
+                    _wasd = {"w": ("w", 0x57), "a": ("a", 0x41), "s": ("s", 0x53), "d": ("d", 0x44)}
+                names = {k: (_wasd.get(k, (k, 0))[0] or k) for k in ("w", "a", "s", "d")}
+                held = list(dict.fromkeys(names.values()))
+                pattern = (
+                    [("w", 2.0), ("d", 2.0), ("s", 2.0), ("a", 2.0)]
+                    if movement_mode == "square"
+                    else [("s", 2.0), ("w", 2.0)]
+                )
+                idx = 0
+                phase_start = time.time()
+                log.info("[KRAKEN] walk loop started")
+                while not _walk_stop.is_set():
+                    key, phase_secs = pattern[idx]
+                    live = names.get(key, key)
+                    for k in held:
+                        if k == live:
+                            _kb.press(k)
+                        else:
+                            _kb.release(k)
+                    if (time.time() - phase_start) >= phase_secs:
+                        idx = (idx + 1) % len(pattern)
+                        phase_start = time.time()
+                    time.sleep(0.05)
+                for k in held:
+                    try:
+                        _kb.release(k)
+                    except Exception:
+                        pass
+                log.info("[KRAKEN] walk loop stopped")
 
-        walk_thread = threading.Thread(target=_walk_loop, daemon=True, name="kraken_walk_loop")
+            walk_thread = threading.Thread(target=_walk_loop, daemon=True, name="kraken_walk_loop")
 
-        try:
-            next_reassert = 0.0
-            health_missing_since = None
-            health_seen_once = False
-            shooting = True
-            walk_thread.start()
+            try:
+                next_reassert = 0.0
+                health_missing_since = None
+                health_seen_once = False
+                shooting = True
+                walk_thread.start()
 
-            while not _KILLED and not _TEST_FORCE_FAILURE:
-                now = time.time()
+                while not _KILLED and not _TEST_FORCE_FAILURE:
+                    now = time.time()
 
-                # — Death while fighting: immediate black screen —
-                if is_rebirth_screen():
-                    log.info("[KRAKEN] black screen detected - death; restarting")
-                    if shooting:
-                        _mouse_left_up()
-                        shooting = False
-                    boss_end_reason = "death"
-                    break
-
-                # — Join failure guard: if health bar never appears, reset route —
-                if (not health_seen_once) and ((now - boss_start) >= first_hb_timeout_s):
-                    log.warning(
-                        "[KRAKEN] no health bar seen after %.1fs - treating as join failure and retrying",
-                        now - boss_start,
-                    )
-                    if shooting:
-                        _mouse_left_up()
-                        shooting = False
-                    _walk_stop.set()
-                    boss_end_reason = "join_failed"
-                    break
-
-                # — Health bar disappeared —
-                # Once confirm mode starts (health_missing_since set), we never
-                # reset it on temporary OCR flicker. This prevents mouse fire from
-                # being re-armed right before Post Fight.
-                hb_seen_now = kraken_health_bar_seen()
-                if health_missing_since is None:
-                    if hb_seen_now:
-                        health_seen_once = True
-                    elif health_seen_once:
-                        health_missing_since = now
-                        log.info("[KRAKEN] health bar gone — watching for %.1fs to confirm kill vs death", hb_confirm_window_s)
-                        if shooting and hb_post_loss_shoot_s > 0:
-                            log.info("[KRAKEN] keeping fire for %.1fs after health bar loss", hb_post_loss_shoot_s)
-                        elif shooting:
-                            _mouse_left_up()
-                            shooting = False
-                        # Stop walk loop immediately when health bar gone
-                        _walk_stop.set()
-                else:
-                    elapsed = now - health_missing_since
-                    if shooting and elapsed >= hb_post_loss_shoot_s:
-                        _mouse_left_up()
-                        shooting = False
-                        log.info("[KRAKEN] post-loss fire window ended at %.2fs", elapsed)
+                    # — Death while fighting: immediate black screen —
                     if is_rebirth_screen():
-                        log.info("[KRAKEN] black screen during confirm window (%.2fs) — death", elapsed)
+                        log.info("[KRAKEN] black screen detected - death; restarting")
                         if shooting:
                             _mouse_left_up()
                             shooting = False
                         boss_end_reason = "death"
                         break
-                    elif elapsed >= hb_confirm_window_s:
-                        kill_detected_at = health_missing_since
-                        log.info(
-                            "[KRAKEN] %.1fs confirm window passed, no black screen -> boss killed",
-                            elapsed,
+
+                    # — Join failure guard: if health bar never appears, reset route —
+                    if (not health_seen_once) and ((now - boss_start) >= first_hb_timeout_s):
+                        log.warning(
+                            "[KRAKEN] no health bar seen after %.1fs - treating as join failure and retrying",
+                            now - boss_start,
                         )
                         if shooting:
                             _mouse_left_up()
                             shooting = False
-                        boss_end_reason = "killed"
+                        _walk_stop.set()
+                        boss_end_reason = "join_failed"
                         break
 
-                # — Assert shooting while health bar is still visible —
-                if health_missing_since is None:
-                    if now >= next_reassert:
-                        _mouse_left_down()
-                        next_reassert = now + reassert_s
-                        log.debug("[KRAKEN] left mouse down asserted")
-                    # Drill activation is deliberately not re-checked or
-                    # re-triggered here.  The start-of-fight path above is
-                    # the single activation attempt for this fight.  The old
-                    # timer path pressed the drill repeatedly whenever its
-                    # unreliable active-state detection flickered.
+                    # — Health bar disappeared —
+                    # Once confirm mode starts (health_missing_since set), we never
+                    # reset it on temporary OCR flicker. This prevents mouse fire from
+                    # being re-armed right before Post Fight.
+                    hb_seen_now = kraken_health_bar_seen()
+                    if health_missing_since is None:
+                        if hb_seen_now:
+                            health_seen_once = True
+                        elif health_seen_once:
+                            health_missing_since = now
+                            log.info("[KRAKEN] health bar gone — watching for %.1fs to confirm kill vs death", hb_confirm_window_s)
+                            if shooting and hb_post_loss_shoot_s > 0:
+                                log.info("[KRAKEN] keeping fire for %.1fs after health bar loss", hb_post_loss_shoot_s)
+                            elif shooting:
+                                _mouse_left_up()
+                                shooting = False
+                            # Stop walk loop immediately when health bar gone
+                            _walk_stop.set()
+                    else:
+                        elapsed = now - health_missing_since
+                        if shooting and elapsed >= hb_post_loss_shoot_s:
+                            _mouse_left_up()
+                            shooting = False
+                            log.info("[KRAKEN] post-loss fire window ended at %.2fs", elapsed)
+                        if is_rebirth_screen():
+                            log.info("[KRAKEN] black screen during confirm window (%.2fs) — death", elapsed)
+                            if shooting:
+                                _mouse_left_up()
+                                shooting = False
+                            boss_end_reason = "death"
+                            break
+                        elif elapsed >= hb_confirm_window_s:
+                            kill_detected_at = health_missing_since
+                            log.info(
+                                "[KRAKEN] %.1fs confirm window passed, no black screen -> boss killed",
+                                elapsed,
+                            )
+                            if shooting:
+                                _mouse_left_up()
+                                shooting = False
+                            boss_end_reason = "killed"
+                            break
 
-                if _kraken_try_menu_resume("boss fight"):
-                    boss_end_reason = "menu_resume"
-                    break
-                time.sleep(poll_s)
-        finally:
-            try:
-                from net_guard import set_path_redo as _set_kraken_redo
-                _set_kraken_redo(True)
-            except Exception:
-                pass
-            if shooting:
-                _mouse_left_up()
-            _walk_stop.set()
-            walk_thread.join(timeout=1.0)
-            if _KILLED:
-                boss_end_reason = "stopped"
-            # — Fight ended: immediately clear timer from overlay + dashboard —
-            _dash_update(status="KRAKEN", goal="Finish", run_start_time=None)
-            set_overlay(status="KRAKEN", goal="Finish", run_start_time=0)
-            _console_status("KRAKEN", "Finish")
-            if boss_end_reason in {"killed", "death"} and boss_start:
-                fight_duration = (kill_detected_at or time.time()) - boss_start
+                    # — Assert shooting while health bar is still visible —
+                    if health_missing_since is None:
+                        if now >= next_reassert:
+                            _mouse_left_down()
+                            next_reassert = now + reassert_s
+                            log.debug("[KRAKEN] left mouse down asserted")
+                        # Drill activation is deliberately not re-checked or
+                        # re-triggered here.  The start-of-fight path above is
+                        # the single activation attempt for this fight.  The old
+                        # timer path pressed the drill repeatedly whenever its
+                        # unreliable active-state detection flickered.
+
+                    if _kraken_try_menu_resume("boss fight"):
+                        boss_end_reason = "menu_resume"
+                        break
+                    time.sleep(poll_s)
+            finally:
                 try:
-                    _dash_record_kraken_run(fight_duration, boss_end_reason)
-                    log.info(f"[KRAKEN] run recorded: {fight_duration:.1f}s ({boss_end_reason})")
-                except Exception as e:
-                    log.debug(f"[KRAKEN] timing record failed: {e}")
+                    from net_guard import set_path_redo as _set_kraken_redo
+                    _set_kraken_redo(True)
+                except Exception:
+                    pass
+                if shooting:
+                    _mouse_left_up()
+                _walk_stop.set()
+                walk_thread.join(timeout=1.0)
+                if _KILLED:
+                    boss_end_reason = "stopped"
+                # — Fight ended: immediately clear timer from overlay + dashboard —
+                _dash_update(status="KRAKEN", goal="Finish", run_start_time=None)
+                set_overlay(status="KRAKEN", goal="Finish", run_start_time=0)
+                _console_status("KRAKEN", "Finish")
+                if boss_end_reason in {"killed", "death"} and boss_start:
+                    fight_duration = (kill_detected_at or time.time()) - boss_start
+                    try:
+                        _dash_record_kraken_run(fight_duration, boss_end_reason)
+                        log.info(f"[KRAKEN] run recorded: {fight_duration:.1f}s ({boss_end_reason})")
+                    except Exception as e:
+                        log.debug(f"[KRAKEN] timing record failed: {e}")
 
-        if _KILLED or _TEST_FORCE_FAILURE:
-            break
-        if boss_end_reason == "join_failed":
-            # Got there, clicked JOIN, but the fight never opened. This is a
-            # failed attempt too — it feeds the same strike counter.
-            if _boss_add_strike("kraken", "kraken fight did not open (no health bar after JOIN)"):
+            if _KILLED or _TEST_FORCE_FAILURE:
                 break
-            _dash_update(status="KRAKEN", goal="Navigation", run_start_time=None)
-            set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
-            continue
-        if boss_end_reason == "killed":
-            _boss_strike_reset("kraken", "boss killed")
-            _dash_update(status="KRAKEN", goal="Post Fight", run_start_time=None)
-            set_overlay(status="KRAKEN", goal="Post Fight", run_start_time=0)
-            _console_status("KRAKEN", "Post Fight")
-            # Walk to re-enter the fight right away - no extra settle wait.
-            outcome = _kraken_reopen_menu_after_kill()
-            if outcome == "death":
-                log.info("[KRAKEN] late death after kill - waiting for respawn")
-            elif outcome:
-                menu_ready = True
-                # Back to navigation - timer stays cleared until next fight starts
+            if boss_end_reason == "join_failed":
+                # Got there, clicked JOIN, but the fight never opened. This is a
+                # failed attempt too — it feeds the same strike counter.
+                if _boss_add_strike("kraken", "kraken fight did not open (no health bar after JOIN)"):
+                    break
                 _dash_update(status="KRAKEN", goal="Navigation", run_start_time=None)
                 set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
                 continue
-        # Death / stopped / other: wait for respawn, no timer
-        if boss_end_reason == "death":
-            _boss_strike_reset("kraken", "death — game still responsive")
-        _dash_update(status="KRAKEN", goal="Finish", run_start_time=None)
-        set_overlay(status="KRAKEN", goal="Finish", run_start_time=0)
-        _wait_polling(death_wait, "Kraken respawn", freeze=True)
+            if boss_end_reason == "killed":
+                _boss_strike_reset("kraken", "boss killed")
+                _dash_update(status="KRAKEN", goal="Post Fight", run_start_time=None)
+                set_overlay(status="KRAKEN", goal="Post Fight", run_start_time=0)
+                _console_status("KRAKEN", "Post Fight")
+                # Walk to re-enter the fight right away - no extra settle wait.
+                outcome = _kraken_reopen_menu_after_kill()
+                if outcome == "death":
+                    log.info("[KRAKEN] late death after kill - waiting for respawn")
+                elif outcome:
+                    menu_ready = True
+                    # Back to navigation - timer stays cleared until next fight starts
+                    _dash_update(status="KRAKEN", goal="Navigation", run_start_time=None)
+                    set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
+                    continue
+            # Death / stopped / other: wait for respawn, no timer
+            if boss_end_reason == "death":
+                _boss_strike_reset("kraken", "death — game still responsive")
+            _dash_update(status="KRAKEN", goal="Finish", run_start_time=None)
+            set_overlay(status="KRAKEN", goal="Finish", run_start_time=0)
+            _wait_polling(death_wait, "Kraken respawn", freeze=True)
+    finally:
+        _freeze_stone(False)
 
     _dash_update(run_active=False, run_start_time=None, waiting_for_start=True, status="WAITING", goal="Ready")
     set_overlay(status="WAITING", goal="Ready", run_start_time=0)
