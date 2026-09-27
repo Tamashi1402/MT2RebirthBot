@@ -13,9 +13,12 @@
 (function () {
   'use strict';
 
+  // the configurable screen-pick key, injected into macro-editor.html
+  var PICK_KEY = window.BOT_PICK_KEY || 'F2';
+
   // ── clickable label field (proven pattern from mf-plugins makeMappedField) ──
   function MfmPickField(kind) {
-    var label = kind === 'smooth' ? '⌖ capture (hold F2)' : '⌖ pick (F2)';
+    var label = kind === 'smooth' ? ('⌖ capture (hold ' + PICK_KEY + ')') : ('⌖ pick (' + PICK_KEY + ')');
     var field = new Blockly.FieldLabel(label);
     field.kind_ = kind;
     field.EDITABLE = true;
@@ -139,7 +142,7 @@
   function armF2(onShot) {
     var root = ensurePopupRoot();
     root.style.display = 'flex';
-    statusLine('Arming F2 …');
+    statusLine('Arming ' + PICK_KEY + ' …');
 
     fetch('/blockly/picker/prepare', {
       method: 'POST',
@@ -147,15 +150,15 @@
       body: JSON.stringify({ mode: active.mode === 'box' ? 'box' : 'point' }),
     }).then(function (r) { return r.json(); }).then(function (d) {
       if (!active) return;
-      if (!d.ok) { statusLine('Error: ' + (d.error || 'could not arm F2'), false); return; }
-      statusLine('Waiting for F2 … press it in your app', true);
+      if (!d.ok) { statusLine('Error: ' + (d.error || 'could not arm ' + PICK_KEY + ''), false); return; }
+      statusLine(('Waiting for ' + PICK_KEY + ' … press it in your app'), true);
     }).catch(function () { statusLine('Server unreachable', false); });
 
     active.poll = setInterval(function () {
       if (!active) return;
       fetch('/blockly/picker/status').then(function (r) { return r.json(); }).then(function (d) {
         if (!active) return;
-        if (d.state === 'armed') statusLine('Waiting for F2 … press it in your app', true);
+        if (d.state === 'armed') statusLine(('Waiting for ' + PICK_KEY + ' … press it in your app'), true);
         else if (d.state === 'capturing') statusLine('Taking screenshot …', true);
         else if (d.state === 'captured' && d.has_shot) {
           clearInterval(active.poll); active.poll = null;
@@ -298,7 +301,7 @@
     } };
     document.getElementById('mfm-pop-title').textContent = 'Pick a screen point';
     document.getElementById('mfm-pop-text').textContent =
-      'Switch to your app, press F2 — a screenshot is taken instantly. ' +
+      'Switch to your app, press ' + PICK_KEY + ' — a screenshot is taken instantly. ' +
       'Then click the pixel in the screenshot.';
     armF2(openShotEditor);
   }
@@ -338,7 +341,7 @@
     } };
     document.getElementById('mfm-pop-title').textContent = 'Pick an image region';
     document.getElementById('mfm-pop-text').textContent =
-      'Switch to your app, press F2 — a screenshot is taken instantly. ' +
+      'Switch to your app, press ' + PICK_KEY + ' — a screenshot is taken instantly. ' +
       'Then drag the rectangle you want to find on screen. The crop is saved ' +
       'into the macro images folder and shown on the block.';
     armF2(openShotEditor);
@@ -401,7 +404,7 @@
     } };
     document.getElementById('mfm-pop-title').textContent = 'Pick a screen region';
     document.getElementById('mfm-pop-text').textContent =
-      'Switch to your app, press F2 — a screenshot is taken instantly. ' +
+      'Switch to your app, press ' + PICK_KEY + ' — a screenshot is taken instantly. ' +
       'Then drag the rectangle you want to grab.';
     armF2(openShotEditor);
   }
@@ -429,7 +432,7 @@
     } };
     document.getElementById('mfm-pop-title').textContent = 'Pick a screen region';
     document.getElementById('mfm-pop-text').textContent =
-      'Switch to your app, press F2 — a screenshot is taken instantly. ' +
+      'Switch to your app, press ' + PICK_KEY + ' — a screenshot is taken instantly. ' +
       'Then drag the rectangle you want.';
     armF2(openShotEditor);
   }
@@ -464,7 +467,7 @@
     } };
     document.getElementById('mfm-pop-title').textContent = 'Pick a color';
     document.getElementById('mfm-pop-text').textContent =
-      'Switch to your app, press F2 — a screenshot is taken instantly. ' +
+      'Switch to your app, press ' + PICK_KEY + ' — a screenshot is taken instantly. ' +
       'Then click the pixel whose color you want.';
     armF2(openShotEditor);
   }
@@ -492,7 +495,7 @@
     document.getElementById('mfm-pop-text').textContent =
       'Hold F2 in your game and move the mouse (camera) — the net movement ' +
       'is captured when you release, scaled exactly like a recorded smooth move.';
-    statusLine('Arming F2 …');
+    statusLine('Arming ' + PICK_KEY + ' …');
     root.style.display = 'flex';
 
     var baseSeq = 0;

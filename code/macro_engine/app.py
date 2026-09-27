@@ -104,6 +104,7 @@ current_path:  str = ""
 current_macro: str = ""
 record_binding: str = "F5"
 play_binding: str = "F6"
+pick_binding: str = "F2"   # configurable screen-pick key (config.PICK_KEY)
 smooth_binding: str = "L"
 _smooth_move = {"seq": 0, "x": 0, "y": 0, "elapsed_ms": 0}
 smooth_tracker = SmoothMoveTracker()
@@ -227,7 +228,7 @@ def smooth_pick_arm():
         _smooth_pick["active"] = True
     try:
         started = smooth_tracker.start(
-            _binding_to_vk("F2", "F2"),
+            _binding_to_vk(pick_binding, "F2"),
             _smooth_is_busy,
             _smooth_pick_result_cb,
         )
@@ -337,7 +338,7 @@ def crop_to_image():
     except Exception:
         shot = ""
     if not shot or not os.path.isfile(shot):
-        return jsonify({"ok": False, "error": "no screenshot to crop — press F2 first"}), 400
+        return jsonify({"ok": False, "error": f"no screenshot to crop — press {pick_binding} first"}), 400
     try:
         from PIL import Image
         x1, y1, x2, y2 = (int(round(float(v))) for v in box)
@@ -484,17 +485,19 @@ def _restart_hotkeys() -> None:
 
 def apply_recorder_bindings_from_config() -> None:
     """Use the bot Config panel F5/F6/L bindings for Recorder."""
-    global record_binding, play_binding, smooth_binding
+    global record_binding, play_binding, smooth_binding, pick_binding
     try:
         import config as _cfg
         rec = str(getattr(_cfg, "RECORDER_RECORD_BINDING", record_binding) or "F5").strip().upper() or "F5"
         play = str(getattr(_cfg, "RECORDER_PLAY_BINDING", play_binding) or "F6").strip().upper() or "F6"
         smooth = str(getattr(_cfg, "RECORDER_SMOOTH_MOVE_KEY", smooth_binding) or "L").strip().upper() or "L"
+        pick = str(getattr(_cfg, "PICK_KEY", pick_binding) or "F2").strip().upper() or "F2"
     except Exception:
-        rec, play, smooth = "F5", "F6", "L"
+        rec, play, smooth, pick = "F5", "F6", "L", "F2"
     record_binding = rec
     play_binding = play
     smooth_binding = smooth
+    pick_binding = pick
     try:
         engine._set_state(play_binding=play_binding, record_binding=record_binding)
     except Exception:
@@ -1388,15 +1391,15 @@ def _wait_for_f2_sample(timeout_s: float = 60.0, token: int | None = None) -> tu
     user32 = ctypes.windll.user32
     user32.GetCursorPos.argtypes = [ctypes.POINTER(ctypes.wintypes.POINT)]
     user32.GetCursorPos.restype = ctypes.wintypes.BOOL
-    VK_F2 = 0x71
+    vk_pick = _binding_to_vk(pick_binding, "F2")
     deadline = time.time() + max(1.0, float(timeout_s))
-    while time.time() < deadline and (token is None or _picker_wait_token_active(token)) and (user32.GetAsyncKeyState(VK_F2) & 0x8000):
+    while time.time() < deadline and (token is None or _picker_wait_token_active(token)) and (user32.GetAsyncKeyState(vk_pick) & 0x8000):
         time.sleep(0.02)
     while time.time() < deadline and (token is None or _picker_wait_token_active(token)):
-        if user32.GetAsyncKeyState(VK_F2) & 0x8000:
+        if user32.GetAsyncKeyState(vk_pick) & 0x8000:
             pt = ctypes.wintypes.POINT()
             user32.GetCursorPos(ctypes.pointer(pt))
-            while time.time() < deadline and (token is None or _picker_wait_token_active(token)) and (user32.GetAsyncKeyState(VK_F2) & 0x8000):
+            while time.time() < deadline and (token is None or _picker_wait_token_active(token)) and (user32.GetAsyncKeyState(vk_pick) & 0x8000):
                 time.sleep(0.02)
             return int(pt.x), int(pt.y)
         time.sleep(0.02)
@@ -1905,6 +1908,7 @@ def bootstrap():
         "record_binding": record_binding,
         "play_binding": play_binding,
         "smooth_binding": smooth_binding,
+        "pick_binding": pick_binding,
         "playback_repeat": playback_repeat,
         "playback_times": playback_times,
         "sensitivity": {**_engine_sensitivity_dict(), **_bot_user_sensitivity()},
@@ -2021,7 +2025,7 @@ def tools_picker():
     if point is None:
         if not _picker_wait_token_active(token):
             return jsonify({"ok": False, "error": "Picker cancelled."}), 409
-        return jsonify({"ok": False, "error": "Timed out waiting for F2."}), 408
+        return jsonify({"ok": False, "error": f"Timed out waiting for {pick_binding}."}), 408
     sx, sy = point
     return jsonify({
         "ok": True,
@@ -2047,7 +2051,7 @@ def tools_region():
     if region is None:
         if not _picker_wait_token_active(token):
             return jsonify({"ok": False, "error": "Region picker cancelled."}), 409
-        return jsonify({"ok": False, "error": "Timed out waiting for two F2 samples."}), 408
+        return jsonify({"ok": False, "error": f"Timed out waiting for two {pick_binding} samples."}), 408
     x1, y1, x2, y2 = region
     return jsonify({"ok": True, "x1": x1, "y1": y1, "x2": x2, "y2": y2})
 

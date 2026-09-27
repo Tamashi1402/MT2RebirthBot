@@ -1431,7 +1431,7 @@
       if (this.svgRoot) return;
       B.icons.Icon.prototype.initView.call(this, pointerdownListener);
       drawPickerChrome(this.svgRoot);
-      if (this.setTooltip) this.setTooltip(this._mfMode === "file" ? "Browse for a file" : "Pick from screen (F2)");
+      if (this.setTooltip) this.setTooltip(this._mfMode === "file" ? "Browse for a file" : ("Pick from screen (" + (window.BOT_PICK_KEY || 'F2') + ")"));
     }
     onClick() {
       var block = this.sourceBlock;
@@ -1718,7 +1718,7 @@
   function mfmtApplyMeta(block, meta, label) {
     if (!meta || !meta.box) {
       mfmtToast("No pick metadata" + (label ? " for '" + label + "'" : "") +
-                " — pick the image with F2 first");
+                " — pick the image with " + (window.BOT_PICK_KEY || 'F2') + " first");
       return;
     }
     mfmtDrop(block, meta);
@@ -1760,7 +1760,7 @@
       mfmtFetchMetaByRes(path).then(function (d) {
         if (!d || !d.ok) { mfmtToast("Server unreachable"); return; }
         if (!d.meta || !d.meta.box) {
-          mfmtToast("No pick metadata for this image — re-pick it with the pipette (F2)");
+          mfmtToast("No pick metadata for this image — re-pick it with the pipette (" + (window.BOT_PICK_KEY || 'F2') + ")");
           return;
         }
         mfmtApplyMeta(block, d.meta);

@@ -74,10 +74,12 @@ Blockly.Blocks['mfm_hat'] = {
   },
 };
 
+var MFM_PICK_KEY = window.BOT_PICK_KEY || 'F2';   // configurable screen-pick key (config PICK_KEY)
+
 // attach the picker field (defined in macro-picker.js; label fallback if absent)
 function _mfm_pickfield(kind) {
   if (typeof MfmPickField === 'function') return MfmPickField(kind);
-  return new Blockly.FieldLabel(kind === 'smooth' ? '\u2b1a capture (F2)' : '\u2b1a pick (F2)');
+  return new Blockly.FieldLabel(kind === 'smooth' ? ('\u2b1a capture (' + MFM_PICK_KEY + ')') : ('\u2b1a pick (' + MFM_PICK_KEY + ')'));
 }
 
 // Flow — Delay
@@ -379,7 +381,7 @@ Blockly.Blocks['mfm_scaled_move'] = {
       "nextStatement": null,
       "colour": 40,
       "inputsInline": true,
-      "tooltip": "Relative move, scaled by sensitivity (was Smooth move). Capture the movement with the picker: hold F2, move, release.",
+      "tooltip": "Relative move, scaled by sensitivity (was Smooth move). Capture the movement with the picker: hold " + MFM_PICK_KEY + ", move, release.",
     });
     if (Blockly.icons && Blockly.icons.MFPickIcon) {
       this.addIcon(new Blockly.icons.MFPickIcon('smooth', this));
@@ -398,7 +400,7 @@ Blockly.Blocks['mfm_abs_move'] = {
       "nextStatement": null,
       "colour": 40,
       "inputsInline": true,
-      "tooltip": "Move the mouse to an absolute point. Pick it with the crosshair on the point block (F2).",
+      "tooltip": "Move the mouse to an absolute point. Pick it with the crosshair on the point block (" + MFM_PICK_KEY + ").",
     });
   },
 };
@@ -2563,7 +2565,7 @@ if (typeof Blockly !== 'undefined' && Blockly.Blocks) {
       "inputsInline": true,
       "output": "Image",
       "colour": 260,
-      "tooltip": "Grab a live region of the screen as an image value — use it in image checks or store it in an image variable. The crosshair picks the region from the screen (F2)."
+      "tooltip": "Grab a live region of the screen as an image value — use it in image checks or store it in an image variable. The crosshair picks the region from the screen (" + MFM_PICK_KEY + ")."
     });
     if (Blockly.icons && Blockly.icons.MFPickIcon) {
       try { this.addIcon(new Blockly.icons.MFPickIcon("grab", this)); } catch (e) {}
@@ -2607,7 +2609,7 @@ if (typeof Blockly !== 'undefined' && Blockly.Blocks) {
       "previousStatement": null,
       "nextStatement": null,
       "colour": 260,
-      "tooltip": "Search for a template image and write the result into a variable: true/false, coordinates (var_x / var_y), or both. The crosshair on the image block can pick and crop a fresh template from the screen (F2)."
+      "tooltip": "Search for a template image and write the result into a variable: true/false, coordinates (var_x / var_y), or both. The crosshair on the image block can pick and crop a fresh template from the screen (" + MFM_PICK_KEY + ")."
     });
   });
 

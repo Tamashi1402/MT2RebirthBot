@@ -538,6 +538,7 @@ CONFIG_EDITABLE = [
     ("RECORDER_RECORD_BINDING", "str", "Recorder Record"),
     ("RECORDER_PLAY_BINDING", "str", "Recorder Play / Stop"),
     ("RECORDER_SMOOTH_MOVE_KEY", "str", "Recorder Smooth Move (hold)"),
+    ("PICK_KEY", "str", "Screen Pick Key"),
     ("KRAKEN_HB_CONFIRM_WINDOW_SECONDS", "float", "Kraken: kill-confirm watch after health bar gone (seconds)"),
     ("KRAKEN_POST_HB_LOSS_SHOOT_SECONDS", "float", "Kraken: keep firing after health bar gone (seconds)"),
     ("KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS", "float", "Kraken: max wait for boss health bar to appear (seconds)"),
@@ -901,6 +902,19 @@ def editor_assets(filename):
         return jsonify({"ok": False, "error": "Not found"}), 404
     if not os.path.isfile(path):
         return jsonify({"ok": False, "error": "Not found"}), 404
+    if os.path.basename(path).lower() == "macro-editor.html":
+        # inject the configurable pick key (config PICK_KEY) so the editor's
+        # picker labels/hints always match the user's keybind. Served
+        # uncached: the key can change while the exe keeps running.
+        try:
+            import io
+            html = open(path, encoding="utf-8", errors="replace").read()
+            import json as _json
+            tag = "<script>window.BOT_PICK_KEY = %s;</script>" % _json.dumps(_pick_key_name())
+            html = html.replace("</head>", tag + "</head>", 1)
+            return send_file(io.BytesIO(html.encode("utf-8")), mimetype="text/html", max_age=0)
+        except Exception:
+            pass
     return send_file(path)
 
 
@@ -990,7 +1004,16 @@ def blockly_screen_info():
 
 _PICKER_LOCK = threading.Lock()
 _PICKER = {"state": "idle", "mode": None, "error": None, "f2_armed": False,
-           "shot_path": None, "screen": None, "armed_at": 0.0}
+           "armed_key": "f2", "shot_path": None, "screen": None, "armed_at": 0.0}
+
+
+def _pick_key_name() -> str:
+    """The configurable screen-pick key (config PICK_KEY, default F2)."""
+    try:
+        import config as _cfg
+        return str(getattr(_cfg, "PICK_KEY", "F2") or "F2").strip().upper() or "F2"
+    except Exception:
+        return "F2"
 
 
 def _picker_reset(state="idle"):
@@ -1003,7 +1026,7 @@ def _picker_disarm_f2():
         return
     try:
         import keyboard
-        keyboard.unhook_key("f2")
+        keyboard.unhook_key(_PICKER.get("armed_key") or "f2")
     except Exception:
         pass
 
@@ -1051,11 +1074,13 @@ def blockly_picker_prepare():
             import time as _time
             _PICKER["armed_at"] = _time.time()
             import keyboard
-            keyboard.on_press_key("f2", lambda e: _picker_launch(mode))
+            _pk = _pick_key_name()
+            keyboard.on_press_key(_pk.lower(), lambda e: _picker_launch(mode))
             _PICKER["f2_armed"] = True
+            _PICKER["armed_key"] = _pk.lower()
         except Exception as exc:
             _picker_reset("error")
-            _PICKER["error"] = "F2 hotkey unavailable (keyboard module): %s" % exc
+            _PICKER["error"] = "%s hotkey unavailable (keyboard module): %s" % (_pick_key_name(), exc)
         ok = _PICKER["state"] == "armed"
         state = _PICKER["state"]
         error = _PICKER["error"]
@@ -1103,7 +1128,7 @@ def blockly_picker_crop_to_file():
         shot = _PICKER.get("shot_path") or ""
         screen = _PICKER.get("screen") or []
     if not shot or not os.path.isfile(shot):
-        return jsonify({"ok": False, "error": "no screenshot to crop — press F2 first"}), 400
+        return jsonify({"ok": False, "error": f"no screenshot to crop — press {_pick_key_name()} first"}), 400
     try:
         from PIL import Image
         x1, y1, x2, y2 = (int(round(float(v))) for v in box)
@@ -1211,7 +1236,7 @@ def game_detect_crop():
         shot = _PICKER.get("shot_path") or ""
         screen = _PICKER.get("screen") or []
     if not shot or not os.path.isfile(shot):
-        return jsonify({"ok": False, "error": "no screenshot to crop \u2014 press F2 first"}), 400
+        return jsonify({"ok": False, "error": f"no screenshot to crop \u2014 press {_pick_key_name()} first"}), 400
     try:
         from PIL import Image
         x1, y1, x2, y2 = (int(round(float(v))) for v in box)
@@ -1272,7 +1297,8 @@ def game_detect_clear():
 
 @app.route("/")
 def index():
-    return _DASHBOARD_HTML.replace("__MT2_CSRF_TOKEN__", _CSRF_TOKEN)
+    return (_DASHBOARD_HTML.replace("__MT2_CSRF_TOKEN__", _CSRF_TOKEN)
+            .replace("__PICK_KEY__", _pick_key_name()))
 
 @app.route("/state")
 def state():
@@ -1393,7 +1419,7 @@ def config_post():
                 _bot_mod._register_hotkeys()
             except Exception as _hk_e:
                 log.warning(f"[Config] hotkey re-register failed: {_hk_e}")
-        if "RECORDER_RECORD_BINDING" in typed or "RECORDER_PLAY_BINDING" in typed or "RECORDER_SMOOTH_MOVE_KEY" in typed:
+        if "RECORDER_RECORD_BINDING" in typed or "RECORDER_PLAY_BINDING" in typed or "RECORDER_SMOOTH_MOVE_KEY" in typed or "PICK_KEY" in typed:
             try:
                 from macro_engine.app import apply_recorder_bindings_from_config
                 apply_recorder_bindings_from_config()
@@ -3631,7 +3657,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
   <div class="lo-block">
     <h3>In-Game image detection not set!</h3>
     <p>Force Restart is ON, so the bot needs to know what the in-game HUD looks like. Pick an always-visible element (Miner Tycoon 2 logo, stone icon or shard icon) once in the global Config (top gear) &rarr; Force Restart. The bot will not start without it.</p>
-    <p style="color:var(--muted);font-size:12px;">Pick it while in-game: press Pick, then F2, then drag a box around the element. Box and point save automatically.</p>
+    <p style="color:var(--muted);font-size:12px;">Pick it while in-game: press Pick, then __PICK_KEY__, then drag a box around the element. Box and point save automatically.</p>
     <div style="display:flex;gap:8px;justify-content:center;margin-top:14px;">
       <button type="button" style="background:var(--accent);border:none;border-radius:8px;color:#fff;padding:8px 16px;font:600 13px 'Segoe UI',sans-serif;cursor:pointer" onclick="takeMeToGameDetect()">Take me there</button>
       <button type="button" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 16px;font:13px 'Segoe UI',sans-serif;cursor:pointer" onclick="closeGameDetectBlock()">Close</button>
@@ -4129,6 +4155,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
 
 <script>
 const MT2_CSRF_TOKEN = "__MT2_CSRF_TOKEN__";
+window.BOT_PICK_KEY = "__PICK_KEY__";   // configurable screen-pick key (config PICK_KEY)
 function mt2Fetch(url, options = {}) {
   const opts = {...options};
   const method = (opts.method || 'GET').toUpperCase();
@@ -4863,7 +4890,7 @@ function dashPickBox(onDone) {
     + '<div style="font:700 15px \'Segoe UI\',sans-serif;margin-bottom:10px">Pick a box from the screen</div>'
     + '<ol style="margin:0 0 12px 20px;font:13px \'Segoe UI\',sans-serif;line-height:1.55;color:var(--text)">'
     + '<li>Open the game <b>the way the bot will see it</b> — fullscreen, or the exact window size you play at.</li>'
-    + '<li>Press <b>F2</b> there. It works only while this popup is open — a screenshot is taken instantly.</li>'
+    + '<li>Press <b>' + window.BOT_PICK_KEY + '</b> there. It works only while this popup is open — a screenshot is taken instantly.</li>'
     + '<li>The screenshot opens fullscreen here. Drag a rectangle around what you want, then <b>Accept</b>.</li>'
     + '</ol>'
     + '<div id="dash-pick-status" style="font:12.5px \'Segoe UI\',sans-serif;color:var(--muted);margin-bottom:14px"></div>'
@@ -4873,7 +4900,7 @@ function dashPickBox(onDone) {
   var st = { root: root, overlay: null, timer: null, map: null, box: null, fit: null, keys: null };
   _dashPicker = st;
   var statusEl = root.querySelector('#dash-pick-status');
-  _dashPickerStatus(statusEl, 'Arming F2 …');
+  _dashPickerStatus(statusEl, 'Arming ' + window.BOT_PICK_KEY + ' …');
   root.querySelector('#dash-pick-cancel').addEventListener('click', function () { _dashPickerClose(true); onDone(null); });
   root.addEventListener('mousedown', function (e) { if (e.target === root) { _dashPickerClose(true); onDone(null); } });
   st.keys = function (e) {
@@ -4882,15 +4909,15 @@ function dashPickBox(onDone) {
   document.addEventListener('keydown', st.keys);
   postJson('/blockly/picker/prepare', { mode: 'box' }).then(function (r) { return r.json(); }).then(function (d) {
     if (!_dashPicker) return;
-    if (!d.ok) { _dashPickerStatus(statusEl, 'Error: ' + (d.error || 'could not arm F2')); return; }
-    _dashPickerStatus(statusEl, 'Waiting for F2 — press it in your game');
+    if (!d.ok) { _dashPickerStatus(statusEl, 'Error: ' + (d.error || ('could not arm ' + window.BOT_PICK_KEY))); return; }
+    _dashPickerStatus(statusEl, 'Waiting for ' + window.BOT_PICK_KEY + ' — press it in your game');
   }).catch(function () { if (_dashPicker) _dashPickerStatus(statusEl, 'Server unreachable'); });
 
   st.timer = setInterval(function () {
     if (!_dashPicker) return;
     fetch('/blockly/picker/status').then(function (r) { return r.json(); }).then(function (d) {
       if (!_dashPicker) return;
-      if (d.state === 'armed') _dashPickerStatus(statusEl, 'Waiting for F2 — press it in your game');
+      if (d.state === 'armed') _dashPickerStatus(statusEl, 'Waiting for ' + window.BOT_PICK_KEY + ' — press it in your game');
       else if (d.state === 'capturing') _dashPickerStatus(statusEl, 'Taking screenshot …');
       else if (d.state === 'captured' && d.has_shot) {
         clearInterval(st.timer);
@@ -5391,9 +5418,9 @@ const CFG_TOOLTIPS = {
   MANUAL_STR_CLICK_HOLD_MS: 'Manual Strength: hold time between mouse down and mouse up for each click, in milliseconds. Default 20ms, minimum 1ms (0ms makes the game merge and eat clicks entirely; the bot forces 1ms even if you enter 0).',
   HATCH_CLOSE_MIN_PCT: 'Daily Quests: yellow-pixel percentage needed to consider the hatch GUI (and its close button) detected. The hatch button is thinner than the quest board close, reading ~0.27 when open, so the default is 0.20.',
   DAILY_QUEST_ALIASES: 'Daily Quests: OCR aliases per quest type. Pick the quest type in the dropdown (Break N Star Rocks / Open Chests / Hatch Pets / Combine Pets / Hatch GUI: Area 1 Egg), then add translated names with +. For rocks, {$NUMBER} marks where the rock-count digit sits (BREAK {$NUMBER} STAR ROCKS). Matching is case-insensitive and ignores spaces.',
-  GAME_DETECT_IMAGE: 'Pick an always-visible in-game HUD element as proof we are in the MT2 map (the logo, stone icon, or shard icon): press Pick, then F2 in-game, drag a box around it. Nothing is shipped by default - Force Restart refuses to start until this is picked.',
+  GAME_DETECT_IMAGE: 'Pick an always-visible in-game HUD element as proof we are in the MT2 map (the logo, stone icon, or shard icon): press Pick, then __PICK_KEY__ in-game, drag a box around it. Nothing is shipped by default - Force Restart refuses to start until this is picked.',
   GAME_DETECT_DIFF: 'Image difference tolerance in percent (default 5). The bot grabs the live screen at the picked box and compares it with your picked image: a mean difference above this percent means we are NOT looking at the MT2 in-game HUD (wrong map, menu, loading screen) and Force Restart / recovery treats it as out-of-game. Raise it if the check fails while you are in game; lower it to be stricter.',
-  FORCE_GAME_LOGO_IMAGE: 'Pick the Miner Tycoon 2 billboard from the map-search results: press Pick, then F2 in-game while the results are open, drag a box around it. Nothing is shipped by default - if the bot drifts to a wrong game without this picked, the map search cannot finish and the bot stops with an error rather than clicking randomly.',
+  FORCE_GAME_LOGO_IMAGE: 'Pick the Miner Tycoon 2 billboard from the map-search results: press Pick, then __PICK_KEY__ in-game while the results are open, drag a box around it. Nothing is shipped by default - if the bot drifts to a wrong game without this picked, the map search cannot finish and the bot stops with an error rather than clicking randomly.',
   FORCE_NOTINGAME_WAIT: 'Three-state recovery, state 3: after every known GUI is closed and the in-game image is still missing, wait up to this many seconds for the HUD image or the lobby menu before giving up and leaving to the lobby. A join can legitimately take 30s-2min, so the default is 120s.',
   FORCE_MENU_TIMEOUT: 'Max seconds to search for the lobby menu (PLAY button OCR, scroll-up drift protection) before the join is considered failed.',
   FORCE_PLAY_SETTLE: 'Pause between confirming Miner Tycoon 2 is selected and pressing PLAY, in seconds (default 5). Fresh UI is not clickable instantly.',
@@ -5503,6 +5530,7 @@ const CFG_TOOLTIPS = {
   RECORDER_RECORD_BINDING: 'Recorder tab only: start/stop recording (default F5). Does not fire on Run or Editor.',
   RECORDER_PLAY_BINDING: 'Recorder tab only: play/stop the open macro (default F6). Does not fire on Run or Editor.',
   RECORDER_SMOOTH_MOVE_KEY: 'Recorder tab only: hold this key in Fortnite to capture a smooth move on both axes (default L). Mouse input is not blocked; on release a popup gives the (x, y) value to copy into a Smooth Move block.',
+  PICK_KEY: 'The screen-pick key: screenshot picks (steps editor, game detect, macro blocks), crosshair point/region sampling and the blockly scaled-move capture. Default F2.',
 
 
 
@@ -5532,6 +5560,7 @@ const CFG_KEYBIND_FIELDS = new Set([
   'RECORDER_RECORD_BINDING',
   'RECORDER_PLAY_BINDING',
   'RECORDER_SMOOTH_MOVE_KEY',
+  'PICK_KEY',
 ]);
 const CFG_KEYBIND_OPTIONS = [
   ['F1','F1'], ['F2','F2'], ['F3','F3'], ['F4','F4'], ['F5','F5'], ['F6','F6'],
@@ -5558,7 +5587,7 @@ const CFG_TABS = [
     {title:'Overlays',keys:['DISABLE_OVERLAYS']},
     {title:'Fortnite Sensitivity',keys:['USER_SENS_H','USER_SENS_V']},
     {title:'Run Keybinds',keys:['BOT_START_BINDING','BOT_STOP_BINDING','MENU_TOGGLE_BINDING','PICKAXE_EQUIP_BINDING','WEAPON_1_BINDING','MONITOR_ITEM_BINDING','FORWARD_BINDING','BACKWARD_BINDING','LEFT_BINDING','RIGHT_BINDING','JUMP_BINDING','SPRINT_BINDING','CROUCH_BINDING','DRILL_ACTIVATE_BINDING']},
-    {title:'Recorder Keybinds',keys:['RECORDER_RECORD_BINDING','RECORDER_PLAY_BINDING','RECORDER_SMOOTH_MOVE_KEY']},
+    {title:'Recorder Keybinds',keys:['RECORDER_RECORD_BINDING','RECORDER_PLAY_BINDING','RECORDER_SMOOTH_MOVE_KEY','PICK_KEY']},
   ]},
   {id:'finetuning', label:'Fine-Tuning', sections:[
     {title:'Run',keys:['ROUTE_REDO_LIMIT','REBIRTH_BTN2_TIMEOUT']},

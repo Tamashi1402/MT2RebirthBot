@@ -149,6 +149,7 @@ const MACRO_FOLDER_LABELS = { '': 'Root' };
 const MACRO_FOLDER_ORDER = [''];
 const MACRO_HINTS = {};
 let recordBindingValue = 'F5';
+let pickKeyValue = 'F2';   // configurable screen-pick key (config PICK_KEY)
 let playBindingValue = 'F6';
 let smoothMoveBindingValue = 'L';
 let lastSmoothMoveSeq = 0;
@@ -722,7 +723,7 @@ function updateCmdFields() {
     setCmdSection(cmdIfNumWrap, num);
   }
   if (type === 'MOUSE_MOVE_ABS') {
-    cmdHint.textContent = 'Moves the cursor to screen coordinates (menus / UI). Press F2 to capture the current position.';
+    cmdHint.textContent = `Moves the cursor to screen coordinates (menus / UI). Press ${pickKeyValue} to capture the current position.`;
     startCmdPicker();
   } else if (type === 'SMOOTH_MOVE') {
     cmdHint.textContent = 'In-game camera turn (Smooth Move). X/Y are relative mouse counts, not screen pixels.';
@@ -791,7 +792,7 @@ async function runCmdPicker(session) {
     if (d && d.ok) {
       cmdX.value = String(d.x);
       cmdY.value = String(d.y);
-      cmdF2Hint.textContent = `Captured ${d.x}, ${d.y} — press F2 again to recapture`;
+      cmdF2Hint.textContent = `Captured ${d.x}, ${d.y} — press ${pickKeyValue} again to recapture`;
     }
   } catch {
   } finally {
@@ -828,7 +829,7 @@ function openCmdDialog(kind, index = null, forceType = null) {
     const parts = String(block?.value || (mouseType === 'SMOOTH_MOVE' ? '60,0' : '960,540')).split(',');
     cmdX.value = (parts[0] ?? '0').trim() || '0';
     cmdY.value = (parts[1] ?? '0').trim() || '0';
-    cmdF2Hint.textContent = 'Press F2 to capture current screen position';
+    cmdF2Hint.textContent = `Press ${pickKeyValue} to capture current screen position`;
   } else if (kind === 'delay') {
     if (cmdSimpleName) cmdSimpleName.textContent = 'Milliseconds';
     cmdSimple.value = block?.value || blockDefaults.DELAY;
@@ -2263,7 +2264,7 @@ async function confirmFileBrowser() {
 async function openPointPicker() {
   closeMenus();
   pointPickerResult.value = '';
-  pointPickerStatus.textContent = 'Hover anywhere and press F2 to take sample.';
+  pointPickerStatus.textContent = `Hover anywhere and press ${pickKeyValue} to take sample.`;
   showModal(pointPickerModal);
   pointPickerSession += 1;
   startPointPicker(pointPickerSession);
@@ -2273,7 +2274,7 @@ async function startPointPicker(session = pointPickerSession) {
   if (pointPickerListening || session !== pointPickerSession || pointPickerModal.classList.contains('hidden')) return;
   pointPickerListening = true;
   if (pointPickerStart) pointPickerStart.disabled = true;
-  pointPickerStatus.textContent = 'Hover anywhere and press F2 to take sample.';
+  pointPickerStatus.textContent = `Hover anywhere and press ${pickKeyValue} to take sample.`;
   let keepListening = true;
   try {
     const d = await api('/api/tools/picker', {
@@ -2419,6 +2420,7 @@ async function bootstrap() {
   recordBindingValue = b.record_binding || 'F5';
   playBindingValue = b.play_binding || 'F6';
   smoothMoveBindingValue = b.smooth_binding || 'L';
+  pickKeyValue = b.pick_binding || pickKeyValue;
   playbackRepeatValue = Number(b.playback_repeat ?? playbackRepeatValue ?? 1);
   playbackTimesValue = clampTimes(b.playback_times ?? (playbackRepeatValue > 1 ? playbackRepeatValue : 5));
   setPlayModeFromRepeat(playbackRepeatValue, playbackTimesValue);

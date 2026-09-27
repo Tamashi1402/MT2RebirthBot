@@ -1195,6 +1195,9 @@ BOT_STOP_BINDING = str(_cfg.get("BOT_STOP_BINDING", "F9"))
 RECORDER_RECORD_BINDING = str(_cfg.get("RECORDER_RECORD_BINDING", "F5")).strip().upper() or "F5"
 RECORDER_PLAY_BINDING = str(_cfg.get("RECORDER_PLAY_BINDING", "F6")).strip().upper() or "F6"
 RECORDER_SMOOTH_MOVE_KEY = str(_cfg.get("RECORDER_SMOOTH_MOVE_KEY", "L")).strip().upper() or "L"
+# The screen-pick key: screenshot picks, crosshair point/region sampling,
+# and the blockly scaled-move capture. Default F2.
+PICK_KEY = str(_cfg.get("PICK_KEY", "F2") or "F2").strip().upper() or "F2"
 WEAPON_1_BINDING = str(_cfg.get("WEAPON_1_BINDING", "1")).strip().upper() or "1"
 WEAPON_2_BINDING = str(_cfg.get("WEAPON_2_BINDING", "2")).strip().upper() or "2"
 MONITOR_ITEM_BINDING = str(_cfg.get("MONITOR_ITEM_BINDING", WEAPON_2_BINDING)).strip().upper() or "2"
