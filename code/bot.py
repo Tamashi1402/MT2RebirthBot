@@ -1,5 +1,5 @@
 # ============================================================
-# MT2 BOT - MAIN STATE MACHINE  (v19.0 Ã¢â‚¬â€ fixes: fast-tp fallback, glitch guard, OCR seed guard, manual-str icon crop, F-key before F4, orange-crop HUD guard, baserock auto-str peak-freeze)
+# MT2 BOT - MAIN STATE MACHINE  (v19.0 — fixes: fast-tp fallback, glitch guard, OCR seed guard, manual-str icon crop, F-key before F4, orange-crop HUD guard, baserock auto-str peak-freeze)
 # ============================================================
 import time
 import sys
@@ -145,7 +145,7 @@ def _fmt_stone(v) -> str:
     except Exception:
         return str(v)
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Stone freeze flag ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ——— Stone freeze flag —————————————————————————————————————————————————————
 _stone_frozen: bool = False
 _stone_freeze_depth: int = 0
 
@@ -174,7 +174,7 @@ def _freeze_stone(frozen: bool):
     except Exception:
         pass
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Navigation macros that cover the stone HUD ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â watcher suppressed during these ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ——— Navigation macros that cover the stone HUD — watcher suppressed during these ———
 # Hit macros (rock_hit, meteor_hit, baserock_hit) are intentionally NOT listed here;
 # those are the long-running ones where we DO want the watcher active.
 _NAV_MACROS: frozenset = frozenset({
@@ -228,7 +228,7 @@ _NAV_MACROS: frozenset = frozenset({
     "area8_to_meteor",
 })
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ At-base tracking ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ——— At-base tracking ——————————————————————————————————————————————————————
 _at_base: bool = False
 _CURRENT_STAGE_POINT: tuple[int, int] | None = None
 _LOADOUT_BLOCKED = False
@@ -269,17 +269,17 @@ def _mark_area5_unlocked_if_visible(reason: str = "", attempts: int = 5, delay: 
     _mark_area5_unlocked(reason or "assumed")
     return True
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Hotkey / run state ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
-_KILLED             = False   # F9 sets ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ bot soft-resets to fresh start
+# ——— Hotkey / run state ————————————————————————————————————————————————————
+_KILLED             = False   # F9 sets — bot soft-resets to fresh start
 _TEST_FORCE_FAILURE = False   # Down Arrow simulates a non-user run failure for Force Restart testing
 _WAITING_FOR_START  = True    # True until dashboard Start button is pressed
 _DRILLS_UNLOCKED    = False   # reset each run; True after drills macro fires once
-_A5_UNLOCKED_THIS_RUN = False # True after first manual baseÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢A5 teleport this run
+_A5_UNLOCKED_THIS_RUN = False # True after first manual base—A5 teleport this run
 _QUESTS_DONE_THIS_RUN = False  # reset each run; True once the quest phase ran
 _QUESTS_STARTED_THIS_RUN = False  # True once quests were accepted at run start
 _QUEST_PLAN = None  # run-start plan: quest panels/kinds for the end-of-run phase
 _RUN_MODE           = "a1s1"  # explicit start point key, e.g. a1s1..a5s4 / a5meteor
-_ACTIVATE_DRILLS    = _CFG_ACTIVATE_DRILLS  # press I before every hit macro ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â toggled via dashboard
+_ACTIVATE_DRILLS    = _CFG_ACTIVATE_DRILLS  # press I before every hit macro — toggled via dashboard
 # _suspended_flag removed — no suspension checks
 _STONE_LOST         = False   # set by watcher thread when stone icon missing; cleared after recovery
 _ACTIVE_HIT_MACRO   = None
@@ -348,7 +348,7 @@ def _rb_time_report(title: str = "REBIRTH CYCLE TIMING") -> None:
     log.info(f"[RB-TIME] {bar}")    # name of the hit macro (rock_hit/meteor_hit/baserock_hit) currently
                                # running via _run_hit_macro(wait=False); closed by _close_hit_macro().
 _REBIRTH_IN_PROGRESS = False # suppress stone-lost/Menu Resume checks during rebirth flow
-_menu_resume_fresh_start = False  # True after successful menu resume ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â forces run to start from base
+_menu_resume_fresh_start = False  # True after successful menu resume — forces run to start from base
 _watcher_thread     = None    # background stone-icon watcher thread handle
 _watcher_stop_ev    = None    # threading.Event to stop the watcher thread
 _manual_strength_active = False
@@ -450,7 +450,7 @@ def _mark_rebirth_zero_confirmed(reason: str = ""):
     except Exception:
         pass
 
-# Current farming stage Ã¢â‚¬â€ updated at each stage transition, read by recorder
+# Current farming stage — updated at each stage transition, read by recorder
 _current_stage: str = "unknown"
 _drill_binding_warned = False
 
@@ -1106,7 +1106,7 @@ def _maybe_unlock_drills():
     cur = _confirmed_cur or cur
     _last_live_stone = cur
 
-    log.info(f"[DRILLS] Stone {cur:.2e} >= threshold {_unlock_threshold:.2e} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â unlocking drills")
+    log.info(f"[DRILLS] Stone {cur:.2e} >= threshold {_unlock_threshold:.2e} — unlocking drills")
     _stop_active_manual_strength_for_action("unlock drills")
     _stop_drill_loop()
     stop_macro()
@@ -1115,7 +1115,7 @@ def _maybe_unlock_drills():
         disable_auto_strength()
         set_overlay(auto_str=False)
 
-    # Only teleport to base if not already there ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â avoids a redundant round trip
+    # Only teleport to base if not already there — avoids a redundant round trip
     # when _maybe_unlock_drills is called right after _do_base_rock's initial teleport.
     if not _at_base:
         _console_status("ACTION", "Base")
@@ -1123,7 +1123,7 @@ def _maybe_unlock_drills():
             log.warning("[DRILLS] could not reach base for drill unlock")
             return False
     else:
-        log.debug("[DRILLS] Already at base ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â skipping pre-drill teleport")
+        log.debug("[DRILLS] Already at base — skipping pre-drill teleport")
 
     _DRILLS_UNLOCKED = True
     _mark_left_base()
@@ -1139,7 +1139,7 @@ def _maybe_unlock_drills():
     _drills_deadline = time.time() + 300
     while _drills_proc.poll() is None:
         if time.time() > _drills_deadline:
-            log.warning("[DRILLS] unlock_drills macro exceeded 5-minute timeout ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â killing and continuing")
+            log.warning("[DRILLS] unlock_drills macro exceeded 5-minute timeout — killing and continuing")
             stop_macro()
             _rec_log_macro("unlock_drills", "error", error="macro_timeout")
             _rec_set_failure("macro_timeout:unlock_drills")
@@ -1162,14 +1162,14 @@ def _maybe_unlock_drills():
         enable_auto_strength()
         set_overlay(auto_str=True)
 
-    log.info("[DRILLS] Drill unlock done ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â back at base, resuming farming")
+    log.info("[DRILLS] Drill unlock done — back at base, resuming farming")
     _console_status("FARMING", "Base Rock")
     return True
 
 
 
 def hard_quit():
-    """Dashboard Quit button ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stop macros, save stats, kill the process."""
+    """Dashboard Quit button — stop macros, save stats, kill the process."""
     global _KILLED, _watcher_stop_ev, _watcher_thread
     _KILLED = True
     try: stop_macro()
@@ -1557,11 +1557,11 @@ def _do_menu_resume(debug: bool = False) -> bool:
     """Attempt to resume the game from the Fortnite main menu.
 
     Flow:
-      1. Wait 250 ms ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â confirm PLAY button visible (bail if not in menu)
+      1. Wait 250 ms — confirm PLAY button visible (bail if not in menu)
       2. Wait 500 ms for UI to settle
       3. Click PLAY
       4. Wait MENU_RESUME_JOIN_WAIT s for game to load
-      5. Check stone icon ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ return True / False
+      5. Check stone icon — return True / False
 
     Just confirm menu and hit PLAY.
 
@@ -1604,16 +1604,16 @@ def _do_menu_resume(debug: bool = False) -> bool:
     log.info("[MENU_RESUME] Starting menu resume procedure")
     _console_status("MENU RESUME", "...")
 
-    # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Step 1: brief wait then confirm menu ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    # ——— Step 1: brief wait then confirm menu ——————————————————————————————
     time.sleep(0.12)
     if not is_in_menu():
-        log.warning("[MENU_RESUME] PLAY button not detected ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â aborting menu resume")
+        log.warning("[MENU_RESUME] PLAY button not detected — aborting menu resume")
         _console_status("MENU RESUME", "Not in menu")
         return False
     log.info("[MENU_RESUME] Menu confirmed (PLAY button visible)")
     _console_status("MENU RESUME", "Pressing Play...")
 
-    # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Step 2: let UI settle then click PLAY ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    # ——— Step 2: let UI settle then click PLAY —————————————————————————————
     time.sleep(0.25)
     import config as _cfg_mr
     play_cx, play_cy = get_menu_play_center()
@@ -1624,25 +1624,25 @@ def _do_menu_resume(debug: bool = False) -> bool:
     join_wait = _cfg_mr.MENU_RESUME_JOIN_WAIT
     _console_status("MENU RESUME", "...")
 
-    # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Step 3: wait for new game to start ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    # ——— Step 3: wait for new game to start ————————————————————————————————
     _join_deadline = time.time() + float(join_wait)
     while time.time() < _join_deadline and not _KILLED:
         if _stone_icon_visible_restart_image():
             break
         _wait_polling(0.25, "...", freeze=True)
 
-    # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Step 4: check stone icon ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    # ——— Step 4: check stone icon ———————————————————————————————————————————
     if _stone_icon_visible_restart_image():
-        log.info("[MENU_RESUME] Stone icon visible ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â new game started successfully!")
+        log.info("[MENU_RESUME] Stone icon visible — new game started successfully!")
         _console_status("MENU RESUME", "Resuming...")
         if debug:
-            cprint("[MENU_RESUME] Complete ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stone icon visible, game started!", "ok")
+            cprint("[MENU_RESUME] Complete — stone icon visible, game started!", "ok")
         return True
     else:
-        log.warning(f"[MENU_RESUME] Stone icon still not visible after {join_wait} s ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â menu resume failed")
+        log.warning(f"[MENU_RESUME] Stone icon still not visible after {join_wait} s — menu resume failed")
         _console_status("MENU RESUME", "Stopping...")
         if debug:
-            cprint(f"[MENU_RESUME] Stone icon NOT visible after {join_wait} s ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â resume failed", "warn")
+            cprint(f"[MENU_RESUME] Stone icon NOT visible after {join_wait} s — resume failed", "warn")
         return False
 
 
@@ -1691,7 +1691,7 @@ def _register_hotkeys():
     _hotkey_test_fail_handle = keyboard.add_hotkey("down", _on_test_force_failure_hotkey, suppress=False)
     log.debug(f"Hotkeys registered: {start_binding}=start, {stop_binding}=soft-reset, Down=test failure")
 
-# Low-level keyboard hook â€” survives game window focus steal
+# Low-level keyboard hook — survives game window focus steal
 def _low_level_key_hook(event):
     """Fires on every key event. Intercept configured start/stop keys regardless of focus."""
     try:
@@ -1843,7 +1843,7 @@ def _wait_for_start():
 
 
 def _run_macro(name: str):
-    """Run a named macro. Raises nothing on kill ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â bot checks _KILLED after return.
+    """Run a named macro. Raises nothing on kill — bot checks _KILLED after return.
 
     Navigation macros (those in _NAV_MACROS) briefly cover the stone HUD, so the
     watcher is paused for their duration and resumed immediately after.  Hit macros
@@ -1919,10 +1919,10 @@ def _run_macro(name: str):
         # F4 A5 is the real unlock check; dest missing redos P1 from base.
         _wait_map_loaded(_map_area)
     return True
-    # Macro finished ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â check if a pause arrived at the exact finish moment
+    # Macro finished — check if a pause arrived at the exact finish moment
 
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Console status printer ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ——— Console status printer —————————————————————————————————————
 
 def _overlay_goal_text(goal: str) -> str:
     text = str(goal or "")
@@ -1963,7 +1963,7 @@ def _console_status(status: str, goal: str, stone=None, next_steps: str = ""):
         set_overlay(stone=stone)
 
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Polling wait helper ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ——— Polling wait helper ————————————————————————————————————————
 
 def _wait_polling(seconds: float, goal: str, freeze: bool = True):
     """Sleep for `seconds` in short ticks, updating overlay & checking pause/kill."""
@@ -1988,12 +1988,12 @@ def _wait_polling(seconds: float, goal: str, freeze: bool = True):
     set_overlay(goal=overlay_goal)
 
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Stone icon watcher (always-on background thread) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ——— Stone icon watcher (always-on background thread) —————————————————————
 
 def _start_stone_watcher():
     """Start the background thread that checks stone icon every 1 s.
 
-    Five consecutive misses (5 s) ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ triggers _stone_lost_handler() which:
+    Five consecutive misses (5 s) — triggers _stone_lost_handler() which:
       - stops macros immediately
       - stops drill loop
       - sets _STONE_LOST = True  (interrupts all run loops via _check_alive)
@@ -2013,7 +2013,7 @@ def _start_stone_watcher():
         while not stop_ev.wait(0.5):   # fires every 0.5s
             if stop_ev.is_set():
                 break
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Feed recorder one frame per second (= ~30 game frames) Ã¢â€â‚¬Ã¢â€â‚¬
+            # ——— Feed recorder one frame per second (= ~30 game frames) ———
             try:
                 _rec = _get_recorder()
                 if _rec.is_active():
@@ -2031,7 +2031,7 @@ def _start_stone_watcher():
             except Exception as _rec_e:
                 log.debug(f"[Recorder] record_frame error: {_rec_e}")
             if _KILLED or _stone_frozen or _REBIRTH_IN_PROGRESS:
-                miss_count = 0   # reset while frozen/killed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â don't falsely trigger
+                miss_count = 0   # reset while frozen/killed — don't falsely trigger
                 continue
             try:
                 from manual_strength import live_active as _ms_live
@@ -2064,9 +2064,9 @@ def _start_stone_watcher():
                 log.debug(f"[WATCHER] stone icon miss {miss_count}/8")
                 if miss_count >= 8:
                     miss_count = 0
-                    log.warning("[WATCHER] stone icon missing 5s ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â triggering stone-lost handler")
+                    log.warning("[WATCHER] stone icon missing 5s — triggering stone-lost handler")
                     _stone_lost_handler()
-                    # After handler sets _STONE_LOST we stop watching ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â outer loop owns recovery
+                    # After handler sets _STONE_LOST we stop watching — outer loop owns recovery
                     break
 
     _watcher_thread = threading.Thread(target=_watcher_loop, args=(_watcher_stop_ev,), daemon=True)
@@ -2091,7 +2091,7 @@ def _stone_lost_handler():
     if _STONE_LOST or _KILLED:
         return   # already handling
     _STONE_LOST = True
-    log.warning("[WATCHER] Stone icon lost ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stopping macros and drills")
+    log.warning("[WATCHER] Stone icon lost — stopping macros and drills")
     try: stop_macro()
     except Exception: pass
     try: _stop_drill_loop()
@@ -2103,9 +2103,9 @@ def _stone_lost_handler():
         except Exception: pass
     set_overlay(status="STONE LOST", goal="Recovering...")
     _dash_update(status="STONE LOST", goal="Recovering...")
-    cprint("[WATCHER] Stone icon lost ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â waiting for recovery", "warn")
+    cprint("[WATCHER] Stone icon lost — waiting for recovery", "warn")
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Alive check ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ——— Alive check ————————————————————————————————————————————————
 
 def _check_alive() -> bool:
     """Returns False if the watcher flagged stone lost, or if F9 was pressed.
@@ -2128,14 +2128,14 @@ def _check_alive() -> bool:
 
     if not is_fortnite_focused():
         stop_macro()
-        log.warning("Fortnite lost focus ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stopping macro")
+        log.warning("Fortnite lost focus — stopping macro")
         set_overlay(status="WAITING", goal="No focus")
         return False
 
     return True
 
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Hit macro runner (with mouse centre pre-settle) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ——— Hit macro runner (with mouse centre pre-settle) ————————————
 
 # Background thread handle for the drill-presser loop
 _drill_thread = None
@@ -2208,14 +2208,14 @@ def _rebirth_drills_enabled(target: str, ds_snap: dict | None = None) -> bool:
         return master
     return bool(ds_snap.get(key, target_defaults.get(target, True)))
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Background stone reader (baserock overlay fix) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ——— Background stone reader (baserock overlay fix) ————————————————————————————
 _br_stone_reader_stop: "threading.Event | None" = None
 _br_stone_reader_thread: "threading.Thread | None" = None
 
 def _start_br_stone_reader():
     """Start a background thread that reads stone every 0.5s during baserock farming.
 
-    The baserock_hit macro takes ~6.75s per run ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the stop-flag check (which
+    The baserock_hit macro takes ~6.75s per run — the stop-flag check (which
     calls read_stone) only fires AFTER the macro finishes, so the overlay can
     lag up to ~6.75s between updates.  This thread keeps the display live.
     """
@@ -2248,7 +2248,7 @@ def _stop_br_stone_reader():
         _br_stone_reader_stop.set()
         _br_stone_reader_stop = None
     log.debug("[BR-READER] background stone reader stopped")
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ——————————————————————————————————————————————————————————————————————————————
 
 def _start_drill_loop(manual_presses: int | None = None, force_presses: int | None = None):
     """Start background thread that presses configured drill binding every 10s while hitting."""
@@ -2374,7 +2374,7 @@ def _run_baserock_loop_until(
 
     Each iteration runs the macro to COMPLETION (wait=True) before checking
     whether to continue.  This guarantees the LCtrl toggle is always fully
-    paired inside a single run ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the character can never be left crouched
+    paired inside a single run — the character can never be left crouched
     mid-loop.
     """
     from dashboard import get_state as _ds
@@ -2500,12 +2500,12 @@ def _wait_stone_change(
 ) -> tuple[bool, float | None]:
     """Poll stone until >= target or timeout. Returns (success, final_stone).
 
-    no_gain_timeout   ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â if stone has NOT moved at all within this many seconds,
+    no_gain_timeout   — if stone has NOT moved at all within this many seconds,
                         return False for re-navigate. Stays active until stone moves.
-    threshold_timeout ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â hard deadline from farming start: if threshold not reached
+    threshold_timeout — hard deadline from farming start: if threshold not reached
                         within this many seconds (regardless of stone movement),
                         return False for re-navigate. 0 = disabled.
-    smart_timeout     ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â legacy: only starts counting AFTER first stone movement.
+    smart_timeout     — legacy: only starts counting AFTER first stone movement.
     """
     global _last_live_stone
     deadline          = None if timeout == 0 else time.time() + timeout
@@ -2570,39 +2570,39 @@ def _wait_stone_change(
                     continue
             _last_live_stone = cur
             if cur > last_stone:
-                # Stone moved ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â disable the initial no-gain check
+                # Stone moved — disable the initial no-gain check
                 no_gain_active = bool(no_gain_timeout)  # re-arm so mid-farm stalls also fire
                 _no_gain_last_move = time.time()
                 smart_start    = time.time()
             # FIX 6b: Only let last_stone drop if the new value is plausible
-            # relative to the current peak Ã¢â‚¬â€ prevents OCR artifacts like "153"
+            # relative to the current peak — prevents OCR artifacts like "153"
             # from collapsing the reference and triggering false no-gain exits.
             if last_stone is None or cur > last_stone or last_stone < 1e6 or cur >= last_stone * 0.001:
                 last_stone = cur
 
         # no_gain_timeout: stone stalled (fires at start AND after any movement)
         if no_gain_active and no_gain_timeout and (time.time() - _no_gain_last_move) > no_gain_timeout:
-            log.warning(f"{goal}: no stone gain in first {no_gain_timeout}s ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â re-navigate needed")
+            log.warning(f"{goal}: no stone gain in first {no_gain_timeout}s — re-navigate needed")
             return False, last_stone
 
-        # threshold_timeout: hard deadline ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â threshold not hit in time regardless of movement
+        # threshold_timeout: hard deadline — threshold not hit in time regardless of movement
         if threshold_deadline and time.time() > threshold_deadline:
-            log.warning(f"{goal}: threshold not reached within {threshold_timeout}s ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â re-navigate needed")
+            log.warning(f"{goal}: threshold not reached within {threshold_timeout}s — re-navigate needed")
             return False, last_stone
 
-        # smart_timeout: legacy ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â only fires after first movement
+        # smart_timeout: legacy — only fires after first movement
         if smart_timeout and smart_start and (time.time() - smart_start) > smart_timeout:
-            log.warning(f"Smart failure timeout ({smart_timeout}s) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stone not growing")
+            log.warning(f"Smart failure timeout ({smart_timeout}s) — stone not growing")
             return False, last_stone
 
-        time.sleep(0.1)  # v1.2: reduced from 0.5s ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â faster threshold detection
+        time.sleep(0.1)  # v1.2: reduced from 0.5s — faster threshold detection
 
     if deadline is not None:
         log.warning(f"Stone-change timeout after {timeout}s")
     return False, last_stone
 
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Navigation helpers ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ——— Navigation helpers —————————————————————————————————————————
 
 _phase_stamps: list = []   # [(label, perf_counter)] from conf to conf
 
@@ -2952,7 +2952,7 @@ def _go_to_area5(attempt_label: str = "") -> bool:
     return _go_to_area(5, attempt_label)
 
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Stage farming ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ——— Stage farming ——————————————————————————————————————————————
 
 
 def _entry_threshold(area: int, stage: int) -> float:
@@ -3030,7 +3030,7 @@ def _normalize_start_mode(run_mode: str) -> str:
     return mode
 
 
-# â”€â”€ Boss Fight A1 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Boss Fight A1 —
 
 def _select_bramble_fight_mode(tag: str = "BOSS_A1") -> bool:
     """After the boss card opens, OCR the mode name and cycle until it matches.
@@ -3335,7 +3335,7 @@ def _run_boss_fight_a1() -> bool:
     from macro_runner import _mouse_left_down, _mouse_left_up, _key_press
     import config as _cfg_boss
 
-    # â”€â”€ Read live config values â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # — Read live config values —
     baserock_threshold = float(getattr(_cfg_boss, "BOSS_FIGHT_A1_BASEROCK_THRESHOLD",   BOSS_FIGHT_A1_BASEROCK_THRESHOLD))
     meteor_grind_base  = float(getattr(_cfg_boss, "BOSS_FIGHT_A1_METEOR_GRIND_SECONDS",  BOSS_FIGHT_A1_METEOR_GRIND_SECONDS))
     loadout_fighting   = str(getattr(_cfg_boss, "BOSS_FIGHT_A1_LOADOUT_FIGHTING", BOSS_FIGHT_A1_LOADOUT_FIGHTING)).strip().lower()
@@ -3349,14 +3349,14 @@ def _run_boss_fight_a1() -> bool:
     )
     _console_status("BOSS FIGHT", f"Starting ({fight_amount} fight{'s' if fight_amount>1 else ''})")
 
-    # â”€â”€ Determine run_mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # — Determine run_mode —
     from dashboard import get_state as _ds_boss
     _ds_b = _ds_boss()
     run_mode = _normalize_start_mode(_ds_b.get("run_mode", "a1s1"))
 
     _set_stage("boss_a1_baserock")
 
-    # â”€â”€ Pre-fight: A1S1/A1S2 stages if applicable â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # — Pre-fight: A1S1/A1S2 stages if applicable —
     if run_mode in ("a1s1", "a1s2"):
         stages_to_do = [1, 2] if run_mode == "a1s1" else [2]
         for stage in stages_to_do:
@@ -3379,7 +3379,7 @@ def _run_boss_fight_a1() -> bool:
         if _KILLED or _STONE_LOST:
             return False
 
-    # â”€â”€ Step 1: grind baserock (skip if already at threshold) â”€
+    # — Step 1: grind baserock (skip if already at threshold) —
     _cur_stone = _read_stone_checked(
         "[BOSS_A1] pre-baserock check",
         attempts=6, delay=0.15, min_reads=2,
@@ -3398,13 +3398,13 @@ def _run_boss_fight_a1() -> bool:
         log.info(f"[BOSS_A1] Baserock skip: stone {_fmt_stone(_cur_stone)} >= {_fmt_stone(baserock_threshold)}")
         _console_status("BOSS FIGHT", "Grinding Baserock")
 
-    # â”€â”€ Helper: do one kill cycle on the bramble boss â”€â”€â”€â”€â”€â”€â”€â”€
+    # — Helper: do one kill cycle on the bramble boss —
     def _do_bramble_kill(fight_num: int) -> bool:
         """Press 1, wait 1s, hold LMB until healthbar gone, wait 5s, release."""
         poll_s             = 0.1
         reassert_s         = 0.5   # re-assert LMB every 0.5s to be safe
         post_kill_wait_s   = 5.0   # flat wait after bar disappears before releasing
-        hb_timeout_s       = 120.0 # safety cap â€” release LMB after 2 min no matter what
+        hb_timeout_s       = 120.0 # safety cap — release LMB after 2 min no matter what
 
         import config as _cfg_fight
         weapon = str(getattr(_cfg_fight, "WEAPON_1_BINDING", "1") or "1")
@@ -3436,9 +3436,9 @@ def _run_boss_fight_a1() -> bool:
             while not _KILLED:
                 now = time.time()
 
-                # Safety timeout â€” should never hit this but prevents infinite hang
+                # Safety timeout — should never hit this but prevents infinite hang
                 if now - fight_start >= hb_timeout_s:
-                    log.warning(f"[BOSS_A1] Fight {fight_num}: safety timeout after {hb_timeout_s:.0f}s â€” releasing LMB")
+                    log.warning(f"[BOSS_A1] Fight {fight_num}: safety timeout after {hb_timeout_s:.0f}s — releasing LMB")
                     break
 
                 # Re-assert LMB regularly
@@ -3455,14 +3455,14 @@ def _run_boss_fight_a1() -> bool:
                     if hb_seen:
                         hb_seen_once = True
                     elif hb_seen_once:
-                        # Bar just disappeared â€” boss dead
+                        # Bar just disappeared — boss dead
                         hb_gone_at = now
-                        log.info(f"[BOSS_A1] Fight {fight_num}: healthbar gone after {now - fight_start:.1f}s â€” waiting {post_kill_wait_s:.0f}s")
+                        log.info(f"[BOSS_A1] Fight {fight_num}: healthbar gone after {now - fight_start:.1f}s — waiting {post_kill_wait_s:.0f}s")
                         _console_status("FIGHTING", "Bramble Boss")
                 else:
                     # Waiting post-kill
                     if now - hb_gone_at >= post_kill_wait_s:
-                        log.info(f"[BOSS_A1] Fight {fight_num}: post-kill wait done â€” boss confirmed dead")
+                        log.info(f"[BOSS_A1] Fight {fight_num}: post-kill wait done — boss confirmed dead")
                         break
 
                 # Stone HUD is hidden in the arena — do not abort the fight
@@ -3485,12 +3485,12 @@ def _run_boss_fight_a1() -> bool:
     def _select_loadout(slot: str, label: str) -> bool:
         return _play_loadout(slot, label)
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    #  STEP 1: Single meteor grind (base_secs Ã— fight_amount)
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ————————————————————————————————————————————————————————
+    #  STEP 1: Single meteor grind (base_secs — fight_amount)
+    # ————————————————————————————————————————————————————————
     meteor_secs = meteor_grind_base * fight_amount
     log.info(f"[BOSS_A1] Teleporting to Area 1 for meteor grind ({meteor_secs:.0f}s total)")
-    _console_status("NAVIGATING", "Area 1 â€” Meteor")
+    _console_status("NAVIGATING", "Area 1 — Meteor")
     _tp_ok = _builtin_teleport_safe("area1", attempts=3, wait_seconds=3.5)
     if not _tp_ok:
         log.warning("[BOSS_A1] Area 1 teleport failed (meteor)")
@@ -3501,7 +3501,7 @@ def _run_boss_fight_a1() -> bool:
         return False
 
     log.info("[BOSS_A1] Running area1_to_meteor macro")
-    _console_status("NAVIGATING", "Area 1 â€” Meteor")
+    _console_status("NAVIGATING", "Area 1 — Meteor")
     if not _run_macro("area1_to_meteor"):
         log.warning("[BOSS_A1] area1_to_meteor macro failed")
         _rec_set_failure("boss_a1_macro_area1_to_meteor_failed")
@@ -3509,7 +3509,7 @@ def _run_boss_fight_a1() -> bool:
     if _KILLED or _STONE_LOST:
         return False
 
-    log.info(f"[BOSS_A1] Grinding A1 meteor for {meteor_secs:.0f}s ({meteor_grind_base:.0f}s Ã— {fight_amount} fights)")
+    log.info(f"[BOSS_A1] Grinding A1 meteor for {meteor_secs:.0f}s ({meteor_grind_base:.0f}s — {fight_amount} fights)")
     _console_status("FARMING", f"A1 Meteor ({meteor_secs:.0f}s)")
     _run_hit_macro("meteor_hit", wait=False)
     _meteor_end = time.time() + meteor_secs
@@ -3638,7 +3638,7 @@ def _run_boss_fight_a1() -> bool:
     if _KILLED:
         return False
 
-    log.info(f"[BOSS_A1] All {fight_amount} fight(s) complete â€” teleporting to base")
+    log.info(f"[BOSS_A1] All {fight_amount} fight(s) complete — teleporting to base")
     _console_status("BOSS FIGHT", "Complete")
     if not _teleport_to_base():
         return False
@@ -3649,7 +3649,7 @@ def _run_boss_fight_a1() -> bool:
 def _run_progression_cycle(start_mode: str) -> bool:
     start_mode = _normalize_start_mode(start_mode)
 
-    # â”€â”€ Boss Fight A1 gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # — Boss Fight A1 gate —
     # When enabled: always grind baserock to e33 first (unless run_mode is a1s1/a1s2,
     # in which case those two stages happen first inside _run_boss_fight_a1).
     # After the fight, resume normal progression from the correct start point.
@@ -3665,15 +3665,15 @@ def _run_progression_cycle(start_mode: str) -> bool:
         _block_for_missing_loadouts(_missing_lo)
         return False
     if _boss_fight_a1_enabled:
-        log.info("[BOSS_A1] Boss Fight A1 ENABLED â€” running fight sequence")
+        log.info("[BOSS_A1] Boss Fight A1 ENABLED — running fight sequence")
         if not _run_boss_fight_a1():
             return False
         if _KILLED or _STONE_LOST:
             return False
-        # After boss fight we are back at base with stone intact â€”
+        # After boss fight we are back at base with stone intact —
         # fall through to normal progression so it skips stages already met.
     else:
-        log.info("[BOSS_A1] Boss Fight A1 DISABLED â€” skipping")
+        log.info("[BOSS_A1] Boss Fight A1 DISABLED — skipping")
 
     if start_mode == "a5meteor":
         # Explicit meteor run uses the Area6-threshold shortcut pipeline.
@@ -3955,10 +3955,10 @@ def _do_stage(stage: int, area: int = 5) -> bool:
     _console_status("FARMING", f"{stage_label} Rock", stone=start_stone)
 
     # Pre-check: if stone already at or above threshold before even starting the loop,
-    # skip farming entirely â€” this prevents false no_gain_timeout when OCR reads
+    # skip farming entirely — this prevents false no_gain_timeout when OCR reads
     # an already-sufficient stone value on the very first sample (e.g. S4 double-redo bug).
     if start_stone and start_stone >= target:
-        log.info(f"[STAGE {stage}] stone already at threshold on entry ({start_stone:.2e} >= {target:.2e}) â€” skipping farm")
+        log.info(f"[STAGE {stage}] stone already at threshold on entry ({start_stone:.2e} >= {target:.2e}) — skipping farm")
         _stop_manual_strength_live(_manual_handle)
         _close_hit_macro()
         stop_macro()
@@ -3983,11 +3983,11 @@ def _do_stage(stage: int, area: int = 5) -> bool:
             continue
         if _sr_attempt > 1 or _stage_net_redo:
             _stage_net_redo = False
-            # Re-navigate: base ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ A5 (or fast-tp) ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ stage rock
+            # Re-navigate: base — A5 (or fast-tp) — stage rock
             if _KILLED or _STONE_LOST:
                 return False
             _console_status("RETRY", f"{stage_label} Rock")
-            # A5 already unlocked this run ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ _go_to_area5 uses fast-tp, no base trip needed
+            # A5 already unlocked this run — _go_to_area5 uses fast-tp, no base trip needed
             if not _go_to_area(area, f"({stage_label} retry)"):
                 log.warning(f"Stage {stage} retry: failed to reach A{area}")
                 return False
@@ -4023,7 +4023,7 @@ def _do_stage(stage: int, area: int = 5) -> bool:
             start_stone = _read_stone_live() or cur
             _console_status("FARMING", f"{stage_label} Rock", stone=start_stone)
 
-        # Poll stone ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no_gain_timeout fires any time stone stops gaining
+        # Poll stone — no_gain_timeout fires any time stone stops gaining
         # (from the very first second, not just after initial movement)
         ok, cur = _wait_stone_change(
             start_stone, target, timeout,
@@ -4035,9 +4035,9 @@ def _do_stage(stage: int, area: int = 5) -> bool:
         )
 
         if ok:
-            # Threshold confirmed by _wait_stone_change ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stop immediately, no extra confirms or blind mine.
+            # Threshold confirmed by _wait_stone_change — stop immediately, no extra confirms or blind mine.
             manual_mode = _manual_strength_enabled()
-            log.debug(f"[STAGE {stage}] threshold confirmed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stopping immediately")
+            log.debug(f"[STAGE {stage}] threshold confirmed — stopping immediately")
             _stop_manual_strength_live(_manual_handle)
             _close_hit_macro()
             stop_macro()
@@ -4070,9 +4070,9 @@ def _do_stage(stage: int, area: int = 5) -> bool:
         return True
 
 
-    # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Topup phase: always runs ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 3s blind hit then poll to target*1.01 ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    # ——— Topup phase: always runs — 3s blind hit then poll to target*1.01 —————————
     # Always disable auto_str, hit for 3s, then poll every 1s until target*1.01.
-    # No skip guard ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â topup always runs regardless of how far stone overshot.
+    # No skip guard — topup always runs regardless of how far stone overshot.
     topup_target = target * 1.01
     import math as _math
     if not _math.isfinite(topup_target):
@@ -4082,7 +4082,7 @@ def _do_stage(stage: int, area: int = 5) -> bool:
         if _auto_strength_enabled():
             disable_auto_strength()
             set_overlay(auto_str=False)
-        _console_status("FARMING", f"Stage {stage} Rock ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â topup")
+        _console_status("FARMING", f"Stage {stage} Rock — topup")
         if _run_hit_macro("rock_hit", wait=False, skip_center=True) is None:
             return False
         _manual_topup_handle = _start_manual_strength_live(f"{stage_label} topup")
@@ -4126,7 +4126,7 @@ def _do_stage(stage: int, area: int = 5) -> bool:
                         )
                         if confirmed:
                             cur = confirmed_cur or c
-                            log.debug(f"[STAGE {stage}] topup done ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stone={_fmt_stone(cur)}")
+                            log.debug(f"[STAGE {stage}] topup done — stone={_fmt_stone(cur)}")
                             break
                         if confirmed_cur is not None:
                             c = confirmed_cur
@@ -4137,9 +4137,9 @@ def _do_stage(stage: int, area: int = 5) -> bool:
                     set_overlay(stone=c)
                     _dash_update(cur_stone=c)
                     cur = c
-                time.sleep(0.1)  # v1.2: reduced from 1.0s ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â faster topup exit
+                time.sleep(0.1)  # v1.2: reduced from 1.0s — faster topup exit
             else:
-                log.debug(f"[STAGE {stage}] topup timeout ({TOPUP_TIMEOUT}s) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â continuing with stone={_fmt_stone(cur)}")
+                log.debug(f"[STAGE {stage}] topup timeout ({TOPUP_TIMEOUT}s) — continuing with stone={_fmt_stone(cur)}")
         else:
             log.debug(f"[STAGE {stage}] topup: already at {_fmt_stone(cur)} >= {_fmt_stone(topup_target)} after blind hit")
         if _manual_topup_handle is not None:
@@ -4161,7 +4161,7 @@ def _do_stage(stage: int, area: int = 5) -> bool:
     return True
 
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Meteor farming ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ——— Meteor farming —————————————————————————————————————————————
 
 def _wait_meteor_broken(
     max_seconds: float = 10.0,
@@ -5383,7 +5383,7 @@ def _do_base_rock(target_stone: float = None) -> bool:
     except Exception:
         pass
 
-    log.debug(f"[BASE_ROCK] _at_base={_at_base} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â {'skipping teleport (already at base)' if _at_base else 'teleporting to base'} | target={target_stone:.2e}")
+    log.debug(f"[BASE_ROCK] _at_base={_at_base} — {'skipping teleport (already at base)' if _at_base else 'teleporting to base'} | target={target_stone:.2e}")
     if not _at_base:
         if not _teleport_to_base():
             return False
@@ -5399,16 +5399,16 @@ def _do_base_rock(target_stone: float = None) -> bool:
         if _KILLED or _STONE_LOST:
             return False
 
-        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Pre-navigation drill unlock check ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
-        # Check BEFORE navigating to baserock ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â if stone already >= threshold
+        # ——— Pre-navigation drill unlock check —————————————————————————————————
+        # Check BEFORE navigating to baserock — if stone already >= threshold
         # (e.g. bot started above e70), unlock drills here while still at base.
-        # This avoids wasting a baseÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢rockÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢base round trip.
+        # This avoids wasting a base—rock—base round trip.
         # _maybe_unlock_drills ends at base, so _at_base stays True and
         # base_to_baserock below navigates cleanly without an extra teleport.
         _maybe_unlock_drills()
         if _KILLED or _STONE_LOST:
             return False
-        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+        # —————————————————————————————————————————————————————————————————————
 
         _console_status("FARMING", "Base Rock")
         log.info(f"[BASEROCK] attempt {_br_attempt}/{BASE_ROCK_RETRIES}  {_farm_env_bits()}")
@@ -5425,7 +5425,7 @@ def _do_base_rock(target_stone: float = None) -> bool:
             continue
         _mark_left_base()
 
-        # Re-enable auto strength each attempt ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a failed/retried attempt goes through
+        # Re-enable auto strength each attempt — a failed/retried attempt goes through
         # _teleport_to_base() which disables it, so we must re-enable here.
         if _auto_strength_enabled():
             enable_auto_strength()
@@ -5438,9 +5438,9 @@ def _do_base_rock(target_stone: float = None) -> bool:
         _console_status("FARMING", "Base Rock", stone=start_stone)
 
         # Replay baserock_hit macro until stone target reached or no-gain timeout.
-        # Each macro run is finite ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â crouch/uncrouch are always paired, so stopping
+        # Each macro run is finite — crouch/uncrouch are always paired, so stopping
         # between runs is always safe with no stuck-crouch risk.
-        # NOTE: last_stone starts None ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the stone reading resets to baserock level
+        # NOTE: last_stone starts None — the stone reading resets to baserock level
         # (much lower than carry-over stage stone), so we must seed last_stone from
         # the first valid baserock read rather than start_stone (which may be stale/high).
         last_stone          = None   # seeded on first valid read at this rock
@@ -5449,7 +5449,7 @@ def _do_base_rock(target_stone: float = None) -> bool:
 
         # No-gain tolerance: count macro CYCLES with no stone increase.
         # OCR glitches (e.g. reading '7' mid-swing) must not trigger a
-        # re-navigate ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â we require NO_GAIN_CYCLES consecutive gainless cycles.
+        # re-navigate — we require NO_GAIN_CYCLES consecutive gainless cycles.
         NO_GAIN_CYCLES      = 2      # faster retry if repeated macro cycles produce no stone gain
         _br_no_gain_streak  = 0      # incremented each cycle with no gain
         _manual_mode        = _manual_strength_enabled()
@@ -5572,7 +5572,7 @@ def _do_base_rock(target_stone: float = None) -> bool:
             # Determine if this OCR read looks like a glitch.
             # Manual-strength menu OCR can spike far below or far above the real
             # value. Ignore both directions for gain and threshold decisions.
-            # FIX 5: check_high=False Ã¢â‚¬â€ local `last_stone` peak can grow >1e6x
+            # FIX 5: check_high=False — local `last_stone` peak can grow >1e6x
             # per cycle with auto-strength ON; never treat real growth as glitch.
             glitch_reason = _stone_glitch_reason(c, last_stone, check_high=False)
             is_glitch = glitch_reason is not None
@@ -5602,7 +5602,7 @@ def _do_base_rock(target_stone: float = None) -> bool:
                     if confirmed_cur is None:
                         return False
                     c = confirmed_cur
-                    # FIX 5: same Ã¢â‚¬â€ local peak, check_high=False
+                    # FIX 5: same — local peak, check_high=False
                     glitch_reason = _stone_glitch_reason(c, last_stone, check_high=False)
                     is_glitch = glitch_reason is not None
                     if is_glitch:
@@ -5616,7 +5616,7 @@ def _do_base_rock(target_stone: float = None) -> bool:
                 if last_stone is None:
                     # FIX 6/7: Guard first-valid-read seed against OCR artifacts.
                     # If start_stone is large and c is tiny (e.g. "153" misread),
-                    # seeding last_stone=153 poisons the baseline Ã¢â‚¬â€ every real
+                    # seeding last_stone=153 poisons the baseline — every real
                     # stone value then looks like a 1e150x spike and gets rejected.
                     # Only accept the seed if c is plausible relative to start_stone.
                     _seed_ok = (
@@ -5626,9 +5626,9 @@ def _do_base_rock(target_stone: float = None) -> bool:
                         )
                     )
                     if not _seed_ok:
-                        log.debug(f"[BASEROCK] first-read seed rejected (c={_fmt_stone(c)} << start={_fmt_stone(start_stone)}) Ã¢â‚¬â€ waiting for valid read")
+                        log.debug(f"[BASEROCK] first-read seed rejected (c={_fmt_stone(c)} << start={_fmt_stone(start_stone)}) — waiting for valid read")
                     else:
-                        # First valid read Ã¢â‚¬â€ seed baseline, reset streak
+                        # First valid read — seed baseline, reset streak
                         last_stone         = c
                         _manual_activity_stone = c
                         _br_no_gain_streak = 0
@@ -5636,7 +5636,7 @@ def _do_base_rock(target_stone: float = None) -> bool:
                 elif c > last_stone:
                     last_stone         = c
                     _manual_activity_stone = c
-                    _br_no_gain_streak = 0   # real gain ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â reset streak
+                    _br_no_gain_streak = 0   # real gain — reset streak
                     _last_gain_time    = time.time()
                 else:
                     if _manual_mode:
@@ -5665,9 +5665,9 @@ def _do_base_rock(target_stone: float = None) -> bool:
                 _diag["last_glitch"] = glitch_reason
                 _diag["last_c"] = c
                 log.debug(f"[BASEROCK] OCR {glitch_reason} glitch ignored: {c} (peak={last_stone})")
-            # else: OCR returned None ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â do NOT touch any counters
+            # else: OCR returned None — do NOT touch any counters
 
-            # No-gain bail ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â only fires after baseline is set
+            # No-gain bail — only fires after baseline is set
             if last_stone is not None:
                 if _manual_mode:
                     if _manual_strength_watchdog_stalled(
@@ -5702,18 +5702,18 @@ def _do_base_rock(target_stone: float = None) -> bool:
                     log.warning(f"Base rock: no valid stone for {no_gain_for:.1f}s — re-navigate")
                     return True
 
-            # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Mid-loop drill unlock check ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+            # ——— Mid-loop drill unlock check ———————————————————————————————————————
             # _maybe_unlock_drills is also called once before the loop starts,
             # but if the bot starts below the e70 threshold, stone may cross it
-            # during this loop ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â we must catch that here so drills unlock on time.
+            # during this loop — we must catch that here so drills unlock on time.
             if not _DRILLS_UNLOCKED:
                 _maybe_unlock_drills()
                 if _DRILLS_UNLOCKED:
-                    # Drill macro teleported us away and back ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stop the hit loop
+                    # Drill macro teleported us away and back — stop the hit loop
                     # so _do_base_rock re-navigates cleanly via base_to_baserock.
-                    log.debug("[BASEROCK] drill unlock fired mid-loop ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stopping hit loop to re-navigate")
+                    log.debug("[BASEROCK] drill unlock fired mid-loop — stopping hit loop to re-navigate")
                     return True
-            # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+            # —————————————————————————————————————————————————————————————————————
 
             return False
 
@@ -5742,7 +5742,7 @@ def _do_base_rock(target_stone: float = None) -> bool:
                 log.warning(f"[BASEROCK] manual upgrades spent below target after stop ({_fmt_stone(cur)} < {_fmt_stone(target_stone)}); retrying base rock")
                 ok = False
             else:
-                break  # success ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â exit retry loop
+                break  # success — exit retry loop
 
         log.warning(
             f"Base rock farming failed (attempt {_br_attempt}/{BASE_ROCK_RETRIES})  "
@@ -5750,7 +5750,7 @@ def _do_base_rock(target_stone: float = None) -> bool:
         )
         if _stop_why[0]:
             _dump_stall(f"attempt {_br_attempt} fail")
-        # Skip re-teleport if drills just fired ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â _maybe_unlock_drills already
+        # Skip re-teleport if drills just fired — _maybe_unlock_drills already
         # ends at base (_at_base=True), so another teleport_to_base is redundant.
         if not _at_base and not _KILLED:
             if not _teleport_to_base():
@@ -5859,7 +5859,7 @@ def _do_base_rock(target_stone: float = None) -> bool:
     return True
 
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Main run loop ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ——— Main run loop ——————————————————————————————————————————————
 
 def _delve_read_ui_text(region: tuple[int, int, int, int]) -> str:
     try:
@@ -6331,7 +6331,7 @@ def _run_kraken_loop():
     _dash_update(run_active=True, status="KRAKEN", goal="Navigation", waiting_for_start=False)
     set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
     _boss_strike_init("kraken")
-    log.info("[KRAKEN] loop started (no ESP, no dodge â€” walk loop + mouse aim)")
+    log.info("[KRAKEN] loop started (no ESP, no dodge — walk loop + mouse aim)")
     menu_ready = False
 
     while not _KILLED and not _TEST_FORCE_FAILURE and not _STONE_LOST and not _boss_strike_stopped("kraken"):
@@ -6344,25 +6344,25 @@ def _run_kraken_loop():
                 continue
         menu_ready = False
 
-        # â”€â”€ Navigation phase: NO timer shown anywhere â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # — Navigation phase: NO timer shown anywhere —
         _console_status("KRAKEN", "Navigation")
         _dash_update(status="KRAKEN", goal="Navigation", run_start_time=None)
         set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
         _kraken_click_join_twice()
         _kraken_prepare_weapon()
 
-        # â”€â”€ Wait 1 second after joining before doing anything â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # — Wait 1 second after joining before doing anything —
         log.info("[KRAKEN] waiting 1s after join before aiming/shooting/walking")
         _wait_polling(1.0, "Kraken post-join settle", freeze=False)
         if _KILLED:
             break
 
-        # â”€â”€ Smooth mouse aim: -75, -10 over 50ms (sensitivity-scaled) â”€â”€â”€â”€â”€â”€â”€â”€
+        # — Smooth mouse aim: -75, -10 over 50ms (sensitivity-scaled) —
         aim_dx, aim_dy = _scale_smooth_move(-75, -10)
         log.info("[KRAKEN] smooth mouse aim: raw(-75,-10) scaled(%d,%d) over 50ms", aim_dx, aim_dy)
         _smooth_move_rel(aim_dx, aim_dy, 50)
 
-        # â”€â”€ Activate drill once at start of fight (if enabled) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # — Activate drill once at start of fight (if enabled) —
         try:
             from dashboard import get_state as _ds_krakdrill
             _krak_drill_on = bool(_ds_krakdrill().get("kraken_activate_drills", True))
@@ -6372,7 +6372,7 @@ def _run_kraken_loop():
             log.info("[KRAKEN] activating drill at fight start")
             _trigger_drill_binding()
 
-        # â”€â”€ Fight phase: timer starts NOW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # — Fight phase: timer starts NOW —
         boss_start = time.time()
         boss_end_reason = "ended"
         _console_status("KRAKEN", "Fight")
@@ -6452,7 +6452,7 @@ def _run_kraken_loop():
             while not _KILLED and not _TEST_FORCE_FAILURE:
                 now = time.time()
 
-                # â”€â”€ Death while fighting: immediate black screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                # — Death while fighting: immediate black screen —
                 if is_rebirth_screen():
                     log.info("[KRAKEN] black screen detected - death; restarting")
                     if shooting:
@@ -6461,7 +6461,7 @@ def _run_kraken_loop():
                     boss_end_reason = "death"
                     break
 
-                # â”€â”€ Join failure guard: if health bar never appears, reset route â”€â”€
+                # — Join failure guard: if health bar never appears, reset route —
                 if (not health_seen_once) and ((now - boss_start) >= first_hb_timeout_s):
                     log.warning(
                         "[KRAKEN] no health bar seen after %.1fs - treating as join failure and retrying",
@@ -6474,7 +6474,7 @@ def _run_kraken_loop():
                     boss_end_reason = "join_failed"
                     break
 
-                # â”€â”€ Health bar disappeared â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                # — Health bar disappeared —
                 # Once confirm mode starts (health_missing_since set), we never
                 # reset it on temporary OCR flicker. This prevents mouse fire from
                 # being re-armed right before Post Fight.
@@ -6484,7 +6484,7 @@ def _run_kraken_loop():
                         health_seen_once = True
                     elif health_seen_once:
                         health_missing_since = now
-                        log.info("[KRAKEN] health bar gone â€” watching for %.1fs to confirm kill vs death", hb_confirm_window_s)
+                        log.info("[KRAKEN] health bar gone — watching for %.1fs to confirm kill vs death", hb_confirm_window_s)
                         if shooting and hb_post_loss_shoot_s > 0:
                             log.info("[KRAKEN] keeping fire for %.1fs after health bar loss", hb_post_loss_shoot_s)
                         elif shooting:
@@ -6499,7 +6499,7 @@ def _run_kraken_loop():
                         shooting = False
                         log.info("[KRAKEN] post-loss fire window ended at %.2fs", elapsed)
                     if is_rebirth_screen():
-                        log.info("[KRAKEN] black screen during confirm window (%.2fs) â†’ death", elapsed)
+                        log.info("[KRAKEN] black screen during confirm window (%.2fs) — death", elapsed)
                         if shooting:
                             _mouse_left_up()
                             shooting = False
@@ -6517,7 +6517,7 @@ def _run_kraken_loop():
                         boss_end_reason = "killed"
                         break
 
-                # â”€â”€ Assert shooting while health bar is still visible â”€â”€â”€
+                # — Assert shooting while health bar is still visible —
                 if health_missing_since is None:
                     if now >= next_reassert:
                         _mouse_left_down()
@@ -6545,7 +6545,7 @@ def _run_kraken_loop():
             walk_thread.join(timeout=1.0)
             if _KILLED:
                 boss_end_reason = "stopped"
-            # â”€â”€ Fight ended: immediately clear timer from overlay + dashboard â”€â”€
+            # — Fight ended: immediately clear timer from overlay + dashboard —
             _dash_update(status="KRAKEN", goal="Finish", run_start_time=None)
             set_overlay(status="KRAKEN", goal="Finish", run_start_time=0)
             _console_status("KRAKEN", "Finish")
@@ -6561,7 +6561,7 @@ def _run_kraken_loop():
             break
         if boss_end_reason == "join_failed":
             # Got there, clicked JOIN, but the fight never opened. This is a
-            # failed attempt too â€” it feeds the same strike counter.
+            # failed attempt too — it feeds the same strike counter.
             if _boss_add_strike("kraken", "kraken fight did not open (no health bar after JOIN)"):
                 break
             _dash_update(status="KRAKEN", goal="Navigation", run_start_time=None)
@@ -6584,7 +6584,7 @@ def _run_kraken_loop():
                 continue
         # Death / stopped / other: wait for respawn, no timer
         if boss_end_reason == "death":
-            _boss_strike_reset("kraken", "death â€” game still responsive")
+            _boss_strike_reset("kraken", "death — game still responsive")
         _dash_update(status="KRAKEN", goal="Finish", run_start_time=None)
         set_overlay(status="KRAKEN", goal="Finish", run_start_time=0)
         _wait_polling(death_wait, "Kraken respawn", freeze=True)
@@ -6642,7 +6642,7 @@ def _run_delve_loop():
         _delve_click_join_twice()
         _delve_prepare_weapon()
 
-        # â”€â”€ Activate drill once at start of fight (if enabled) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # — Activate drill once at start of fight (if enabled) —
         try:
             from dashboard import get_state as _ds_delvedrill
             _delve_drill_on = bool(_ds_delvedrill().get("delve_activate_drills", True))
@@ -6747,17 +6747,17 @@ def run_bot():
         _net_start()
     except Exception:
         pass
-    log.info("Bot starting ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â waiting for dashboard Start")
+    log.info("Bot starting — waiting for dashboard Start")
 
     # Outer loop: soft-reset (F9) brings us back here each time
     while True:
         # suspension check removed — bot is free for all logged-in users
         _soft_reset_state()
 
-        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Inner run loop ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+        # ——— Inner run loop —————————————————————————————————————
         _just_started = True  # first iteration does startup click; subsequent runs skip it
         while not _KILLED:
-            # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Wait for Start button ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+            # ——— Wait for Start button ——————————————————————————
             _wait_for_start()
             if _KILLED:
                 break
@@ -6782,7 +6782,7 @@ def run_bot():
                 log.info("Startup click — activating game input")
                 from macro_runner import _mouse_left_click as _startup_click
                 _startup_click()
-                log.info("Startup delay ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â quick settle before first macro")
+                log.info("Startup delay — quick settle before first macro")
                 import config as _cfg_runtime
                 try:
                     _startup_settle = float(_cfg_runtime.startup_settle())
@@ -7076,7 +7076,7 @@ def run_bot():
                 run_quests_completed=0,
                 waiting_for_start=False,
             )
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Start run recorder (always on) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ——— Start run recorder (always on) —————————————————————————
             try:
                 import config as _cfg_rec
                 _rec_thresholds = {
@@ -7127,7 +7127,7 @@ def run_bot():
             if _KILLED:
                 break
 
-            # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Stone-lost recovery (watcher fired mid-run) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+            # ——— Stone-lost recovery (watcher fired mid-run) ————————————————
             if _STONE_LOST and not _KILLED:
                 stats.record_error()
                 _dash_update(run_active=False, run_start_time=None)
@@ -7138,7 +7138,7 @@ def run_bot():
 
                 # Step 1: brief initial wait (stone icon missing debounce)
                 _wait_secs = _ds_sl_snap.get("stone_icon_missing_wait") or getattr(_cfg_sl, "STONE_ICON_MISSING_WAIT", 5)
-                log.info(f"[WATCHER] Stone lost ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â initial wait {_wait_secs}s")
+                log.info(f"[WATCHER] Stone lost — initial wait {_wait_secs}s")
                 _console_status("STONE LOST", "Recovering...")
                 if not _hold_for_network():
                     break
@@ -7171,32 +7171,32 @@ def run_bot():
                             log.info("[WATCHER] Checking for menu and attempting resume")
                             resume_ok = _do_menu_resume()
                             if resume_ok:
-                                log.info("[WATCHER] Menu resume succeeded ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â starting fresh run from base")
+                                log.info("[WATCHER] Menu resume succeeded — starting fresh run from base")
                                 _WAITING_FOR_START = False
                                 _STONE_LOST = False
-                                _at_base = False  # player just spawned ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â not at base
+                                _at_base = False  # player just spawned — not at base
                                 _menu_resume_fresh_start = True
-                                _just_started = True  # fresh game ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â need startup click/delay before first macro
+                                _just_started = True  # fresh game — need startup click/delay before first macro
                                 continue
                             else:
-                                # Step 4: check stone icon ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â maybe we're already back in game
-                                log.warning("[WATCHER] Menu resume failed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â checking if stone icon came back")
+                                # Step 4: check stone icon — maybe we're already back in game
+                                log.warning("[WATCHER] Menu resume failed — checking if stone icon came back")
                                 time.sleep(2)
                                 if _stone_icon_visible_restart_image():
-                                    log.info("[WATCHER] Stone icon visible after failed menu resume ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â resuming run")
+                                    log.info("[WATCHER] Stone icon visible after failed menu resume — resuming run")
                                     _STONE_LOST = False
                                     _WAITING_FOR_START = False
                                     continue
                                 else:
-                                    # Stone still gone, menu not found ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â soft kill
-                                    log.warning("[WATCHER] Stone icon still gone after menu resume failed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â soft killing")
+                                    # Stone still gone, menu not found — soft kill
+                                    log.warning("[WATCHER] Stone icon still gone after menu resume failed — soft killing")
                                     _console_status("STONE LOST", "Recovery failed")
                                     set_overlay(status="WAITING", goal="Stone lost")
                                     _capture_failure_fullscreen("stone_lost_recovery_failed")
                                     _KILLED = True
                     else:
-                        log.info("[WATCHER] menu_resume OFF ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â soft-kill, waiting for Start")
-                        _console_status("STONE LOST", "Stone lost ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â soft kill (menu resume OFF)")
+                        log.info("[WATCHER] menu_resume OFF — soft-kill, waiting for Start")
+                        _console_status("STONE LOST", "Stone lost — soft kill (menu resume OFF)")
                         set_overlay(status="WAITING", goal="Stone lost")
                         _capture_failure_fullscreen("stone_lost_menu_resume_off")
                         _KILLED = True
@@ -7218,7 +7218,7 @@ def run_bot():
                     max_time_secs=gs.max_time_secs,
                     run_history=gs.run_history,
                 )
-                # Ã¢â€â‚¬Ã¢â€â‚¬ Stop recorder on successful rebirth Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+                # ——— Stop recorder on successful rebirth ———————————————————
                 try:
                     _rec = _get_recorder()
                     if _rec.is_active():
@@ -7241,7 +7241,7 @@ def run_bot():
                 _dash_update(run_active=False, run_start_time=None)
                 _failure_reason = "test_force_restart_hotkey" if _test_force_failure else "run_failed"
                 _capture_failure_fullscreen(_failure_reason)
-                # Ã¢â€â‚¬Ã¢â€â‚¬ Stop recorder on failed run Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+                # ——— Stop recorder on failed run ————————————————————————————
                 try:
                     _rec = _get_recorder()
                     if _rec.is_active():
@@ -7251,7 +7251,7 @@ def run_bot():
                 except Exception as _rec_e:
                     log.debug(f"[Recorder] stop_run error: {_rec_e}")
 
-                # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Auto menu resume on run failure ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+                # ——— Auto menu resume on run failure ———————————————————————
                 from dashboard import get_state as _ds_mr
                 _ds_mr_snap = _ds_mr()
                 if _try_force_restart_after_failure(_failure_reason, _ds_mr_snap):
@@ -7263,7 +7263,7 @@ def run_bot():
                     import config as _cfg_mr2
                     _configured_wait = float(_ds_mr_snap.get("menu_resume_join_wait") or getattr(_cfg_mr2, "MENU_RESUME_JOIN_WAIT", 120))
                     pre_wait = min(10.0, _configured_wait)
-                    log.info(f"[MENU_RESUME] Run failed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â waiting {pre_wait} s then attempting menu resume")
+                    log.info(f"[MENU_RESUME] Run failed — waiting {pre_wait} s then attempting menu resume")
                     _console_status("MENU RESUME", "...")
                     set_overlay(status="WAITING", goal="...")
                     _pre_deadline = time.time() + float(pre_wait)
@@ -7274,23 +7274,23 @@ def run_bot():
                     if not _KILLED:
                         resume_ok = _do_menu_resume()
                         if resume_ok:
-                            log.info("[MENU_RESUME] Resume succeeded ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â starting fresh run from base")
+                            log.info("[MENU_RESUME] Resume succeeded — starting fresh run from base")
                             # Skip _wait_for_start: mark bot as active and continue
                             _WAITING_FOR_START = False
-                            _at_base = False  # player just spawned ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â not at base
+                            _at_base = False  # player just spawned — not at base
                             _menu_resume_fresh_start = True
-                            _just_started = True  # fresh game ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â need startup click/delay before first macro
+                            _just_started = True  # fresh game — need startup click/delay before first macro
                             continue
                         else:
-                            log.warning("[MENU_RESUME] Resume failed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â falling back to normal wait-for-start")
+                            log.warning("[MENU_RESUME] Resume failed — falling back to normal wait-for-start")
                             time.sleep(1)
                 else:
                     time.sleep(1)
 
-        # _KILLED=True means F9 was pressed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â soft reset and loop back to waiting
+        # _KILLED=True means F9 was pressed — soft reset and loop back to waiting
         log.info("F9 soft reset: stopping macros, resetting state, waiting for Start")
         _register_hotkeys()   # re-register every loop so F9 survives game focus changes
-        # Ã¢â€â‚¬Ã¢â€â‚¬ Stop recorder WITHOUT uploading (F9 = mid-run abort, not a complete run) Ã¢â€â‚¬Ã¢â€â‚¬
+        # ——— Stop recorder WITHOUT uploading (F9 = mid-run abort, not a complete run) ———
         try:
             _rec = _get_recorder()
             if _rec.is_active():
@@ -7319,7 +7319,7 @@ def run_bot():
 if __name__ == "__main__":
     import sys as _sys_main
 
-    # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ --webview mode: just open the embedded browser window ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    # ——— --webview mode: just open the embedded browser window —————————————————
     # When the main EXE is re-launched with --webview (by start_dashboard),
     # this process's sole job is to show the pywebview window.  It exits when
     # the window is closed.  This gives pywebview its own main thread (required
@@ -7341,11 +7341,11 @@ if __name__ == "__main__":
             webbrowser.open("http://127.0.0.1:7373")
         import sys; sys.exit(0)
 
-    # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Normal mode ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
-    # main thread  ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ tkinter overlay mainloop (Windows requires this)
-    # thread       ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ Flask server             (started inside start_dashboard)
-    # process      ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ pywebview window         (separate process, own main thread)
-    # thread       ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ bot logic + auth wait
+    # ——— Normal mode ———————————————————————————————————————————————————————————
+    # main thread  — tkinter overlay mainloop (Windows requires this)
+    # thread       — Flask server             (started inside start_dashboard)
+    # process      — pywebview window         (separate process, own main thread)
+    # thread       — bot logic + auth wait
 
     def _bot_main():
         run_bot()
@@ -7353,7 +7353,7 @@ if __name__ == "__main__":
     bot_thread = threading.Thread(target=_bot_main, daemon=True, name="bot")
     bot_thread.start()
 
-    # Start Flask (+ pywebview in dev) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â returns immediately
+    # Start Flask (+ pywebview in dev) — returns immediately
     start_dashboard()
 
     # Give main thread to tkinter overlay (blocks here until process exits)

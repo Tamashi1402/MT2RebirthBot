@@ -1,5 +1,5 @@
 # ============================================================
-# MT2 BOT - CONFIG LOADER  (v16 â€” JSON-backed, no Python in output)
+# MT2 BOT - CONFIG LOADER  (v16 — JSON-backed, no Python in output)
 # All user settings live in data/config.json next to the EXE.
 # This module loads that file and exposes the same names as
 # before so every other module keeps working unchanged.
@@ -39,7 +39,7 @@ def _enable_dpi_awareness():
 
 _enable_dpi_awareness()
 
-# â”€â”€ Locate config/data paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Locate config/data paths —
 def _has_config(folder: str) -> bool:
     return os.path.isfile(os.path.join(folder, "data", "config.json")) or os.path.isfile(
         os.path.join(folder, "config.json")
@@ -551,11 +551,11 @@ _migrate_legacy_json_file("kraken_stats.json")
 _migrate_legacy_json_file("zytos_stats.json")
 _migrate_legacy_json_file("macro_engine_state.json")
 
-# â”€â”€ Debug â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Debug —
 SAVE_DEBUG_CROPS = _cfg_bool("SAVE_DEBUG_CROPS", False)
 DISABLE_OVERLAYS = _cfg_bool("DISABLE_OVERLAYS", False)  # True: overlay windows never shown
 
-# â”€â”€ HUD regions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — HUD regions —
 STONE_ICON_REGION  = tuple(int(x) for x in _cfg.get("STONE_ICON_REGION",  [1629, 657,  1704, 727]))
 STONE_REGION       = tuple(int(x) for x in _cfg.get("STONE_REGION",       [1700, 659,  1919, 721]))
 STRENGTH_REGION    = tuple(int(x) for x in _cfg.get("STRENGTH_REGION",    [1698, 602,  1919, 655]))
@@ -739,10 +739,10 @@ QUEST_MIMIC_ALIASES  = normalize_quest_aliases(_cfg.get("QUEST_MIMIC_ALIASES", "
 QUEST_HATCH_ALIASES   = normalize_quest_aliases(_cfg.get("QUEST_HATCH_ALIASES", "Hatch Pets"))
 QUEST_COMBINE_ALIASES = normalize_quest_aliases(_cfg.get("QUEST_COMBINE_ALIASES", "Combine Pets"))
 HATCH_AREA1_ALIASES   = normalize_quest_aliases(_cfg.get("HATCH_AREA1_ALIASES", "Area 1 Egg"))
-# â”€â”€ Menu Resume OCR regions (user-selected via dashboard calib) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Menu Resume OCR regions (user-selected via dashboard calib) —
 MENU_PLAY_REGION    = tuple(int(x) for x in _cfg.get("MENU_PLAY_REGION",    [660,  840,  820,  900]))
 MENU_PRIVACY_REGION = tuple(int(x) for x in _cfg.get("MENU_PRIVACY_REGION", [660,  770,  820,  840]))
-# â”€â”€ PLAY button color detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — PLAY button color detection —
 # Fortnite PLAY button is bright yellow (HSV ~25, 220, 240).
 # Tolerances are wide so slight UI theme changes don't break it.
 MENU_PLAY_HSV_TARGET = tuple(int(x) for x in _cfg.get("MENU_PLAY_HSV_TARGET", [25, 220, 240]))
@@ -751,14 +751,14 @@ MENU_PLAY_SAT_TOL    = int(_cfg.get("MENU_PLAY_SAT_TOL",   60))
 MENU_PLAY_VAL_TOL    = int(_cfg.get("MENU_PLAY_VAL_TOL",   60))
 MENU_PLAY_COLOR_THRESH = float(_cfg.get("MENU_PLAY_COLOR_THRESH", 0.08))  # 8% of region must match
 
-# â”€â”€ Stone icon color â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Stone icon color —
 STONE_ICON_HSV_TARGET = tuple(int(x) for x in _cfg.get("STONE_ICON_HSV_TARGET", [13, 140, 180]))
 STONE_ICON_HUE_TOL    = int(_cfg.get("STONE_ICON_HUE_TOL",   10))
 STONE_ICON_SAT_TOL    = int(_cfg.get("STONE_ICON_SAT_TOL",   70))
 STONE_ICON_VAL_TOL    = int(_cfg.get("STONE_ICON_VAL_TOL",   80))
 STONE_ICON_THRESH     = float(_cfg.get("STONE_ICON_THRESH", 0.15))
 
-# â”€â”€ Auto-strength icon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Auto-strength icon —
 AUTO_STR_WHITE_THRESH = float(_cfg.get("AUTO_STR_WHITE_THRESH", 0.15))
 AUTO_STR_SAT_MAX      = int(_cfg.get("AUTO_STR_SAT_MAX",   60))
 AUTO_STR_VAL_MIN      = int(_cfg.get("AUTO_STR_VAL_MIN",  180))
@@ -846,8 +846,8 @@ DRILL_ACTIVE_SAT_TOL    = int(_cfg.get("DRILL_ACTIVE_SAT_TOL", 90))
 DRILL_ACTIVE_VAL_TOL    = int(_cfg.get("DRILL_ACTIVE_VAL_TOL", 90))
 DRILL_ACTIVE_THRESH     = float(_cfg.get("DRILL_ACTIVE_THRESH", 0.10))
 
-# â”€â”€ Area 5 detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# â”€â”€ Mouse sensitivity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Area 5 detection —
+# — Mouse sensitivity —
 RECORDED_SENS_H = float(_cfg.get("RECORDED_SENS_H", 17.0))
 RECORDED_SENS_V = float(_cfg.get("RECORDED_SENS_V", 17.0))
 USER_SENS_H     = float(_cfg.get("USER_SENS_H",     17.0))
@@ -859,7 +859,7 @@ MACRO_NORMALIZE_WINDOWS_MOUSE = False
 MACRO_EXPECTED_WINDOWS_MOUSE_SPEED = 10
 MACRO_EXPECTED_WINDOWS_MOUSE_ACCELERATION = 1
 
-# â”€â”€ Stone thresholds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Stone thresholds —
 STONE_FOR_A1_STAGE2 = float(_cfg.get("STONE_FOR_A1_STAGE2", 34.20e9))
 STONE_FOR_A1_STAGE3 = float(_cfg.get("STONE_FOR_A1_STAGE3", 934.00e15))
 STONE_FOR_A1_STAGE4 = float(_cfg.get("STONE_FOR_A1_STAGE4", 25.50e24))
@@ -887,7 +887,7 @@ STONE_FOR_METEOR    = float(_cfg.get("STONE_FOR_METEOR",     1.5e+151))
 # Shortcut meteor mode base-rock target (user-provided: 136.00e150 = 1.36e152)
 STONE_FOR_AREA6_SHORTCUT = float(_cfg.get("STONE_FOR_AREA6_SHORTCUT", 1.36e152))
 
-# â”€â”€ Boss Fight A1 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Boss Fight A1 —
 # Baserock grind target before running A1 boss fight sequence.
 # Any e33 value qualifies (default: 1e33).
 BOSS_FIGHT_A1_BASEROCK_THRESHOLD = float(_cfg.get("BOSS_FIGHT_A1_BASEROCK_THRESHOLD", 1e33))
@@ -947,7 +947,7 @@ BRAMBLE_MODE_REGION = tuple(int(x) for x in _cfg.get("BRAMBLE_MODE_REGION", [182
 BRAMBLE_MODE_SWAP_CENTER = tuple(int(x) for x in _cfg.get("BRAMBLE_MODE_SWAP_CENTER", [439, 826]))
 BRAMBLE_MODE_SWAP_MAX = int(_cfg.get("BRAMBLE_MODE_SWAP_MAX", 8))
 BRAMBLE_MODE_SWAP_WAIT = float(_cfg.get("BRAMBLE_MODE_SWAP_WAIT", 0.45))
-# â”€â”€ Timing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Timing —
 MACRO_POLL_INTERVAL   = float(_cfg.get("MACRO_POLL_INTERVAL",   1.0))
 STONE_STALL_TIMEOUT   = int(_cfg.get("STONE_STALL_TIMEOUT",   120))
 SMART_FAILURE_TIMEOUT = int(_cfg.get("SMART_FAILURE_TIMEOUT",   60))
@@ -1027,7 +1027,7 @@ REBIRTH_BTN2_TOL = int(_cfg.get("REBIRTH_BTN2_TOL", 120) or 120)
 REBIRTH_BTN2_TIMEOUT = float(_cfg.get("REBIRTH_BTN2_TIMEOUT", 4.0) or 4.0)
 
 
-# â”€â”€ Stage top-up timeouts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Stage top-up timeouts —
 _raw_topup = _cfg.get("STAGE_TOPUP_SECONDS", {})
 STAGE_TOPUP_SECONDS = {
     "base":   int(_raw_topup.get("base",   15)),
@@ -1038,7 +1038,7 @@ STAGE_TOPUP_SECONDS = {
     "meteor": int(_raw_topup.get("meteor", 15)),
 }
 
-# â”€â”€ Topup poll timeout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Topup poll timeout —
 TOPUP_TIMEOUT = int(_cfg.get("TOPUP_TIMEOUT", 60))   # hard cap on topup poll phase (seconds)
 MANUAL_STR_POST_CLOSE_SETTLE_SECONDS = float(_cfg.get("MANUAL_STR_POST_CLOSE_SETTLE_SECONDS", 1.0))
 MANUAL_STR_POST_CLOSE_TOPUP_SECONDS = float(_cfg.get("MANUAL_STR_POST_CLOSE_TOPUP_SECONDS", 2.0))
@@ -1202,11 +1202,11 @@ JUMP_BINDING = str(_cfg.get("JUMP_BINDING", "SPACE")).strip().upper() or "SPACE"
 CROUCH_BINDING = str(_cfg.get("CROUCH_BINDING", "CTRL")).strip().upper() or "CTRL"
 FIRST_STEPS_COMPLETED = _cfg_bool("FIRST_STEPS_COMPLETED", False)
 
-# â”€â”€ Bot features â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Bot features —
 BOT_HANDLES_AUTO_STRENGTH = _cfg_bool("BOT_HANDLES_AUTO_STRENGTH", False)
 
-# â”€â”€ Manual strength button regions (1920Ã—1080 game coords) â”€â”€
-# Used by dashboard Region Calibration â†’ MANUAL STR tab.
+# — Manual strength button regions (1920—1080 game coords) —
+# Used by dashboard Region Calibration — MANUAL STR tab.
 # MANUAL_STR_MAX_SECONDS / IDLE_WAIT are still editable in config panel.
 MANUAL_STR_MAX_SECONDS    = int(_cfg.get("MANUAL_STR_MAX_SECONDS",     60))
 MANUAL_STR_IDLE_WAIT      = float(_cfg.get("MANUAL_STR_IDLE_WAIT",     3.0))
@@ -1240,8 +1240,8 @@ MANUAL_STR_SURGE_TARGET = int(_cfg.get("MANUAL_STR_SURGE_TARGET", 160) or 160)
 MANUAL_STR_OPEN_AFTER_HIT_WAIT = float(_cfg.get("MANUAL_STR_OPEN_AFTER_HIT_WAIT", 0.5) or 0.0)
 MANUAL_STR_OPEN_AFTER_MONITOR_WAIT = float(_cfg.get("MANUAL_STR_OPEN_AFTER_MONITOR_WAIT", 0.5 if MANUAL_STR_CLICK_METHOD == "default" else 0.25) or 0.0)
 
-# â”€â”€ Manual strength button regions (1920Ã—1080 game coords) â”€â”€â”€â”€
-# Stored as flat lists [x1, y1, x2, y2] â€” dashboard calibration writes these.
+# — Manual strength button regions (1920—1080 game coords) —
+# Stored as flat lists [x1, y1, x2, y2] — dashboard calibration writes these.
 MANUAL_STR_ROW1_LEFT   = tuple(int(x) for x in _cfg.get("MANUAL_STR_ROW1_LEFT",  [1137, 269, 1466, 339]))
 MANUAL_STR_ROW1_RIGHT  = tuple(int(x) for x in _cfg.get("MANUAL_STR_ROW1_RIGHT", [1495, 266, 1828, 341]))
 MANUAL_STR_ROW2_LEFT   = tuple(int(x) for x in _cfg.get("MANUAL_STR_ROW2_LEFT",  [1137, 426, 1466, 496]))
@@ -1255,7 +1255,7 @@ MANUAL_STR_ROW5_RIGHT  = tuple(int(x) for x in _cfg.get("MANUAL_STR_ROW5_RIGHT",
 MANUAL_STR_CLOSE_REGION = tuple(int(x) for x in _cfg.get("MANUAL_STR_CLOSE_REGION", [1605, 66, 1881, 137]))
 MANUAL_STR_CLOSE_CENTER = tuple(int(x) for x in _cfg.get("MANUAL_STR_CLOSE_CENTER", [1742, 101]))
 MANUAL_STR_STONE_REGION = tuple(int(x) for x in _cfg.get("MANUAL_STR_STONE_REGION", [145, 72, 370, 139]))
-# FIX 4 (revised): icon gap is auto-detected from the thresholded image â€” no fixed crop needed.
+# FIX 4 (revised): icon gap is auto-detected from the thresholded image — no fixed crop needed.
 # MANUAL_STR_STONE_ICON_CROP_PX is no longer used and can be removed from config.json.
 MANUAL_STR_STRENGTH_REGION = tuple(int(x) for x in _cfg.get("MANUAL_STR_STRENGTH_REGION", [475, 72, 682, 139]))
 # Bottom-row Surge level display (0-999), left of the bottom row buttons.
@@ -1267,7 +1267,7 @@ MANUAL_STR_SURGE_REGION = tuple(int(x) for x in _cfg.get("MANUAL_STR_SURGE_REGIO
 CRATER_TIMER_REGION = tuple(int(x) for x in _cfg.get("CRATER_TIMER_REGION", [890, 170, 1025, 215]))
 CRATER_TIMER_DEBUG  = _cfg_bool("CRATER_TIMER_DEBUG", True)
 
-# â”€â”€ Logging â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Logging —
 REGION_BASE_WIDTH  = int(_cfg.get("REGION_BASE_WIDTH", 1920))
 REGION_BASE_HEIGHT = int(_cfg.get("REGION_BASE_HEIGHT", 1080))
 RUNTIME_WIDTH, RUNTIME_HEIGHT = _detect_runtime_resolution()
@@ -1412,7 +1412,7 @@ def _apply_runtime_region_scaling():
 LOG_LEVEL_CONSOLE = str(_cfg.get("LOG_LEVEL_CONSOLE", "INFO"))
 LOG_LEVEL_FILE    = str(_cfg.get("LOG_LEVEL_FILE",    "INFO"))
 
-# â”€â”€ Drill unlock â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Drill unlock —
 UNLOCK_DRILLS           = _cfg_bool("UNLOCK_DRILLS", True)
 STONE_FOR_UNLOCK_DRILLS = float(_cfg.get("STONE_FOR_UNLOCK_DRILLS", 1e+70))
 ACTIVATE_DRILLS         = _cfg_bool("ACTIVATE_DRILLS", True)
@@ -1483,7 +1483,7 @@ def normalize_binding_name(value: str) -> str:
     return s
 
 
-# â”€â”€ Live-patch helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# — Live-patch helper —
 # dashboard.py calls this to update values in-memory AND persist to JSON.
 
 
@@ -1543,7 +1543,7 @@ _apply_runtime_region_scaling()
 
 def save_values(updates: dict):
     """
-    Persist `updates` (dict of CONFIG_KEY â†’ value) to config.json
+    Persist `updates` (dict of CONFIG_KEY — value) to config.json
     and apply them to this module so running code sees them immediately.
     """
     import sys as _sys
@@ -1554,7 +1554,7 @@ def save_values(updates: dict):
     except Exception:
         data = {}
 
-    # JSON stores STAGE_TOPUP_SECONDS with string keys â€” keep that format.
+    # JSON stores STAGE_TOPUP_SECONDS with string keys — keep that format.
     # For all scalable regions/points, persist BASE (1920x1080) coordinates.
     sx = float(REGION_SCALE_X or 1.0)
     sy = float(REGION_SCALE_Y or 1.0)
@@ -1600,7 +1600,7 @@ def save_values(updates: dict):
 
 def save_region(attr: str, tup: tuple, *, already_base: bool = False):
     """Persist a single HUD region tuple (by attr name) to config.json."""
-    # Map Python attr names â†’ JSON keys (they match 1:1 in this project)
+    # Map Python attr names — JSON keys (they match 1:1 in this project)
     try:
         with open(_CONFIG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
