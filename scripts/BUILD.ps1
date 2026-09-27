@@ -64,6 +64,7 @@ $botArgs = @(
     "--add-data", "icon.ico;.",
     "--add-data", "data\config.json;data",
     "--add-data", "code\blockly;blockly",
+    "--add-data", "code\editor;editor",
     "--add-data", "code\macro_engine;macro_engine",
     "--add-data", "tesseract-ocr;tesseract-ocr",
     "--hidden-import=flask",
