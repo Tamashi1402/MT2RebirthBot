@@ -251,6 +251,7 @@ _SCALED_POINT_KEYS = [
     "FORCE_SHARD_SAMPLE",
     "QUEST_PANEL1_BTN", "QUEST_PANEL2_BTN", "QUEST_PANEL3_BTN",
     "QUEST_CLOSE_CLICK", "QUEST_CLOSE_SAMPLE",
+    "QUEST_HUD1_SLOT", "QUEST_HUD2_SLOT", "QUEST_HUD3_SLOT",
     "HATCH_CLOSE_SAMPLE", "HATCH_CLOSE_CLICK", "HATCH_NEXT_CLICK", "HATCH_ALL_CLICK",
     "COMBINE_PETS_CLICK",
     "COMBINE_ZAPPY_CLICK", "COMBINE_ZAPPY_CLOSE_CLICK", "COMBINE_ZAPPY_CLOSE_SAMPLE",
@@ -400,6 +401,11 @@ DEFAULT_POINTS = {
     "FORCE_READY_CLICK": (255, 910),
     "FORCE_SHARD_SAMPLE": (1668, 773),
     # Daily Quests start/complete buttons + close click/sample (user-measured 1920x1080).
+    # HUD quest tracker slot sample points (v1.9.2): done = slot's panel
+    # background #2f363b gone. Left padding of each quest row.
+    "QUEST_HUD1_SLOT": (5, 412),
+    "QUEST_HUD2_SLOT": (5, 492),
+    "QUEST_HUD3_SLOT": (5, 571),
     "QUEST_PANEL1_BTN": (355, 762),
     "QUEST_PANEL2_BTN": (949, 763),
     "QUEST_PANEL3_BTN": (1570, 760),
@@ -663,6 +669,11 @@ QUEST_CLOSE_CLICK  = tuple(int(x) for x in _cfg.get("QUEST_CLOSE_CLICK",  [969, 
 QUEST_CLOSE_SAMPLE = tuple(int(x) for x in _cfg.get("QUEST_CLOSE_SAMPLE", [1073, 861]))
 # HUD quest tracker slots — green "Done" (#00f500) detection regions.
 QUEST_HUD1_DONE_REGION = tuple(int(x) for x in _cfg.get("QUEST_HUD1_DONE_REGION", [0, 409, 90, 464]))
+# v1.9.2 HUD slot sample points — done = slot background gone (see quest_menu.py)
+QUEST_HUD1_SLOT = tuple(int(x) for x in _cfg.get("QUEST_HUD1_SLOT", [5, 412]))
+QUEST_HUD2_SLOT = tuple(int(x) for x in _cfg.get("QUEST_HUD2_SLOT", [5, 492]))
+QUEST_HUD3_SLOT = tuple(int(x) for x in _cfg.get("QUEST_HUD3_SLOT", [5, 571]))
+QUEST_HUD_SLOT_TOL = float(_cfg.get("QUEST_HUD_SLOT_TOL", 0.01))
 QUEST_HUD2_DONE_REGION = tuple(int(x) for x in _cfg.get("QUEST_HUD2_DONE_REGION", [0, 488, 90, 544]))
 QUEST_HUD3_DONE_REGION = tuple(int(x) for x in _cfg.get("QUEST_HUD3_DONE_REGION", [0, 567, 90, 625]))
 # ── Hatch Pets GUI (base NPC) — user-measured 1920x1080 ──────────────────────

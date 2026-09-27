@@ -13,7 +13,7 @@ import pytesseract
 import config as _cfg
 from logger import get_logger
 from macro_runner import _mouse_left_click, _mouse_move_abs, trigger_binding_action
-from screen import grab_region, color_match_percent, parse_stone, save_debug_region
+from screen import grab_region, save_debug_region
 
 log = get_logger()
 
@@ -43,13 +43,6 @@ _PANEL_BTN_ATTRS = {
     2: "QUEST_PANEL2_BTN",
     3: "QUEST_PANEL3_BTN",
 }
-_HUD_DONE_ATTRS = {
-    1: "QUEST_HUD1_DONE_REGION",
-    2: "QUEST_HUD2_DONE_REGION",
-    3: "QUEST_HUD3_DONE_REGION",
-}
-
-
 def _region(attr: str, fallback: tuple) -> tuple:
     val = getattr(_cfg, attr, None)
     try:
@@ -286,24 +279,62 @@ def classify_quest(text: str, aliases=None) -> int | None:
     return None
 
 
-# ── HUD "Done" watch (green #00f500) ─────────────────────────────────────────
-_DONE_HSV = (60, 255, 245)   # #00f500 -> opencv hue 60, full sat, ~245 val
+# ── HUD slot watch (v1.11: quest done = slot gone) ──────────────────────────
+# The game auto-confirms finished quests now — the green "Done" text is gone.
+# A quest is done when its HUD tracker slot DISAPPEARS: the sample point at
+# the slot's left padding stops matching the HUD panel background colour
+# #2f363b. While the quest is active the sample reads plain panel background
+# ("still in progress"); once the game auto-accepts, the slot is removed and
+# the sample shows the game world instead.
+_SLOT_ATTRS = {
+    1: "QUEST_HUD1_SLOT",
+    2: "QUEST_HUD2_SLOT",
+    3: "QUEST_HUD3_SLOT",
+}
+_SLOT_FALLBACKS = {1: (5, 412), 2: (5, 492), 3: (5, 571)}
+# Panel background #2f363b as BGR floats (grab_region returns BGR).
+_SLOT_BG_BGR = np.array([0x3B, 0x36, 0x2F], dtype=np.float32)  # B, G, R
+# Done threshold: max channel difference as a fraction of the FULL 0-255
+# channel range. 1% = ~2.5 levels — comfortably above render rounding
+# noise on the dark panel, far below any game-world colour.
+_SLOT_TOL_DEFAULT = 0.01
+
+
+def _slot_sample_wh() -> tuple:
+    """Sample window size at the slot point, resolution-scaled
+    (authored 1920x1080 sample: 6x4 px inside the slot's left padding)."""
+    try:
+        sx = float(getattr(_cfg, "REGION_SCALE_X", 1.0) or 1.0)
+        sy = float(getattr(_cfg, "REGION_SCALE_Y", 1.0) or 1.0)
+        return max(2, int(round(6 * sx))), max(2, int(round(4 * sy)))
+    except Exception:
+        return 6, 4
 
 
 def quest_hud_done(panel: int) -> bool:
-    """True if HUD quest slot `panel` shows the green Done text."""
-    attr = _HUD_DONE_ATTRS.get(int(panel))
+    """True when the HUD quest slot for `panel` is DONE (v1.11).
+
+    Done == the slot background is gone: the MEDIAN colour of the sample
+    window differs from the panel background #2f363b by more than
+    QUEST_HUD_SLOT_TOL (default 1% of the 0-255 channel range per channel).
+    The median ignores the few anti-aliased edge pixels in the window.
+    """
+    panel = int(panel)
+    attr = _SLOT_ATTRS.get(panel)
     if not attr:
         return False
     try:
-        region = _region(attr, (0, 0, 1, 1))
-        img = grab_region(region)
+        x, y = _point(attr, _SLOT_FALLBACKS.get(panel, (5, 412)))
+        w, h = _slot_sample_wh()
+        img = grab_region((int(x), int(y), int(x) + w, int(y) + h))
         if img is None or img.size == 0:
             return False
-        pct = color_match_percent(img, _DONE_HSV, hue_tol=12, sat_tol=60, val_tol=60)
-        min_pct = float(getattr(_cfg, "QUEST_DONE_MIN_PCT", 0.02))
-        if pct >= min_pct:
-            log.info(f"[QUEST] HUD slot {panel} Done: green pct={pct:.3f}")
+        med = np.median(img.reshape(-1, 3), axis=0).astype(np.float32)
+        tol = max(0.0, float(getattr(_cfg, "QUEST_HUD_SLOT_TOL", _SLOT_TOL_DEFAULT)))
+        diff = float(np.max(np.abs(med - _SLOT_BG_BGR)) / 255.0)
+        if diff > tol:
+            log.info(f"[QUEST] HUD slot {panel} done: sample no longer panel bg "
+                     f"(diff {diff * 100:.1f}% > {tol * 100:.0f}%)")
             return True
         return False
     except Exception as e:

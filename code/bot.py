@@ -4669,7 +4669,8 @@ def _quest_mine_one(panel: int, star: int) -> bool:
     if _KILLED or _STONE_LOST:
         return False
 
-    # Hold LMB and watch the HUD quest slot for the green Done text.
+    # Hold LMB and watch the HUD quest slot for completion (v1.9.2: the
+    # slot's panel background disappears once the game auto-confirms).
     timeout = max(5.0, float(getattr(_cfg_q, "QUEST_MINE_TIMEOUT_SECONDS", 60)))
     poll = max(0.05, float(getattr(_cfg_q, "QUEST_HUD_POLL_SECONDS", 0.15)))
     done = False
@@ -4687,10 +4688,10 @@ def _quest_mine_one(panel: int, star: int) -> bool:
         _mouse_left_up()
 
     if done:
-        log.info(f"[QUEST] quest {panel} complete (HUD Done) — will claim mineral reward later")
+        log.info(f"[QUEST] quest {panel} complete (HUD slot gone — auto-confirmed by the game)")
         stats.mark_step(f"Quest {panel}")
     else:
-        log.warning(f"[QUEST] quest {panel} timed out after {timeout:.0f}s — auto-done, not claimable")
+        log.warning(f"[QUEST] quest {panel} timed out after {timeout:.0f}s — HUD slot still present, not done")
     return done
 
 
@@ -4700,7 +4701,6 @@ def _quest_mimic_one(panel: int) -> bool:
     Play mimic.macro (walk + open) and consider the quest DONE. No combat,
     no LMB hold, no HUD Done watching — opening it completes the quest.
     """
-    import quest_menu as qm
     _console_status("QUESTS", "Open Chests")
     if not _builtin_teleport_safe("area1", attempts=3, wait_seconds=3.5):
         log.warning(f"[QUEST] area1 teleport failed — skipping chest quest {panel}")
@@ -4712,7 +4712,7 @@ def _quest_mimic_one(panel: int) -> bool:
         return False
     if _KILLED or _STONE_LOST:
         return False
-    log.info(f"[QUEST] chest quest {panel} done (chest opened via macro) — will claim mineral reward later")
+    log.info(f"[QUEST] chest quest {panel} done (chest opened via macro — auto-confirmed by the game)")
     stats.mark_step(f"Quest {panel} Chests")
     # mimic.macro may end on the weapon — back to pickaxe for the rest of the run
     try:
@@ -4723,7 +4723,8 @@ def _quest_mimic_one(panel: int) -> bool:
 
 
 def _quest_wait_hud_done(panel: int, timeout: float = 6.0) -> bool:
-    """Poll the HUD quest slot for the green Done text."""
+    """Poll the HUD quest slot until it disappears (v1.9.2 done signal:
+    the game auto-confirms the quest and removes the slot)."""
     import quest_menu as qm
     deadline = time.time() + max(0.0, float(timeout))
     while time.time() < deadline:
@@ -4886,7 +4887,7 @@ def _read_quest_plan(qm) -> dict:
 
 def _accept_quest_plan(qm, plan: dict, btn_settle: float) -> None:
     """Click Start ONLY on the quests the bot will actually do, then close the
-    board. The rewards for the rest are confirmed/claimed at the end anyway."""
+    board. The rest are auto-confirmed by the game when they complete."""
     quests = plan["quests"]
     mine_list = plan["mine_list"]
     mimic_panel = plan["mimic_panel"]
@@ -4929,12 +4930,12 @@ def _accept_quest_plan(qm, plan: dict, btn_settle: float) -> None:
 def _start_daily_quests() -> None:
     """v1.8.32 run-START quest phase: accept (Start) the daily quests right
     after a fresh rebirth so rock quests can progress NATURALLY while the bot
-    grinds the run. The DOING + claiming stays in _do_daily_quests() at the
+    grinds the run. The DOING stays in _do_daily_quests() at the
     end (between meteor and rebirth) — this phase never does quest actions.
 
     On success the plan is saved to _QUEST_PLAN for the end phase. If this
     phase is skipped or fails, the end phase falls back to the legacy full
-    flow (open board, read, accept, do, claim)."""
+    flow (open board, read, accept, do)."""
     import config as _cfg_q
     import quest_menu as qm
     global _QUESTS_STARTED_THIS_RUN, _QUEST_PLAN
@@ -4983,7 +4984,7 @@ def _start_daily_quests() -> None:
         _accept_quest_plan(qm, plan, btn_settle)
         _QUEST_PLAN = plan
         log.info("[QUESTS] quests accepted at run start — rock quests now progress naturally; "
-                 "doing + claiming happens before rebirth")
+                 "doing happens before rebirth")
         # back to a fresh tp-base spawn so the run's own nav macros line up
         if not _KILLED and not _STONE_LOST:
             _teleport_to_base()
@@ -4999,8 +5000,12 @@ def _do_daily_quests() -> None:
     v1.8.32: quests were already accepted at run start (_start_daily_quests)
     so rock quests could complete naturally during the grind. This phase uses
     the saved plan and checks the HUD FIRST for every quest: already-Done
-    quests skip the whole teleport+macro trip. With no saved plan it falls
-    back to the legacy full flow (open board, read, accept, do, claim)."""
+    quests skip the whole teleport+macro trip.
+
+    v1.9.2: the game auto-confirms finished quests now — there is no claim
+    phase anymore. Quest done = the HUD slot itself disappears (background
+    check in quest_menu.quest_hud_done). The bot never re-opens the quest
+    board after the run-start accept; completed quests just count in stats."""
     import config as _cfg_q
     import quest_menu as qm
     global _QUESTS_DONE_THIS_RUN, _QUEST_PLAN
@@ -5021,6 +5026,7 @@ def _do_daily_quests() -> None:
         pass
     btn_settle = max(0.05, float(getattr(_cfg_q, "QUEST_BTN_SETTLE", 0.35)))
     had_auto_str = False
+    quest_moved = False   # True when an action teleported/walked the character
     _freeze_stone(True)
     try:
         if _auto_strength_enabled():
@@ -5036,6 +5042,7 @@ def _do_daily_quests() -> None:
             # legacy fallback — quests were never accepted at run start
             log.info("[QUESTS] Daily Quests ON — running full quest phase (no run-start plan)")
             _console_status("QUESTS", "Opening Quest Menu")
+            quest_moved = True   # quest_menu macro walks to the board
             if not _open_quest_menu_and_wait(qm):
                 return
             plan = _read_quest_plan(qm)
@@ -5061,21 +5068,24 @@ def _do_daily_quests() -> None:
             if _KILLED or _STONE_LOST:
                 return
             if qm.quest_hud_done(panel):
-                log.info(f"[QUEST] quest {panel} already Done on HUD — skipping teleport/macro")
+                log.info(f"[QUEST] quest {panel} already done (HUD slot gone) — skipping teleport/macro")
                 completed.append(panel)
                 stats.mark_step(f"Quest {panel} (natural)")
                 continue
+            quest_moved = True
             if _quest_mine_one(panel, quests[panel]["star"]):
                 completed.append(panel)
         if mimic_panel is not None:
             if _KILLED or _STONE_LOST:
                 return
             if qm.quest_hud_done(mimic_panel):
-                log.info(f"[QUEST] chest quest {mimic_panel} already Done on HUD — skipping mimic macro")
+                log.info(f"[QUEST] chest quest {mimic_panel} already done (HUD slot gone) — skipping mimic macro")
                 completed.append(mimic_panel)
                 stats.mark_step(f"Quest {mimic_panel} Chests (natural)")
-            elif _quest_mimic_one(mimic_panel):
-                completed.append(mimic_panel)
+            else:
+                quest_moved = True
+                if _quest_mimic_one(mimic_panel):
+                    completed.append(mimic_panel)
 
         # 3b) hatch pets — eggs come from the rock quests above; the actions
         # run when the Hatch quest is accepted OR Combine needs pets to combine
@@ -5088,12 +5098,13 @@ def _do_daily_quests() -> None:
         elif hatch_actions:
             if _KILLED or _STONE_LOST:
                 return
+            quest_moved = True
             if _quest_hatch_action():
                 if hatch_do and _quest_wait_hud_done(hatch_panel, 8.0):
                     completed.append(hatch_panel)
                     stats.mark_step(f"Quest {hatch_panel} Hatch")
                 elif hatch_do:
-                    log.warning(f"[QUEST] hatch quest {hatch_panel} not Done on HUD — not claimable")
+                    log.warning(f"[QUEST] hatch quest {hatch_panel} HUD slot still present — not done")
 
         # 3c) combine pets — only when the Combine quest was accepted.
         # The in-menu flow only proves the clicks landed (yellow close
@@ -5109,6 +5120,7 @@ def _do_daily_quests() -> None:
             elif _KILLED or _STONE_LOST:
                 return
             else:
+                quest_moved = True
                 COMBINE_PASSES = 3
                 combined_ok = False
                 for attempt in range(1, COMBINE_PASSES + 1):
@@ -5127,49 +5139,18 @@ def _do_daily_quests() -> None:
                         break
                     log.warning(f"[QUEST] combine quest {plan['combine_panel']} not Done on HUD after pass {attempt}")
                 if not combined_ok:
-                    log.warning(f"[QUEST] combine quest {plan['combine_panel']} not Done on HUD — not claimable "
+                    log.warning(f"[QUEST] combine quest {plan['combine_panel']} HUD slot still present — not done "
                                 "(enable SAVE_DEBUG_CROPS and check the quest_combine_* crops to recalibrate "
                                 "the COMBINE_* click points)")
 
-        # 4) claim rewards — claiming CLOSES the menu, reopen with E between claims
+        # 4) v1.9.2: claiming removed — the game auto-confirms finished
+        # quests (no board visit, no reward buttons). Done quests just
+        # count toward the run stats.
+        for panel in completed:
+            stats.add_quest_completed()
         if completed:
-            _console_status("QUESTS", "Claiming Rewards")
-            # quest_menu macro only works from the fresh tp-base spawn — the
-            # quest actions moved the character, so always re-teleport.
-            log.info("[QUESTS] re-teleport to base before claim-phase quest_menu macro")
-            if not _teleport_to_base():
-                return
-            r = _nav_or_redo("quest_menu")
-            if r != "ok" or not qm.wait_quest_menu_open(5.0):
-                log.warning("[QUESTS] could not reopen quest menu for claiming")
-                return
-            for panel in completed:
-                if not qm.quest_menu_open():
-                    if not qm.reopen_quest_menu():
-                        log.warning("[QUESTS] E reopen failed — teleport to base + quest_menu macro")
-                        if not _teleport_to_base():
-                            return
-                        if _nav_or_redo("quest_menu") != "ok":
-                            return
-                        if not qm.wait_quest_menu_open(5.0):
-                            return
-                if not qm.click_quest_button(panel):
-                    log.warning(f"[QUEST] claim click failed for panel {panel}")
-                    continue
-                time.sleep(0.25)
-                deadline = time.time() + 3.0
-                while time.time() < deadline and qm.quest_menu_open():
-                    time.sleep(0.10)
-                if qm.quest_menu_open():
-                    log.warning(f"[QUEST] panel {panel} claim did not close the menu — not complete?")
-                else:
-                    log.info(f"[QUEST] reward claimed for quest {panel}")
-                    stats.mark_step(f"Quest {panel} Reward")
-                    stats.add_quest_completed()
-
-        # 5) back to base for the rebirth
-        if not _at_base:
-            _teleport_to_base()
+            log.info(f"[QUESTS] quests auto-confirmed by the game: "
+                     + ", ".join(f"q{p}" for p in completed))
     except Exception as e:
         log.warning(f"[QUESTS] quest phase error (continuing to rebirth): {e}")
     finally:
@@ -5179,12 +5160,12 @@ def _do_daily_quests() -> None:
         except Exception:
             pass
         _freeze_stone(False)
-        # The quest phase physically walks the character from the tp-base
-        # spawn to the quest board. base_to_rebirth only works from the
-        # fresh spawn — always re-teleport before the rebirth walk.
-        if not _KILLED and not _STONE_LOST:
+        # base_to_rebirth only works from the fresh tp-base spawn. Re-teleport
+        # ONLY when quest actions actually moved the character (v1.9.2: with
+        # claiming gone, all-done runs stay at base and skip this entirely).
+        if (quest_moved or not _at_base) and not _KILLED and not _STONE_LOST:
             try:
-                log.info("[QUESTS] re-teleport to base — fresh spawn before rebirth walk")
+                log.info("[QUESTS] quest actions moved the character — re-teleport to base")
                 _teleport_to_base()
             except Exception as e:
                 log.warning(f"[QUESTS] base re-teleport failed: {e}")
@@ -6985,7 +6966,7 @@ def run_bot():
 
             # v1.8.32: accept (Start) the daily quests right at run start so
             # rock quests can progress naturally during the grind; the doing
-            # + claiming stays in the end-of-run quest phase, which skips any
+            # + doing stays in the end-of-run quest phase, which skips any
             # quest already Done on the HUD before teleporting anywhere.
             if _quests_enabled():
                 _start_daily_quests()
