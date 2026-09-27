@@ -319,15 +319,203 @@ def _parse_color_rgb(v: Any):
         return None
 
 
+# ── color-pixel list / average color (map-change detection) ────────────
+# hue_list(box[, step[, seed]]) — "get the color of every pixel in [box]":
+# the full-resolution grab's pixels as "rgba(r,g,b,a)" strings. step N
+# samples every Nth pixel (lighter); the seed picks the pattern's starting
+# phase, so the same box + step + seed always samples the exact same
+# pixels. Huge boxes auto-stride past _COLOR_LIST_MAX samples to stay
+# light. hue_diag(list) is the older diagonal cut (kept: old macros parse)
+# but the recommended flow is color_avg: average the pixel list into ONE
+# color, then color_diff(before, after) detects the map/scene change.
+
+_COLOR_LIST_MAX = 4096
+
+
+def _fnv1a(s: str) -> int:
+    """FNV-1a over the seed string — same pattern on any Python."""
+    h = 0x811C9DC5
+    for b in str(s).encode("utf-8", "ignore"):
+        h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF
+    return h
+
+
+class _HueList(list):
+    """list of 'rgba(r,g,b,a)' strings + the grid it was sampled from."""
+
+    def __init__(self, items=(), gw=0, gh=0):
+        super().__init__(items)
+        self.grid_w = int(gw)
+        self.grid_h = int(gh)
+
+
+def _rgb_to_hue(r: float, g: float, b: float) -> float:
+    try:
+        mx, mn = max(r, g, b), min(r, g, b)
+        if mx <= 0 or mx == mn:
+            return 0.0
+        d = mx - mn
+        if mx == r:
+            h = ((g - b) / d) % 6.0
+        elif mx == g:
+            h = (b - r) / d + 2.0
+        else:
+            h = (r - g) / d + 4.0
+        return round((h * 60.0) % 360.0, 1)
+    except Exception:
+        return 0.0
+
+
+def _expr_hue_list(d: dict[str, Any], vars_state: dict[str, Any],
+                   bot_root: str, macro_dir: str | None) -> list:
+    # every pixel by default; step N > 1 samples every Nth, the seed picks
+    # the pattern's starting phase — a stable per-seed fingerprint
+    region = eval_expr((d or {}).get("box"), vars_state, bot_root, macro_dir)
+    try:
+        vals = [int(round(float(v))) for v in region][:4]
+        x1, y1, x2, y2 = vals
+    except Exception:
+        return _HueList()
+    if x2 - x1 < 1 or y2 - y1 < 1:
+        return _HueList()
+    step = 1
+    if (d or {}).get("step") is not None:
+        try:
+            step = max(1, int(round(float(eval_expr(d.get("step"), vars_state, bot_root, macro_dir)))))
+        except Exception:
+            step = 1
+    seed = ""
+    if (d or {}).get("seed") is not None:
+        try:
+            seed = str(eval_expr(d.get("seed"), vars_state, bot_root, macro_dir) or "")
+        except Exception:
+            seed = ""
+    img = _grab_region((x1, y1, x2, y2))
+    if img is None or img.size == 0:
+        return _HueList()
+    h, w = int(img.shape[0]), int(img.shape[1])
+    if w < 1 or h < 1:
+        return _HueList()
+    total = w * h
+    # big boxes auto-stride past _COLOR_LIST_MAX samples (lists stay light)
+    eff = max(step, -(-total // _COLOR_LIST_MAX))
+    off = (_fnv1a(seed) % eff) if (seed and eff > 1) else 0
+    ndim = int(getattr(img, "ndim", 3))
+    chans = int(img.shape[2]) if ndim == 3 else 0
+    items = []
+    for idx in range(off, total, eff):
+        y, x = divmod(idx, w)
+        px = img[y][x]
+        if chans:
+            b, g, r = int(px[0]), int(px[1]), int(px[2])
+            a = int(px[3]) if chans > 3 else 255
+        else:
+            b = g = r = int(px)
+            a = 255
+        items.append("rgba(%d,%d,%d,%d)" % (r, g, b, a))
+    return _HueList(items, w, h)
+
+
+def _expr_hue_diag(d: dict[str, Any], vars_state: dict[str, Any],
+                   bot_root: str, macro_dir: str | None) -> list:
+    v = eval_expr((d or {}).get("a"), vars_state, bot_root, macro_dir)
+    if not isinstance(v, (list, tuple)):
+        return []
+    vals = list(v)
+    gw = int(getattr(v, "grid_w", 0) or 0)
+    gh = int(getattr(v, "grid_h", 0) or 0)
+    out: list = []
+    if gw > 0 and gh > 0 and gw * gh <= len(vals):
+        # row-major grid: walk the main diagonal (top-left → bottom-right)
+        for i in range(min(gw, gh)):
+            c = _parse_color_rgb(vals[i * gw + i])
+            if c is not None:
+                out.append(_rgb_to_hue(c[0], c[1], c[2]))
+    if not out:
+        # no grid info (a plain list) — an evenly-strided diagonal cut,
+        # at most 16 samples across the whole list
+        n = len(vals)
+        steps = min(16, n)
+        for i in range(steps):
+            idx = int(i * (n - 1) / max(1, steps - 1)) if steps > 1 else 0
+            c = _parse_color_rgb(vals[idx])
+            if c is not None:
+                out.append(_rgb_to_hue(c[0], c[1], c[2]))
+    return out
+
+
+def _expr_color_avg(d: dict[str, Any], vars_state: dict[str, Any],
+                     bot_root: str, macro_dir: str | None):
+    """color_avg(list) — "get average color of [list]".
+
+    A list of colors (rgba()/#hex strings, straight from the pixel
+    blocks) averages channel-by-channel into ONE color. A list of plain
+    numbers averages numerically. A single color passes through;
+    nothing usable averages to black.
+    """
+    v = eval_expr((d or {}).get("a"), vars_state, bot_root, macro_dir)
+    if not isinstance(v, (list, tuple)):
+        c = _parse_color_rgb(v)
+        return "rgba(%d,%d,%d,255)" % (c[0], c[1], c[2]) if c else "rgba(0,0,0,255)"
+    items = list(v)
+    nums = [x for x in items if isinstance(x, (int, float)) and not isinstance(x, bool)]
+    if items and len(nums) == len(items):
+        return round(sum(float(x) for x in nums) / len(nums), 4)
+    rs = gs = bs = n = 0
+    for item in items:
+        c = _parse_color_rgb(item)
+        if c:
+            rs += c[0]
+            gs += c[1]
+            bs += c[2]
+            n += 1
+    if not n:
+        return "rgba(0,0,0,255)"
+    return "rgba(%d,%d,%d,255)" % (round(rs / n), round(gs / n), round(bs / n))
+
+
 def _expr_color_diff(d: dict[str, Any], vars_state: dict[str, Any],
                      bot_root: str, macro_dir: str | None) -> float:
     """get color difference between [] and [] — 0.0 (identical) to 1.0.
 
-    1:1 with the flow engine's _pcr_color_diff; -1.0 when either operand
-    is not a color.
+    Operands may be single colors OR lists (hue list / hue diagonal):
+    list-vs-list compares element-wise — colors by RGB distance, plain
+    numbers (hue degrees) by the circular hue distance / 180 — and
+    returns the average, with length mismatches counting as fully
+    different. That is the map-change detector:
+    color_diff(color_avg(hue_list(box)), reference).
+    1:1 with the flow engine's _pcr_color_diff for plain colors;
+    -1.0 when neither operand is a list and either is not a color.
     """
     a = eval_expr(d.get("a"), vars_state, bot_root, macro_dir)
     b = eval_expr(d.get("b"), vars_state, bot_root, macro_dir)
+    if isinstance(a, (list, tuple)) or isinstance(b, (list, tuple)):
+        la = list(a) if isinstance(a, (list, tuple)) else []
+        lb = list(b) if isinstance(b, (list, tuple)) else []
+        n = max(len(la), len(lb))
+        if n == 0:
+            return 0.0
+        total = 0.0
+        for i in range(n):
+            ea = la[i] if i < len(la) else None
+            eb = lb[i] if i < len(lb) else None
+            if ea is None or eb is None:
+                total += 1.0
+                continue
+            a_num = isinstance(ea, (int, float)) and not isinstance(ea, bool)
+            b_num = isinstance(eb, (int, float)) and not isinstance(eb, bool)
+            if a_num or b_num:
+                # hue numbers: circular distance, 180° apart = 1.0
+                dh = abs(_expr_to_num(ea) - _expr_to_num(eb)) % 360.0
+                total += min(dh, 360.0 - dh) / 180.0
+                continue
+            ca, cb = _parse_color_rgb(ea), _parse_color_rgb(eb)
+            if ca is None or cb is None:
+                total += 1.0
+            else:
+                dist = math.sqrt(sum((x - y) ** 2 for x, y in zip(ca, cb)))
+                total += dist / (255.0 * math.sqrt(3.0))
+        return round(total / n, 3)
     ca, cb = _parse_color_rgb(a), _parse_color_rgb(b)
     if ca is None or cb is None:
         return -1.0
@@ -502,6 +690,7 @@ def eval_expr(expr: Any, vars_state: dict[str, Any],
     {point}, {box}, {res_spec}, {res_scale},
     {runtime_dir}, {desktop_dir},
     {list_get}, {list_size}, {list_is_empty}, {type_is},
+    {hue_list}, {hue_diag}.
     Plain values pass through.
     """
     if not isinstance(expr, dict):
@@ -632,6 +821,21 @@ def eval_expr(expr: Any, vars_state: dict[str, Any],
         if t in ("resloc", "resource", "resource location"):
             return isinstance(v, str)
         return False
+    if "hue_list" in expr:
+        try:
+            return _expr_hue_list(expr.get("hue_list") or {}, vars_state, bot_root, macro_dir)
+        except Exception:
+            return _HueList()
+    if "hue_diag" in expr:
+        try:
+            return _expr_hue_diag(expr.get("hue_diag") or {}, vars_state, bot_root, macro_dir)
+        except Exception:
+            return []
+    if "color_avg" in expr:
+        try:
+            return _expr_color_avg(expr.get("color_avg") or {}, vars_state, bot_root, macro_dir)
+        except Exception:
+            return "rgba(0,0,0,255)"
     # ── resolution blocks (1:1 with the flow editor's ratio/scale) ──
     if "point" in expr:
         d = expr.get("point") or {}

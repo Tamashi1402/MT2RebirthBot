@@ -604,6 +604,36 @@ function _mfm_render(node) {
     const d = node.img_diff || {};
     return ['img_diff(' + _mfm_render_path(d.a || '') + ', ' + _mfm_render_path(d.b || '') + ')', 9];
   }
+  if ('hue_list' in node) {
+    const d = node.hue_list || {};
+    const args = [sub(d.box || { lit: 0 }, 9, false)];
+    if (d.step != null || d.seed != null) args.push(sub(d.step != null ? d.step : { lit: 1 }, 9, false));
+    if (d.seed != null) args.push(sub(d.seed || { lit: '' }, 9, false));
+    return ['hue_list(' + args.join(', ') + ')', 9];
+  }
+  if ('color_avg' in node) {
+    const d = node.color_avg || {};
+    return ['color_avg(' + sub(d.a || { lit: 0 }, 9, false) + ')', 9];
+  }
+  if ('hue_diag' in node) {
+    const d = node.hue_diag || {};
+    return ['hue_diag(' + sub(d.a || { lit: 0 }, 9, false) + ')', 9];
+  }
+  if ('list_get' in node) {
+    const d = node.list_get || {};
+    return ['list_get(' + sub(d.a || { lit: 0 }, 9, false) + ', ' +
+      sub(d.i || { lit: 1 }, 9, false) + ')', 9];
+  }
+  if ('list_size' in node) {
+    return ['list_size(' + sub(node.list_size || { lit: 0 }, 9, false) + ')', 9];
+  }
+  if ('list_is_empty' in node) {
+    return ['list_is_empty(' + sub(node.list_is_empty || { lit: 0 }, 9, false) + ')', 9];
+  }
+  if ('type_is' in node) {
+    const d = node.type_is || {};
+    return ['type_is(' + sub(d.a || { lit: 0 }, 9, false) + ', ' + _mfm_q(String(d.t || 'text')) + ')', 9];
+  }
   return ['true', 9];
 }
 function _mfm_coord_render(v, dflt) {
@@ -820,6 +850,28 @@ function _mfm_expr(b) {
       }
       return { grab: d };
     }
+    case 'mfm_hue_list':
+      return { hue_list: { box: _mfm_expr(b.getInputTargetBlock('BOX')) } };
+    case 'mfm_hue_list_sampled': {
+      const d = { box: _mfm_expr(b.getInputTargetBlock('BOX')),
+                  step: _mfm_expr(b.getInputTargetBlock('STEP')) };
+      const s = b.getInputTargetBlock('SEED');
+      if (s && s.type === 'text') d.seed = { lit: String(s.getFieldValue('TEXT') || '') };
+      return { hue_list: d };
+    }
+    case 'mfm_color_avg':
+      return { color_avg: { a: _mfm_expr(b.getInputTargetBlock('LIST')) } };
+    case 'mfm_hue_diag':
+      return { hue_diag: { a: _mfm_expr(b.getInputTargetBlock('LIST')) } };
+    case 'mfm_list_get':
+      return { list_get: { a: _mfm_expr(b.getInputTargetBlock('LIST')), i: _mfm_expr(b.getInputTargetBlock('NUM')) } };
+    case 'mfm_list_size':
+      return { list_size: _mfm_expr(b.getInputTargetBlock('LIST')) };
+    case 'mfm_list_is_empty':
+      return { list_is_empty: _mfm_expr(b.getInputTargetBlock('LIST')) };
+    case 'mfm_type_is':
+      return { type_is: { a: _mfm_expr(b.getInputTargetBlock('VALUE')), t: String(b.getFieldValue('TYPE') || 'text') } };
+    case 'mfm_component':
       // the iterate loop's current item — resolves to the innermost
       // enclosing ITERATE's component name
       return { get: _mfmIterateName(b) };
@@ -984,6 +1036,73 @@ function _mfm_exprXml(v, doc) {
   if (v && typeof v === 'object' && !Array.isArray(v)) {
     if ('runtime_dir' in v) return mkBlk('pcr_path_running');
     if ('desktop_dir' in v) return mkBlk('pcr_path_desktop');
+    if ('hue_list' in v) {
+      const d = v.hue_list || {};
+      const hasStep = d.step != null && JSON.stringify(d.step) !== JSON.stringify({ lit: 1 });
+      const seedLit = d.seed && typeof d.seed.lit === 'string' ? d.seed.lit : '';
+      const sampled = hasStep || seedLit !== '';
+      const b = mkBlk(sampled ? 'mfm_hue_list_sampled' : 'mfm_hue_list');
+      if (sampled) {
+        const ws = doc.createElement('value'); ws.setAttribute('name', 'STEP');
+        ws.appendChild(_mfm_exprXml(d.step != null ? d.step : { lit: 10 }, doc));
+        b.appendChild(ws);
+        const wse = doc.createElement('value'); wse.setAttribute('name', 'SEED');
+        wse.appendChild(_mfm_exprXml(d.seed != null ? d.seed : { lit: '' }, doc));
+        b.appendChild(wse);
+      }
+      const w = doc.createElement('value'); w.setAttribute('name', 'BOX');
+      w.appendChild(_mfm_exprXml(d.box != null ? d.box : { lit: 0 }, doc));
+      b.appendChild(w); return b;
+    }
+    if ('color_avg' in v) {
+      const b = mkBlk('mfm_color_avg');
+      const w = doc.createElement('value'); w.setAttribute('name', 'LIST');
+      w.appendChild(_mfm_exprXml((v.color_avg || {}).a != null ? v.color_avg.a : { lit: 0 }, doc));
+      b.appendChild(w); return b;
+    }
+    if ('hue_diag' in v) {
+      const d = v.hue_diag || {};
+      const b = mkBlk('mfm_hue_diag');
+      const w = doc.createElement('value'); w.setAttribute('name', 'LIST');
+      w.appendChild(_mfm_exprXml(d.a != null ? d.a : { lit: 0 }, doc));
+      b.appendChild(w); return b;
+    }
+    if ('list_get' in v) {
+      const d = v.list_get || {};
+      const b = mkBlk('mfm_list_get');
+      const wl = doc.createElement('value'); wl.setAttribute('name', 'LIST');
+      wl.appendChild(_mfm_exprXml(d.a != null ? d.a : { lit: 0 }, doc));
+      b.appendChild(wl);
+      const wn = doc.createElement('value'); wn.setAttribute('name', 'NUM');
+      wn.appendChild(_mfm_exprXml(d.i != null ? d.i : { lit: 1 }, doc));
+      b.appendChild(wn); return b;
+    }
+    if ('list_size' in v) {
+      const b = mkBlk('mfm_list_size');
+      const w = doc.createElement('value'); w.setAttribute('name', 'LIST');
+      w.appendChild(_mfm_exprXml(v.list_size != null ? v.list_size : { lit: 0 }, doc));
+      b.appendChild(w); return b;
+    }
+    if ('list_is_empty' in v) {
+      const b = mkBlk('mfm_list_is_empty');
+      const w = doc.createElement('value'); w.setAttribute('name', 'LIST');
+      w.appendChild(_mfm_exprXml(v.list_is_empty != null ? v.list_is_empty : { lit: 0 }, doc));
+      b.appendChild(w); return b;
+    }
+    if ('type_is' in v) {
+      const d = v.type_is || {};
+      const b = mkBlk('mfm_type_is');
+      const w = doc.createElement('value'); w.setAttribute('name', 'VALUE');
+      w.appendChild(_mfm_exprXml(d.a != null ? d.a : { lit: 0 }, doc));
+      b.appendChild(w);
+      const f = doc.createElement('field'); f.setAttribute('name', 'TYPE');
+      f.textContent = String(d.t || 'text'); b.appendChild(f);
+      return b;
+    }
+    if ('lit' in v) {
+      if (Array.isArray(v.lit) && v.lit.length === 0) return mkBlk('mfm_empty_list');
+      return mkLit(v.lit);
+    }
     if ('get' in v) {
       // inside an ITERATE body, a reference to the loop's component name
       // reloads as the `component` block (not a typed getter)
@@ -2501,19 +2620,59 @@ if (typeof Blockly !== 'undefined' && Blockly.Blocks) {
 
   // ── color-pixel blocks (Color category) — map-change detection ──
   // pixel lists are purple like every list block
+  def('mfm_hue_list', function () {
+    this.jsonInit({
+      "type": "mfm_hue_list",
+      "message0": "get the color of every pixel in %1",
+      "args0": [{ "type": "input_value", "name": "BOX", "check": "Box" }],
+      "inputsInline": true,
+      "output": "Array",
       "colour": 260,
+      "tooltip": "Grab the box and return the color of every pixel (a list of rgba colors). Very big boxes auto-stride past 4096 samples to stay light — use the sampled variant for a fixed every-Nth-pixel pattern."
+    });
+  });
+
+  def('mfm_hue_list_sampled', function () {
+    this.jsonInit({
+      "type": "mfm_hue_list_sampled",
+      "message0": "get the color of every %1 pixel in %2 with seed %3",
+      "args0": [
+        { "type": "input_value", "name": "STEP", "check": "Number" },
+        { "type": "input_value", "name": "BOX", "check": "Box" },
+        { "type": "input_value", "name": "SEED", "check": "String" }
+      ],
+      "inputsInline": true,
+      "output": "Array",
       "colour": 260,
       "tooltip": "Lighter variant: sample every Nth pixel (10 = every 10th). The seed picks the pattern's starting phase, so the same box + step + seed always samples the exact same pixels — a stable fingerprint to compare captures against."
     });
   });
 
+  def('mfm_color_avg', function () {
+    this.jsonInit({
+      "type": "mfm_color_avg",
+      "message0": "get average color of %1",
+      "args0": [{ "type": "input_value", "name": "LIST", "check": "Array" }],
+      "inputsInline": true,
+      "output": "Color",
       "colour": 20,
       "tooltip": "The average of a list of colors — ONE color that stands for the whole area. Compare two (before / after) with 'color difference between' to detect a map or loading change without find-image templates."
     });
   });
 
   // kept so old macros with the diagonal block still open 1:1
+  def('mfm_hue_diag', function () {
+    this.jsonInit({
+      "type": "mfm_hue_diag",
+      "message0": "get hue diagonal of %1",
+      "args0": [{ "type": "input_value", "name": "LIST", "check": "Array" }],
+      "inputsInline": true,
+      "output": "Array",
       "colour": 260,
+      "tooltip": "The diagonal cut of a color list — hue degrees 0-360 along the main diagonal. Prefer 'get average color of' instead."
+    });
+  });
+
   // ── List category (purple 260) ──
   def('mfm_list_add', function () {
     // add [value] to [list] at position [number] (item 2)

@@ -296,6 +296,41 @@ def _render(node):
         # user Desktop folder — desktop_dir()
         return "desktop_dir()", _P_ATOM
 
+    if "hue_list" in node:
+        d = node.get("hue_list") or {}
+        args = [sub(d.get("box") or {"lit": 0}, _P_ATOM, False)]
+        if d.get("step") is not None or d.get("seed") is not None:
+            args.append(sub(d.get("step") if d.get("step") is not None else {"lit": 1},
+                            _P_ATOM, False))
+        if d.get("seed") is not None:
+            args.append(sub(d.get("seed") or {"lit": ""}, _P_ATOM, False))
+        return ("hue_list(%s)" % ", ".join(args)), _P_ATOM
+
+    if "hue_diag" in node:
+        d = node.get("hue_diag") or {}
+        return "hue_diag(%s)" % sub(d.get("a") or {"lit": 0}, _P_ATOM, False), _P_ATOM
+
+    if "color_avg" in node:
+        d = node.get("color_avg") or {}
+        return "color_avg(%s)" % sub(d.get("a") or {"lit": 0}, _P_ATOM, False), _P_ATOM
+
+    if "list_get" in node:
+        d = node.get("list_get") or {}
+        return "list_get(%s, %s)" % (
+            sub(d.get("a") or {"lit": 0}, _P_ATOM, False),
+            sub(d.get("i") or {"lit": 1}, _P_ATOM, False)), _P_ATOM
+
+    if "list_size" in node:
+        return "list_size(%s)" % sub(node.get("list_size") or {"lit": 0}, _P_ATOM, False), _P_ATOM
+
+    if "list_is_empty" in node:
+        return "list_is_empty(%s)" % sub(node.get("list_is_empty") or {"lit": 0}, _P_ATOM, False), _P_ATOM
+
+    if "type_is" in node:
+        d = node.get("type_is") or {}
+        return "type_is(%s, %s)" % (
+            sub(d.get("a") or {"lit": 0}, _P_ATOM, False),
+            _q(str(d.get("t") or "text"))), _P_ATOM
 
     if "color_diff" in node:
         d = node.get("color_diff") or {}
@@ -521,6 +556,41 @@ class _P:
             if args:
                 raise MacroTextError("desktop_dir() takes no args")
             return {"desktop_dir": True}
+        if name == "hue_list":
+            if not (1 <= len(args) <= 3):
+                raise MacroTextError("hue_list() takes 1-3 args")
+            d = {"box": args[0]}
+            if len(args) >= 2:
+                d["step"] = args[1]
+            if len(args) >= 3:
+                d["seed"] = args[2]
+            return {"hue_list": d}
+        if name == "color_avg":
+            if len(args) != 1:
+                raise MacroTextError("color_avg() needs 1 arg")
+            return {"color_avg": {"a": args[0]}}
+        if name == "hue_diag":
+            if len(args) != 1:
+                raise MacroTextError("hue_diag() needs 1 arg")
+            return {"hue_diag": {"a": args[0]}}
+        if name == "list_get":
+            if len(args) != 2:
+                raise MacroTextError("list_get() needs 2 args")
+            return {"list_get": {"a": args[0], "i": args[1]}}
+        if name == "list_size":
+            if len(args) != 1:
+                raise MacroTextError("list_size() needs 1 arg")
+            return {"list_size": args[0]}
+        if name == "list_is_empty":
+            if len(args) != 1:
+                raise MacroTextError("list_is_empty() needs 1 arg")
+            return {"list_is_empty": args[0]}
+        if name == "type_is":
+            if len(args) != 2 or not (isinstance(args[1], dict)
+                                     and "lit" in args[1]
+                                     and isinstance(args[1]["lit"], str)):
+                raise MacroTextError('type_is() needs (expr, "type")')
+            return {"type_is": {"a": args[0], "t": args[1]["lit"]}}
         if name == "screen_color":
             if len(args) != 2:
                 raise MacroTextError("screen_color() needs 2 args")
@@ -703,7 +773,7 @@ def _emit_kv(d: dict) -> str:
     return " ".join(parts)
 
 
-_VAR_TYPE_MAP = {"number": "number", "text": "text", "boolean": "boolean", "bool": "boolean", "image": "image", "resloc": "resloc", "color": "color"}
+_VAR_TYPE_MAP = {"number": "number", "text": "text", "boolean": "boolean", "bool": "boolean", "image": "image", "resloc": "resloc", "color": "color", "list": "list"}
 
 
 def _variable_line(d: dict) -> str:
@@ -713,6 +783,8 @@ def _variable_line(d: dict) -> str:
     if value is None or value == "":
         if vtype in ("text", "image", "resloc", "color"):
             value = ""
+        elif vtype == "list":
+            value = []
         elif vtype == "boolean":
             value = False
         else:
@@ -721,6 +793,8 @@ def _variable_line(d: dict) -> str:
         sv = "true" if value else "false"
     elif isinstance(value, (int, float)):
         sv = _fmt_num(value)
+    elif isinstance(value, list):
+        sv = json.dumps(value, separators=(",", ":"))
     else:
         sv = _q(str(value))
     return "VARIABLE %s : %s = %s" % (name, vtype, sv)
@@ -737,6 +811,15 @@ def _variable_payload(rest: str) -> str:
     vtype = _VAR_TYPE_MAP.get(vtype, "number")
     if vtype == "boolean":
         value = raw.lower() == "true"
+    elif vtype == "list":
+        value = []
+        if raw.startswith("["):
+            try:
+                lv = json.loads(raw)
+                if isinstance(lv, list):
+                    value = lv
+            except Exception:
+                pass
     elif vtype in ("text", "image", "resloc", "color"):
         value = _unq(raw) if raw.startswith('"') else raw
     else:

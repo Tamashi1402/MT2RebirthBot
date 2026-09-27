@@ -225,6 +225,18 @@
         <value name="COLOR1"><block type="pcr_color_rgba"><value name="R"><block type="math_number"><field name="NUM">255</field></block></value><value name="G"><block type="math_number"><field name="NUM">255</field></block></value><value name="B"><block type="math_number"><field name="NUM">255</field></block></value><value name="A"><block type="math_number"><field name="NUM">255</field></block></value></block></value>
         <value name="COLOR2"><block type="pcr_color_rgba"><value name="R"><block type="math_number"><field name="NUM">255</field></block></value><value name="G"><block type="math_number"><field name="NUM">255</field></block></value><value name="B"><block type="math_number"><field name="NUM">255</field></block></value><value name="A"><block type="math_number"><field name="NUM">255</field></block></value></block></value>
       </block>
+      <block type="mfm_hue_list">
+        <value name="BOX"><block type="pcr_box_xyxy"><value name="X1"><block type="math_number"><field name="NUM">0</field></block></value><value name="Y1"><block type="math_number"><field name="NUM">0</field></block></value><value name="X2"><block type="math_number"><field name="NUM">100</field></block></value><value name="Y2"><block type="math_number"><field name="NUM">100</field></block></value></block></value>
+      </block>
+      <block type="mfm_hue_list_sampled">
+        <value name="STEP"><block type="math_number"><field name="NUM">10</field></block></value>
+        <value name="BOX"><block type="pcr_box_xyxy"><value name="X1"><block type="math_number"><field name="NUM">0</field></block></value><value name="Y1"><block type="math_number"><field name="NUM">0</field></block></value><value name="X2"><block type="math_number"><field name="NUM">100</field></block></value><value name="Y2"><block type="math_number"><field name="NUM">100</field></block></value></block></value>
+        <value name="SEED"><block type="text"><field name="TEXT">hello1</field></block></value>
+      </block>
+      <block type="mfm_color_avg">
+        <value name="LIST"><block type="mfm_empty_list"></block></value>
+      </block>
+    </category>
     <category name="Image" colour="260">
       <block type="mfm_grab_image">
         <value name="POINT"><block type="pcr_point_xy"><value name="X"><block type="math_number"><field name="NUM">0</field></block></value><value name="Y"><block type="math_number"><field name="NUM">0</field></block></value></block></value>
