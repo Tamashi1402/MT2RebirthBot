@@ -23,3 +23,9 @@ data/game_detect/
 data/kraken_stats.json
 data/macro_engine_state.json
 data/crater_stats.json
+
+# Runtime state (logs, per-user) — never commit
+logs/
+data/dashboard_state.json
+data/stats.json
+macros/**/*.macro.bak
