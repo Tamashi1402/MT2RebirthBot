@@ -5381,7 +5381,7 @@ def _do_rebirth(skip_quests: bool = False) -> bool:
                 return False
             if time.perf_counter() >= _v_deadline:
                 break
-            time.sleep(0.15)
+            time.sleep(0.10)   # v20374: tightened 0.15s -> 0.10s — one more retry inside the 500ms budget
         _rb_time_pop()
         if stone == 0.0:
             log.debug("Rebirth confirmed (stone=0)")
