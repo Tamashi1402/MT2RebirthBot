@@ -2251,7 +2251,7 @@ class BackgroundLoop(threading.Thread):
             # anything else (mouse/keyboard/GOTO/PLAY_MACRO/unknown) —
             # not supported off the input thread; skip + warn once
             if raw.startswith(("MOUSE_", "KEY_", "SMOOTH_MOVE:", "LOOK:",
-                              "GOTO:", "PLAY_MACRO:", "LABEL:")):
+                              "GOTO:", "PLAY_MACRO:", "PLAY_MACRO_FROM:", "LABEL:")):
                 self._warn_skip(raw)
                 continue
             self._warn_skip(raw)

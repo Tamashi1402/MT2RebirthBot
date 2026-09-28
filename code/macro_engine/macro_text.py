@@ -1128,7 +1128,25 @@ def canonicalize_lines(lines) -> list:
                 out.append("GRAB_IMAGE:" + json.dumps(_parse_kv_args(rest), separators=(",", ":")))
             elif kw == "PLAY_MACRO":
                 v = rest.strip()
-                out.append("PLAY_MACRO:" + (_unq(v) if len(v) >= 2 and v.startswith('"') and v.endswith('"') else v))
+                # PLAY_MACRO "name.macro" FROM "label" — the label-start
+                # variant. Match QUOTED-or-bare tokens so an unquoted
+                # filename still works; FROM is the separator keyword.
+                fm = re.match(
+                    r'^(?P<m>("[^"\\]*(?:\\.[^"\\]*)*")|\S+)\s+FROM\s+(?P<l>("[^"\\]*(?:\\.[^"\\]*)*")|\S+)\s*$',
+                    v)
+                if fm:
+                    try:
+                        macro = _unq(fm.group("m"))
+                    except Exception:
+                        macro = fm.group("m")
+                    try:
+                        label = _unq(fm.group("l"))
+                    except Exception:
+                        label = fm.group("l")
+                    out.append("PLAY_MACRO_FROM:" + json.dumps(
+                        {"macro": macro, "label": label}, separators=(",", ":")))
+                else:
+                    out.append("PLAY_MACRO:" + (_unq(v) if len(v) >= 2 and v.startswith('"') and v.endswith('"') else v))
             elif kw in _KEY_OPS:
                 out.append("%s:%s" % (kw, _key_hex(rest)))
             elif kw in _COORD_OPS:
@@ -1159,6 +1177,13 @@ def canonicalize_text(text) -> list:
 def _pretty_instr(t: str, v: str) -> str:
     if t == "PLAY_MACRO":
         return "PLAY_MACRO %s" % _q(v)
+    if t == "PLAY_MACRO_FROM":
+        try:
+            d = json.loads(v or "{}")
+            return "PLAY_MACRO %s FROM %s" % (
+                _q(str(d.get("macro") or "")), _q(str(d.get("label") or "")))
+        except Exception:
+            return "PLAY_MACRO_FROM:%s" % v
     if t in _KEY_OPS:
         return "%s 0x%s" % (t, _key_hex(v))
     if t in _COORD_OPS:

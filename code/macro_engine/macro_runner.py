@@ -4,6 +4,7 @@
 # MacroRecorder needed. All input is sent via pure ctypes
 # Win32 (same approach as before, no pywin32 required).
 # ============================================================
+import json
 import os
 import threading
 import time
@@ -1251,6 +1252,7 @@ class MacroPlayer:
     def __init__(self, macro_path: str, stop_event: threading.Event | None = None):
         self.macro_path = macro_path
         self.stop_event = stop_event or threading.Event()
+        self.start_label = ""   # PLAY_MACRO FROM label: begin at this label (top if missing)
         self._sensitivity = _macro_sensitivity_from_lines([])
         self._smooth_carry_x = 0.0
         self._smooth_carry_y = 0.0
@@ -1319,7 +1321,9 @@ class MacroPlayer:
                 labels[stripped[6:].strip()] = idx
 
         # Execution loop
-        pc = 0                     # program counter
+        pc = labels.get(self.start_label, 0) if self.start_label else 0
+        if self.start_label and self.start_label not in labels:
+            log.warning(f"PLAY_MACRO: label {self.start_label!r} not found — playing from start")
         repeat_stack: list[tuple[int, int, int]] = []  # (start_pc, count, remaining)
         next_due = time.perf_counter()  # accumulated deadline — prevents drift accumulation
 
@@ -1651,8 +1655,18 @@ class MacroPlayer:
                 middle_click()
                 next_due = max(next_due, time.perf_counter())
                 continue
-            if raw.startswith("PLAY_MACRO:"):
-                target = raw[11:].strip()
+            if raw.startswith("PLAY_MACRO:") or raw.startswith("PLAY_MACRO_FROM:"):
+                target = ""
+                label = ""
+                if raw.startswith("PLAY_MACRO_FROM:"):
+                    try:
+                        _spec = json.loads(raw[16:] or "{}")
+                    except Exception:
+                        _spec = {}
+                    target = str(_spec.get("macro") or "").strip()
+                    label = str(_spec.get("label") or "").strip()
+                else:
+                    target = raw[11:].strip()
                 if target:
                     sub_path = target
                     if not os.path.isabs(sub_path):
@@ -1665,6 +1679,8 @@ class MacroPlayer:
                         if _c.is_container_file(sub_path):
                             sub_path = _c.extract_for_playback(sub_path)
                         sub = MacroPlayer(sub_path, stop_event=self.stop_event)
+                        if label:
+                            sub.start_label = label
                         sub.play()
                     else:
                         log.warning(f"PLAY_MACRO: file not found '{target}'")

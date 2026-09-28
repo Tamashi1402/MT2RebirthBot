@@ -189,6 +189,28 @@ Blockly.Blocks['mfm_play_macro'] = {
   },
 };
 
+// Flow — Play macro from label
+// Same nested call as PLAY_MACRO (runs the inner macro to completion, then
+// resumes THIS one — variables/timing stay shared, nothing is swapped), but
+// starts execution at the inner macro's LABEL: line. Label missing → the
+// runtime falls back to the very top, so the call never dies on a typo.
+Blockly.Blocks['mfm_play_macro_from'] = {
+  init: function () {
+    this.jsonInit({
+      "type": "mfm_play_macro_from",
+      "message0": "Play macro %1 from label %2",
+      "args0": [
+        { "type": "input_value", "name": "PATH", "check": "String" },
+        { "type": "input_value", "name": "LABEL", "check": "String" },
+      ],
+      "previousStatement": null,
+      "nextStatement": null,
+      "colour": 120,
+      "tooltip": "Runs the named macro starting at its label (or from the top if the label is missing), WAITS for it to finish, then continues from THIS macro — a subroutine call, not a macro switch.",
+    });
+  },
+};
+
 // Flow — Group (recording / segment container)
 // The steps live as DATA (the flat {type, value, locked} list) inside this
 // block — never as child blocks on the canvas. That is the whole perf
@@ -2163,6 +2185,14 @@ function mfmListToXml(blocks) {
         addShadowText(el, 'PATH', value);
         break;
       }
+      case 'PLAY_MACRO_FROM': {
+        let spec = {};
+        try { spec = JSON.parse(value || '{}'); } catch (e) { spec = {}; }
+        el = mk('mfm_play_macro_from');
+        addShadowText(el, 'PATH', String(spec.macro || ''));
+        addShadowText(el, 'LABEL', String(spec.label || ''));
+        break;
+      }
       case 'IF': {
         // default Blockly controls_if (same block the flow procedures use,
         // mutator gear included) — IF/ELSE_IF/ELSE/END_IF lines fold into
@@ -2224,6 +2254,14 @@ function mfmListToXml(blocks) {
       case 'PLAY_MACRO': {
         el = mk('mfm_play_macro');
         addShadowText(el, 'PATH', value);
+        break;
+      }
+      case 'PLAY_MACRO_FROM': {
+        let spec = {};
+        try { spec = JSON.parse(value || '{}'); } catch (e) { spec = {}; }
+        el = mk('mfm_play_macro_from');
+        addShadowText(el, 'PATH', String(spec.macro || ''));
+        addShadowText(el, 'LABEL', String(spec.label || ''));
         break;
       }
       case 'END_IF': {
@@ -2595,6 +2633,12 @@ function mfmWorkspaceToList(workspace, includeLocals) {
         break;
       case 'mfm_play_macro':
         push('PLAY_MACRO', _mfm_str(b, 'PATH', ''), locked);
+        break;
+      case 'mfm_play_macro_from':
+        push('PLAY_MACRO_FROM', JSON.stringify({
+          macro: _mfm_str(b, 'PATH', ''),
+          label: _mfm_str(b, 'LABEL', ''),
+        }), locked);
         break;
       case 'mfm_lock': {
         // visible LOCK { ... } envelope in the file — F5 re-record keeps
