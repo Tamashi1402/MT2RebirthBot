@@ -751,6 +751,28 @@
           if (it.parent >= 0) nodes[it.parent].kids.push(it.self);
         }
       }
+      // ── collapse awareness ──────────────────────────────────────────
+      // Blockly's setCollapsed hides the target blocks of the collapsed
+      // block's statement/value inputs by writing display:none on their
+      // svg roots DIRECTLY (Input.setVisible) — the very property this
+      // cull owns. Without accounting for it, pass() unhides those blocks
+      // whenever they enter the band: ghosts under a still-collapsed
+      // parent. colHidden = this node hangs under a collapsed ancestor
+      // via an INPUT connection. (A next-connection sibling is NOT
+      // hidden — Blockly bumps it up, it stays rendered.)
+      // nodes are post-order (kids before parents), so a REVERSE walk
+      // reaches every parent before its kids: the kid's flag inherits
+      // the parent's and adds the parent's own collapse.
+      for (var ci = nodes.length - 1; ci >= 0; ci--) {
+        var pn = nodes[ci];
+        var pcol = pn.colHidden === true ||
+            !!(pn.b.isCollapsed && pn.b.isCollapsed());
+        var pnext = (pn.b.getNextBlock && pn.b.getNextBlock()) || null;
+        for (var cj = 0; cj < pn.kids.length; cj++) {
+          var kn = nodes[pn.kids[cj]];
+          kn.colHidden = pcol && kn.b !== pnext;
+        }
+      }
     };
     MfmCull.prototype.pass = function () {
       this.passDirty = false;
@@ -776,6 +798,7 @@
         var n = nodes[i];
         var vis = (n.w && n.h) && (n.x + n.w > L - mx) && (n.x < L + vw + mx) &&
                   (n.y + n.h > T - my) && (n.y < T + vh + my);
+        if (n.colHidden) vis = false;   // under a collapsed parent: stay ghost-free
         // mid-drag only the DRAGGED chain moves (it lives on the drag
         // surface); forcing ALL blocks visible here would render 10k+
         // blocks for every drag frame. Dragged blocks' offsets are stale
@@ -870,6 +893,18 @@
         }
         // scroll / zoom / move / edit — rAF-throttled passes
         if (ev.type === 'create' || ev.type === 'delete' || ev.type === 'move') cull.indexSoon();
+        else if (ev.type === 'change' && ev.element === 'collapsed') {
+          // collapse/expand just rewrote display:block/none on the
+          // affected subtree behind our back (Input.setVisible) — the
+          // hidden map is now stale in one direction or the other, and
+          // the colHidden flags must flip. Rebuild immediately (no
+          // 200ms debounce ghost window) and clear the map so pass()
+          // rewrites EVERY block's display authoritatively this frame:
+          // expand restores hidden blocks Blockly left as display:block
+          // off-band; collapse keeps freshly re-banded children hidden.
+          cull.indexSoon();
+          cull.hidden = {};
+        }
         else if (ev.type === 'change') cull.indexSoonDebounced();
         cull.soon();
         if (cull.onAnyChange) cull.onAnyChange(ev);
