@@ -681,6 +681,199 @@ def _known_desktop_dir() -> str:
     return os.path.join(os.path.expanduser("~"), "Desktop")
 
 
+import re
+
+# ── parse_num (Math) ─────────────────────────────────────────────────
+# "parse number [text] as number" — OCR reads / HUD strings → a real
+# number the macro can compare and do math on. Understands the shapes a
+# game HUD actually prints:
+#   123        plain integer
+#   1,234.5    thousands separators
+#   125.25k    k/M/B/T/Qa/Qi suffixes (case-insensitive)
+#   123e150    e-notation (also 1.23e4)
+#   $1.5m      stray currency symbols / spaces are stripped
+# Anything unparsable → 0 (never raises — a missed OCR read is a zero,
+# not a dead macro).
+
+_PARSE_NUM_SUFFIX = {
+    "k": 1e3, "m": 1e6, "b": 1e9, "t": 1e12,
+    "qa": 1e15, "qi": 1e18, "sx": 1e21, "sp": 1e24,
+    "oc": 1e27, "no": 1e30, "dc": 1e33,
+}
+_PARSE_NUM_RE = re.compile(
+    r"^([+-]?)\s*([\d.,]*\d)(?:[eE]([+-]?\d+)|\s*(%s))?$"
+    % "|".join(sorted(_PARSE_NUM_SUFFIX, key=len, reverse=True)),
+    re.IGNORECASE)   # 3T / 3t both parse
+
+
+def parse_game_number(value) -> float:
+    s = str(value if value is not None else "").strip()
+    if not s:
+        return 0.0
+    # strip spaces, thousands separators and common currency/markup
+    # symbols (the DOT stays — it is the decimal point)
+    s = re.sub(r"[\s,$€£%\u00a0]", "", s)
+    if not s:
+        return 0.0
+    m = _PARSE_NUM_RE.match(s)
+    if not m:
+        return 0.0
+    sign, num, exp, suf = m.group(1), m.group(2), m.group(3), m.group(4)
+    try:
+        out = float(num)
+    except Exception:
+        return 0.0
+    if exp is not None:
+        try:
+            out = out * (10.0 ** int(exp))
+        except Exception:
+            return 0.0
+    if suf:
+        out = out * _PARSE_NUM_SUFFIX[suf.lower()]
+    if sign == "-":
+        out = -out
+    if math.isinf(out) or math.isnan(out):
+        return 0.0
+    return out
+
+
+def _expr_parse_num(d: dict[str, Any], vars_state: dict[str, Any],
+                    bot_root: str, macro_dir: str | None) -> float:
+    v = eval_expr((d or {}).get("a"), vars_state, bot_root, macro_dir)
+    if isinstance(v, bool) or v is None:
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
+    return parse_game_number(v)
+
+
+# ── OCR (Image category) ──────────────────────────────────────────────
+# "read text from [box]" / "read text from [box] with calibration [cal]"
+# — tesseract OCR of one screen region, same engine the bot's HUD reads
+# use (bundled tesseract via screen.ensure_tesseract when running inside
+# the bot). The calibration block plugs into the second form and carries
+# every knob; without it the defaults are psm 7 (one line), no whitelist,
+# auto (Otsu) threshold, 3x upscale, no inversion.
+#
+# A read costs one tesseract subprocess (~50-300ms) — heavy. Keep hot
+# loops on a variable updated by a repeat-while/until BACKGROUND arm and
+# read OCR only in the arm, exactly like image checks.
+
+_OCR_PSMS = (3, 6, 7, 11)
+
+
+def _ocr_cal_dict(d: Any) -> dict[str, Any]:
+    """A calibration node → {whitelist, psm, invert, scale, threshold}
+    with defaults filled in. Bare / malformed values fall back to the
+    stock calibration."""
+    out = {"whitelist": "", "psm": 7, "invert": False, "scale": 3, "threshold": -1}
+    if isinstance(d, dict) and "ocr_cal" in d:
+        d = d.get("ocr_cal") or {}
+    if isinstance(d, dict):
+        wl = d.get("whitelist")
+        if isinstance(wl, (str, int, float)) or (isinstance(wl, dict) and "lit" in wl):
+            if isinstance(wl, dict):
+                wl = wl.get("lit")
+            wl = str(wl if wl is not None else "")
+            # whitelist must survive a tesseract config line: keep it printable
+            wl = "".join(ch for ch in wl if 32 <= ord(ch) < 127)
+            out["whitelist"] = wl
+        try:
+            psm = int(float(d.get("psm", 7)))
+        except Exception:
+            psm = 7
+        out["psm"] = psm if psm in _OCR_PSMS else 7
+        out["invert"] = truthy(d.get("invert", False))
+        try:
+            scale = int(float(d.get("scale", 3)))
+        except Exception:
+            scale = 3
+        out["scale"] = max(1, min(8, scale))
+        try:
+            thr = int(round(float(d.get("threshold", -1))))
+        except Exception:
+            thr = -1
+        out["threshold"] = -1 if thr < 0 else min(255, thr)
+    return out
+
+
+def _ocr_region(d: dict[str, Any], vars_state: dict[str, Any],
+                bot_root: str, macro_dir: str | None) -> tuple[int, int, int, int] | None:
+    """The box expr → runtime pixel region. Plain box numbers are runtime
+    pixels (1:1 with the grab color/image blocks next to it); a scaled
+    box (scale block) evaluates its letterbox math live."""
+    region = eval_expr((d or {}).get("box"), vars_state, bot_root, macro_dir)
+    try:
+        vals = [int(round(float(v))) for v in list(region)[:4]]
+        if len(vals) < 4:
+            return None
+        x1, y1, x2, y2 = vals
+    except Exception:
+        return None
+    if x2 < x1:
+        x1, x2 = x2, x1
+    if y2 < y1:
+        y1, y2 = y2, y1
+    if x2 - x1 < 1 or y2 - y1 < 1:
+        return None
+    return x1, y1, x2, y2
+
+
+def _ocr_preprocess(img: np.ndarray, cal: dict[str, Any]) -> np.ndarray:
+    """Region BGR → the black-on-white page tesseract likes best."""
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    if cal.get("invert"):
+        gray = cv2.bitwise_not(gray)
+    scale = int(cal.get("scale") or 1)
+    if scale > 1:
+        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    thr = cal.get("threshold")
+    if isinstance(thr, (int, float)) and 0 <= thr <= 255:
+        _, gray = cv2.threshold(gray, int(thr), 255, cv2.THRESH_BINARY)
+    else:
+        _, gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return gray
+
+
+def _expr_ocr_read(d: dict[str, Any], vars_state: dict[str, Any],
+                   bot_root: str, macro_dir: str | None) -> str:
+    """ocr_read(box) / ocr_read(box, cal) — tesseract read of one region.
+
+    Returns the stripped text (" " collapsed to single spaces — tesseract
+    pads reads with runs of whitespace/newlines that would poison every
+    comparison). "" on any failure, so a comparison against "" is the
+    "OCR failed" check.
+    """
+    d = d or {}
+    try:
+        region = _ocr_region(d, vars_state, bot_root, macro_dir)
+        if region is None:
+            return ""
+        img = _grab_region(region)
+        if img is None or img.size == 0:
+            return ""
+        cal = _ocr_cal_dict(d.get("cal"))
+        proc = _ocr_preprocess(img, cal)
+        import pytesseract
+        try:
+            from screen import ensure_tesseract   # bot layout: bundled binary
+            ensure_tesseract()
+        except Exception:
+            pass
+        cfg = "--psm %d --oem 3" % int(cal.get("psm") or 7)
+        wl = str(cal.get("whitelist") or "")
+        if wl:
+            cfg += ' -c tessedit_char_whitelist=%s' % wl
+        raw = pytesseract.image_to_string(proc, config=cfg)
+        return " ".join(str(raw or "").split())
+    except Exception as exc:
+        try:
+            log.warning("ocr_read failed: %s", exc)
+        except Exception:
+            pass
+        return ""
+
+
 def eval_expr(expr: Any, vars_state: dict[str, Any],
               bot_root: str = "", macro_dir: str | None = None) -> Any:
     """Evaluate an expression tree from the expanded .macro format.
@@ -836,6 +1029,22 @@ def eval_expr(expr: Any, vars_state: dict[str, Any],
             return _expr_color_avg(expr.get("color_avg") or {}, vars_state, bot_root, macro_dir)
         except Exception:
             return "rgba(0,0,0,255)"
+    if "ocr_read" in expr:
+        # "read text from [box]" (+ optional calibration) — one tesseract
+        # read of a screen region; "" on failure / no text
+        try:
+            return _expr_ocr_read(expr.get("ocr_read") or {}, vars_state, bot_root, macro_dir)
+        except Exception:
+            return ""
+    if "ocr_cal" in expr:
+        # a bare calibration block evaluated on its own → its plain dict
+        return _ocr_cal_dict(expr.get("ocr_cal") or {})
+    if "parse_num" in expr:
+        # "parse number [text] as number" (Math category)
+        try:
+            return _expr_parse_num(expr.get("parse_num") or {}, vars_state, bot_root, macro_dir)
+        except Exception:
+            return 0.0
     # ── resolution blocks (1:1 with the flow editor's ratio/scale) ──
     if "point" in expr:
         d = expr.get("point") or {}
@@ -934,6 +1143,60 @@ def handle_end_if(stack: list[dict[str, Any]]) -> None:
         stack.pop()
 
 
+# ── SWITCH / CASE (Logic category) ─────────────────────────────────────
+# SWITCH:<json> / CASE:<json> ... END_SWITCH — the editor's switch/case
+# block. The switch value is evaluated ONCE at SWITCH (an OCR read or
+# image check in the switch socket costs one pass, not one per case);
+# each CASE compares against it (numbers compare numerically, then
+# strings — same rules as == conditions), the first match runs and the
+# rest stay skipped. CASE:{"default":true} is the fallback arm. The frame
+# rides the same if_stack as IF/WHILE, so nesting + parent-branch gating
+# work identically.
+
+def _switch_values_eq(a: Any, b: Any) -> bool:
+    try:
+        return float(a) == float(b)
+    except Exception:
+        return str(a) == str(b)
+
+
+def handle_switch(stack: list[dict[str, Any]], vars_state: dict[str, Any],
+                  data: dict[str, Any], bot_root: str = "",
+                  macro_dir: str | None = None) -> None:
+    parent_active = branch_active(stack)
+    value = eval_expr((data or {}).get("expr"), vars_state, bot_root, macro_dir)
+    stack.append({"kind": "switch", "parent": parent_active, "active": parent_active,
+                  "value": value, "matched": False})
+
+
+def handle_case(stack: list[dict[str, Any]], vars_state: dict[str, Any],
+                data: dict[str, Any], bot_root: str = "",
+                macro_dir: str | None = None) -> None:
+    if not stack or stack[-1].get("kind") != "switch":
+        return
+    top = stack[-1]
+    if not top.get("parent") or top.get("matched"):
+        top["active"] = False
+        return
+    data = data or {}
+    if truthy(data.get("default")):
+        top["active"] = True          # default: runs because nothing matched
+        return
+    b = eval_expr(data.get("value"), vars_state, bot_root, macro_dir)
+    if _switch_values_eq(top.get("value"), b):
+        top["active"] = True
+        top["matched"] = True
+    else:
+        top["active"] = False
+
+
+def handle_end_switch(stack: list[dict[str, Any]]) -> None:
+    if stack and stack[-1].get("kind") == "switch":
+        stack.pop()
+    elif stack:
+        stack.pop()   # tolerate a stray END_SWITCH closing an IF
+
+
 # ── WHILE / UNTIL loops ────────────────────────────────────────────────
 # WHILE:<cond> / UNTIL:<cond> ... END_WHILE / END_UNTIL. The loop entry rides
 # the same if_stack as IF branches (so nesting + parent-branch gating work
@@ -958,9 +1221,9 @@ def find_break_target(lines: list, pc: int) -> int | None:
     n = len(lines)
     while i < n:
         head = str(lines[i]).split(":", 1)[0]
-        if head in ("WHILE", "UNTIL", "REPEAT", "ITERATE"):
+        if head in ("WHILE", "UNTIL", "REPEAT", "ITERATE", "SWITCH"):
             depth += 1
-        elif head in ("END_WHILE", "END_UNTIL", "ENDREPEAT", "END_ITERATE"):
+        elif head in ("END_WHILE", "END_UNTIL", "ENDREPEAT", "END_ITERATE", "END_SWITCH"):
             depth -= 1
             if depth == 0:
                 return i

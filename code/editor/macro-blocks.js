@@ -458,6 +458,62 @@ Blockly.Blocks['mfm_raw'] = {
   },
 };
 
+// ── OCR (Image category) — tesseract reads of a screen region ──────────────
+// mfm_ocr_read / mfm_ocr_read_cal / mfm_ocr_cal export as the
+// {ocr_read}/{ocr_cal} expression nodes; macro_engine/macro_logic.py runs
+// them through the SAME bundled tesseract the bot's own HUD reads use.
+// A read is a subprocess (~50-300ms) — keep hot loops on a variable a
+// repeat-while/until BACKGROUND arm refreshes, and OCR only in the arm.
+// v2038: OCR blocks + parse-number + switch/case.
+Blockly.Blocks['mfm_ocr_read'] = {
+  init: function () {
+    this.appendValueInput('BOX').setCheck(null).appendField('read text from');
+    this.setOutput(true, 'String');
+    this.setColour(260);
+    this.setTooltip('Tesseract OCR of one screen region \u2192 text. Plain box coords are current-screen pixels; wrap the box in the scale block for recorded-resolution boxes. Costs ~50-300ms per read \u2014 poll heavy reads in a loop\u2019s background arm, not the hot body. Returns "" when the read fails.');
+  },
+};
+Blockly.Blocks['mfm_ocr_read_cal'] = {
+  init: function () {
+    this.appendValueInput('BOX').setCheck(null).appendField('read text from');
+    this.appendValueInput('CAL').setCheck(null).appendField('with calibration');
+    this.setOutput(true, 'String');
+    this.setColour(260);
+    this.setTooltip('Same as "read text from box", but a calibration block plugs into the second socket: whitelist, page-segmentation mode, invert, upscale, threshold.');
+  },
+};
+// the calibration block — plugs into ocr_read_cal's CAL socket
+Blockly.Blocks['mfm_ocr_cal'] = {
+  init: function () {
+    this.appendDummyInput()
+      .appendField('ocr calibration')
+      .appendField(new Blockly.FieldTextInput('0123456789'), 'WHITELIST')
+      .appendField('psm')
+      .appendField(new Blockly.FieldDropdown([
+        ['7 one line', '7'], ['6 block', '6'], ['11 sparse', '11'], ['3 auto', '3']]), 'PSM')
+      .appendField('invert')
+      .appendField(new Blockly.FieldDropdown([['no', 'false'], ['yes', 'true']]), 'INVERT');
+    this.appendDummyInput()
+      .appendField('scale')
+      .appendField(new Blockly.FieldTextInput('3'), 'SCALE')
+      .appendField('threshold')
+      .appendField(new Blockly.FieldTextInput('-1'), 'THRESH');
+    this.setOutput(true, null);
+    this.setColour(260);
+    this.setTooltip('Whitelist: only these characters can come back (clear it for full text). PSM: 7 = one text line, 6 = block, 11 = sparse, 3 = auto. Invert: yes for dark text on a light page. Scale: upscale factor before the read. Threshold: 0-255 fixed, -1 = auto (Otsu).');
+  },
+};
+// ── parse number (Math category) ──────────────────────────────────────────
+Blockly.Blocks['mfm_parse_num'] = {
+  init: function () {
+    this.appendValueInput('A').setCheck(null).appendField('parse number');
+    this.appendDummyInput().appendField('as number');
+    this.setOutput(true, 'Number');
+    this.setColour(230);
+    this.setTooltip('Text \u2192 number, the shapes a HUD prints: 123, 1,234.5, 125.25k (k/M/B/T/Qa/Qi suffixes), 123e150 e-notation, $1.5m. Unparsable \u2192 0 \u2014 a missed OCR read is a zero, not a dead macro. Chain it after "read text from box" to do math on OCR readings.');
+  },
+};
+
 // ── Serializer helpers ───────────────────────────────────────────────────────
 
 // ── expression text renderer — JS port of macro_text._render ────────────
@@ -469,7 +525,8 @@ const _MFM_CMP_OPS = { EQ: '==', NEQ: '!=', LT: '<', LTE: '<=', GT: '>', GTE: '>
 const _MFM_FUNC_NAMES = ['get', 'img_eq', 'img_on_screen', 'color_eq', 'color_diff',
   'img_diff', 'ratio', 'point', 'box', 'scale', 'grab', 'grab_at', 'screen_color',
   'runtime_dir', 'desktop_dir', 'hue_list', 'hue_diag', 'color_avg', 'list_get',
-  'list_size', 'list_is_empty', 'type_is'];
+  'list_size', 'list_is_empty', 'type_is',
+  'ocr_read', 'ocr_cal', 'parse_num'];
 
 function _mfm_q(s) {
   return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -636,6 +693,26 @@ function _mfm_render(node) {
     const d = node.type_is || {};
     return ['type_is(' + sub(d.a || { lit: 0 }, 9, false) + ', ' + _mfm_q(String(d.t || 'text')) + ')', 9];
   }
+  if ('ocr_read' in node) {
+    const d = node.ocr_read || {};
+    const args = [sub(d.box || { lit: 0 }, 9, false)];
+    if (d.cal !== null && d.cal !== undefined) args.push(sub(d.cal, 9, false));
+    return ['ocr_read(' + args.join(', ') + ')', 9];
+  }
+  if ('ocr_cal' in node) {
+    const d = node.ocr_cal || {};
+    let inv = d.invert;
+    if (inv !== null && typeof inv === 'object') inv = inv.lit;
+    const invTxt = (inv === true || inv === 'true' || inv === 1) ? 'true' : 'false';
+    return ['ocr_cal(' + _mfm_q(String(d.whitelist !== undefined && d.whitelist !== null ? d.whitelist : '')) +
+            ', ' + _mfm_fmt_num(Number(d.psm) || 7) + ', ' + invTxt +
+            ', ' + _mfm_fmt_num(Number(d.scale) || 3) +
+            ', ' + _mfm_fmt_num(d.threshold !== undefined && d.threshold !== null ? Number(d.threshold) : -1) + ')', 9];
+  }
+  if ('parse_num' in node) {
+    const d = node.parse_num || {};
+    return ['parse_num(' + sub(d.a || { lit: 0 }, 9, false) + ')', 9];
+  }
   return ['true', 9];
 }
 function _mfm_coord_render(v, dflt) {
@@ -683,6 +760,23 @@ function _mfm_value_text(c) {
 function _mfm_num(block, inputName, def) {
   const v = block.getInputTargetBlock ? block.getInputTargetBlock(inputName) : null;
   if (v && v.type === 'math_number') return String(v.getFieldValue('NUM'));
+  // variable getter (pcr_get_number etc.) — export as ${var} so the engine
+  // resolves it at playback. _mfm_value_text already did this for text
+  // slots; number slots (DELAY MS / REPEAT TIMES / point X,Y) fell through
+  // to '0', which silently flattened recorded 'hold 20ms / gap 5ms /
+  // repeat N' settings into DELAY:0 / REPEAT:0 (clicks eaten by the game).
+  if (v && (v.type === 'pcr_get_number' || v.type === 'pcr_get_text' ||
+            v.type === 'pcr_get_logic')) {
+    return '${' + String(v.getFieldValue('VAR') || '') + '}';
+  }
+  // any OTHER value block plugged into the socket (arithmetic, compare,
+  // ocr_read…) — export the whole expression as ${…}. Previously this fell
+  // through to '0', silently deleting the expression from the file on save.
+  if (v) {
+    try {
+      return '${' + _mfm_expr_text(_mfm_expr(v)) + '}';
+    } catch (e) {}
+  }
   const field = block.getField && block.getField(inputName);
   if (field) return String(block.getFieldValue(inputName));
   return def === undefined ? '0' : String(def);
@@ -962,6 +1056,27 @@ function _mfm_expr(b) {
       const ops = { ADD: '+', MINUS: '-', MULTIPLY: '*', DIVIDE: '/', POWER: '^' };
       return { arith: { op: ops[b.getFieldValue('OP')] || '+', a: _mfm_expr(b.getInputTargetBlock('A')), b: _mfm_expr(b.getInputTargetBlock('B')) } };
     }
+    case 'mfm_ocr_read': {
+      const d = { box: _mfm_expr(b.getInputTargetBlock('BOX')) };
+      return { ocr_read: d };
+    }
+    case 'mfm_ocr_read_cal': {
+      const d = { box: _mfm_expr(b.getInputTargetBlock('BOX')) };
+      const cal = b.getInputTargetBlock('CAL');
+      if (cal) d.cal = _mfm_expr(cal);
+      return { ocr_read: d };
+    }
+    case 'mfm_ocr_cal': {
+      return { ocr_cal: {
+        whitelist: { lit: String(b.getFieldValue('WHITELIST') || '') },
+        psm: { lit: Number(b.getFieldValue('PSM')) || 7 },
+        invert: { lit: b.getFieldValue('INVERT') === 'true' },
+        scale: { lit: Math.max(1, Math.min(8, Number(b.getFieldValue('SCALE')) || 3)) },
+        threshold: { lit: Number(b.getFieldValue('THRESH')) }
+      } };
+    }
+    case 'mfm_parse_num':
+      return { parse_num: { a: _mfm_expr(b.getInputTargetBlock('A')) } };
     default: return { lit: true };
   }
 }
@@ -1450,6 +1565,28 @@ function mfmListToXml(blocks) {
     el.appendChild(f);
   }
   function addShadowNum(el, inputName, value) {
+    // ${var} socket — a typed variable getter was plugged here when the
+    // file was saved. Loading it as a plain number shadow would render
+    // FieldNumber's '0' fallback AND write REPEAT:0 / DELAY:0 back on the
+    // next save, silently deleting the variable reference (the "repeat
+    // shows 0 after reopen" bug). Rebuild the getter so it round-trips.
+    const txt = (value === undefined || value === null) ? '' : String(value).trim();
+    const vm = /^\$\{\s*([A-Za-z_][A-Za-z0-9_$]*)\s*\}$/.exec(txt);
+    if (vm) {
+      const vt = (window._pcrLocalVars || {})[vm[1]] || 'number';
+      const v = document.createElement('value');
+      v.setAttribute('name', inputName);
+      const b = document.createElement('block');
+      b.setAttribute('type', vt === 'text' ? 'pcr_get_text'
+        : vt === 'logic' ? 'pcr_get_logic' : 'pcr_get_number');
+      const f = document.createElement('field');
+      f.setAttribute('name', 'VAR');
+      f.textContent = vm[1];
+      b.appendChild(f);
+      v.appendChild(b);
+      el.appendChild(v);
+      return;
+    }
     const v = document.createElement('value');
     v.setAttribute('name', inputName);
     const sh = document.createElement('block');
@@ -1665,7 +1802,18 @@ function mfmListToXml(blocks) {
     switch (type) {
       case 'DELAY': {
         el = mk('mfm_delay');
-        addShadowNum(el, 'MS', value);
+        // ${...} socket (variable getter / full expression): the server
+        // pre-parses full expressions into item.exprs[0]; plain ${var}
+        // getters rebuild inside addShadowNum. Either way the reference
+        // must NOT fall back to the '0' number shadow.
+        const dExpr = (item && item.exprs && item.exprs[0]) ? item.exprs[0] : null;
+        if (dExpr) {
+          const w = document.createElement('value'); w.setAttribute('name', 'MS');
+          w.appendChild(_mfm_exprXml(dExpr, document));
+          el.appendChild(w);
+        } else {
+          addShadowNum(el, 'MS', value);
+        }
         break;
       }
       case 'PRINT': case 'LOG': {
@@ -1729,7 +1877,16 @@ function mfmListToXml(blocks) {
       case 'REPEAT': {
         flushLock();
         el = mk('mfm_repeat');
-        addShadowNum(el, 'TIMES', value);
+        // ${...} socket — same rules as DELAY's MS (item.exprs[0] for full
+        // expressions, getter rebuild for plain ${var} in addShadowNum)
+        const rExpr = (item && item.exprs && item.exprs[0]) ? item.exprs[0] : null;
+        if (rExpr) {
+          const w = document.createElement('value'); w.setAttribute('name', 'TIMES');
+          w.appendChild(_mfm_exprXml(rExpr, document));
+          el.appendChild(w);
+        } else {
+          addShadowNum(el, 'TIMES', value);
+        }
         const st = document.createElement('statement');
         st.setAttribute('name', 'DO');
         const inner = mk('mfm_raw_dummy'); // placeholder removed below

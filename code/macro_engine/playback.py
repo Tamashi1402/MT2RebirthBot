@@ -13,6 +13,9 @@ if _CODE_DIR not in sys.path:
     sys.path.append(_CODE_DIR)
 
 from macro_engine.macro_logic import (
+    handle_switch,
+    handle_case,
+    handle_end_switch,
     branch_active,
     find_break_target,
     macro_log_line,
@@ -1140,6 +1143,11 @@ class MacroEngine:
                 self._update_runtime(t0, est_total)
 
         def sleep_until(deadline: float) -> bool:
+            # 1:1 with manual strength _pace_wait (v2022): plain time.sleep
+            # quantizes to ~15.6ms under Win11 EcoQoS for a background
+            # process, so DELAY:15/DELAY:5 spam-click pacing ran nothing like
+            # manual strength. Bulk-sleep only long waits (>20ms), then
+            # busy-spin the rest with sleep(0) yields.
             while True:
                 if self._stop_event.is_set():
                     return False
@@ -1147,14 +1155,12 @@ class MacroEngine:
                 if remaining <= 0:
                     update_runtime()
                     return True
-                if remaining <= 0.002:
-                    while time.perf_counter() < deadline:
-                        if self._stop_event.is_set():
-                            return False
+                if remaining > 0.02:
+                    time.sleep(remaining - 0.002)
                     update_runtime()
-                    return True
-                time.sleep(min(0.001, remaining - 0.002))
-                update_runtime()
+                else:
+                    time.sleep(0)  # yield slice: keeps GIL pressure near zero
+                    update_runtime()
 
         loop_index = 0
         smooth_carry_x = 0.0
@@ -1280,7 +1286,18 @@ class MacroEngine:
                     continue
                 if raw == "END_IF" or raw.startswith("END_IF:"):
                     handle_end_if(if_stack)
+                    continue                # --- SWITCH / CASE (Logic category switch block) ---
+                if raw.startswith("SWITCH:"):
+                    handle_switch(if_stack, vars_state, parse_payload(raw, "SWITCH"), bot_root, m_dir)
                     continue
+                if raw.startswith("CASE:"):
+                    if branch_active(if_stack):
+                        handle_case(if_stack, vars_state, parse_payload(raw, "CASE"), bot_root, m_dir)
+                    continue
+                if raw == "END_SWITCH" or raw.startswith("END_SWITCH:"):
+                    handle_end_switch(if_stack)
+                    continue
+
                 # --- WHILE / UNTIL loops (same stack as IF branches) ---
                 if raw.startswith("WHILE:"):
                     handle_while(if_stack, vars_state, parse_payload(raw, "WHILE"), bot_root, m_dir)
@@ -1323,7 +1340,8 @@ class MacroEngine:
                         next_due = time.perf_counter()
                     continue
                 if raw == "BREAK_LOOP" or raw.startswith("BREAK_LOOP:"):
-                    if branch_active(if_stack) and (repeat_stack or while_stack or iterate_stack):
+                    _in_switch = any(f.get("kind") == "switch" for f in if_stack)
+                    if branch_active(if_stack) and (repeat_stack or while_stack or iterate_stack or _in_switch):
                         end_pc = find_break_target(lines, pc)
                         if end_pc is not None:
                             _bk_head = str(lines[end_pc]).split(":", 1)[0]
@@ -1338,6 +1356,14 @@ class MacroEngine:
                                 while if_stack:
                                     top = if_stack.pop()
                                     if top.get("iterate"):   # the loop frame itself
+                                        break
+                            elif _bk_head == "END_SWITCH":
+                                # SWITCH: pop the frames up to and including
+                                # the switch frame (BREAK inside a case body
+                                # exits the switch, like break in C)
+                                while if_stack:
+                                    top = if_stack.pop()
+                                    if top.get("kind") == "switch":
                                         break
                             else:
                                 # WHILE/UNTIL: pop the frames up to and

@@ -73,7 +73,8 @@ _FUNC_NAMES = ("get", "img_eq", "img_on_screen", "color_eq", "color_diff", "img_
                "ratio", "point", "box", "scale", "grab", "grab_at", "screen_color",
                "runtime_dir", "desktop_dir",
                "hue_list", "hue_diag", "color_avg", "list_get", "list_size",
-               "list_is_empty", "type_is")
+               "list_is_empty", "type_is",
+               "ocr_read", "ocr_cal", "parse_num")
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -346,6 +347,35 @@ def _render(node):
         ]
         return "img_diff(%s)" % ", ".join(args), _P_ATOM
 
+    # ── OCR (Image category) ──
+    if "ocr_read" in node:
+        # read text from [box] / read text from [box] with calibration [cal]
+        d = node.get("ocr_read") or {}
+        args = [sub(d.get("box") or {"lit": 0}, _P_ATOM, False)]
+        if d.get("cal") is not None:
+            args.append(sub(d.get("cal"), _P_ATOM, False))
+        return "ocr_read(%s)" % ", ".join(args), _P_ATOM
+
+    if "ocr_cal" in node:
+        # the calibration block — ocr_cal(whitelist, psm, invert, scale, threshold)
+        d = node.get("ocr_cal") or {}
+        inv = d.get("invert")
+        if isinstance(inv, dict):
+            inv = inv.get("lit")
+        args = [
+            _q(str(d.get("whitelist") if d.get("whitelist") is not None else "")),
+            _fmt_num(int(d.get("psm") or 7)),
+            "true" if inv in (True, "true", 1) else "false",
+            _fmt_num(int(d.get("scale") or 3)),
+            _fmt_num(int(d.get("threshold") if d.get("threshold") is not None else -1)),
+        ]
+        return "ocr_cal(%s)" % ", ".join(args), _P_ATOM
+
+    if "parse_num" in node:
+        # parse number [text] as number (Math category)
+        d = node.get("parse_num") or {}
+        return "parse_num(%s)" % sub(d.get("a") or {"lit": 0}, _P_ATOM, False), _P_ATOM
+
     # unknown node → literal true so output stays runnable
     return "true", _P_ATOM
 
@@ -591,6 +621,49 @@ class _P:
                                      and isinstance(args[1]["lit"], str)):
                 raise MacroTextError('type_is() needs (expr, "type")')
             return {"type_is": {"a": args[0], "t": args[1]["lit"]}}
+        if name == "ocr_read":
+            if not (1 <= len(args) <= 2):
+                raise MacroTextError("ocr_read() takes 1-2 args")
+            d = {"box": args[0]}
+            if len(args) == 2:
+                d["cal"] = args[1]
+            return {"ocr_read": d}
+        if name == "ocr_cal":
+            if not (1 <= len(args) <= 5):
+                raise MacroTextError("ocr_cal() takes 1-5 args")
+
+            def _cal_lit(a, dflt):
+                if a is None:
+                    return dflt
+                if isinstance(a, dict) and "lit" in a:
+                    a = a["lit"]
+                return a if a is not None else dflt
+
+            d = {}
+            wl = _cal_lit(args[0], "")
+            d["whitelist"] = str(wl if isinstance(wl, str) else "")
+            if len(args) >= 2:
+                try:
+                    d["psm"] = int(float(_cal_lit(args[1], 7)))
+                except (TypeError, ValueError):
+                    d["psm"] = 7
+            if len(args) >= 3:
+                d["invert"] = _cal_lit(args[2], False) in (True, "true", 1)
+            if len(args) >= 4:
+                try:
+                    d["scale"] = int(float(_cal_lit(args[3], 3)))
+                except (TypeError, ValueError):
+                    d["scale"] = 3
+            if len(args) >= 5:
+                try:
+                    d["threshold"] = int(round(float(_cal_lit(args[4], -1))))
+                except (TypeError, ValueError):
+                    d["threshold"] = -1
+            return {"ocr_cal": d}
+        if name == "parse_num":
+            if len(args) != 1:
+                raise MacroTextError("parse_num() needs 1 arg")
+            return {"parse_num": {"a": args[0]}}
         if name == "screen_color":
             if len(args) != 2:
                 raise MacroTextError("screen_color() needs 2 args")
@@ -859,7 +932,7 @@ def canonicalize_lines(lines) -> list:
         line = raw.strip() if isinstance(raw, str) else str(raw).strip()
         while line.startswith("}") and line != "}":
             rest = line[1:].strip()
-            if re.match(r"(ELSE\s*IF|ELSEIF|ELSE)\b", rest):
+            if re.match(r"(ELSE\s*IF|ELSEIF|ELSE|CASE|DEFAULT)\b", rest):
                 # "} ELSE IF (…) {" is a branch separator — the IF stays open
                 line = rest
                 break
@@ -892,6 +965,8 @@ def canonicalize_lines(lines) -> list:
                     out.append("LOCK_END:")
                 elif kind == "UNTIL_BG":
                     out.append("BG_END:")
+                elif kind == "SWITCH":
+                    out.append("END_SWITCH")
                 elif kind == "ITERATE":
                     out.append("END_ITERATE")
                 else:
@@ -929,6 +1004,28 @@ def canonicalize_lines(lines) -> list:
         if m:
             out.append("%s:%s" % (m.group(1), _cond_json(m.group(2))))
             stack.append(m.group(1))
+            continue
+        # pretty SWITCH (expr) { ... } — Logic category switch/case block
+        m = re.match(r"^SWITCH\s*\((.*)\)\s*\{\s*$", line)
+        if m:
+            try:
+                sexpr = expr_from_str(m.group(1))
+            except MacroTextError:
+                sexpr = {"lit": True}
+            out.append("SWITCH:" + json.dumps({"expr": sexpr}, separators=(",", ":")))
+            stack.append("SWITCH")
+            continue
+        # CASE (value) { — one switch arm; DEFAULT { — the fallback arm
+        m = re.match(r"^CASE\s*\((.*)\)\s*\{\s*$", line)
+        if m:
+            try:
+                cexpr = expr_from_str(m.group(1))
+            except MacroTextError:
+                cexpr = {"lit": True}
+            out.append("CASE:" + json.dumps({"value": cexpr}, separators=(",", ":")))
+            continue
+        if re.match(r"^DEFAULT\s*\{\s*$", line):
+            out.append("CASE:" + json.dumps({"default": True}, separators=(",", ":")))
             continue
         # pretty ITERATE <list> AS "name" { ... } — loop a list variable
         m = re.match(r'^ITERATE\s+(.+?)\s+AS\s+"((?:[^"\\]|\\.)*)"\s*\{\s*$', line)
@@ -1188,6 +1285,25 @@ def pretty_body(steps) -> list:
                 out.append("ELSE {")
             depth += 1
         elif t == "END_IF":
+            depth = max(0, depth - 1)
+            out.append(ind() + "}")
+        elif t == "SWITCH":
+            out.append("%sSWITCH (%s) {" % (ind(), _pretty_cond(v)))
+            depth += 1
+        elif t == "CASE":
+            try:
+                cd = json.loads(v or "{}")
+            except Exception:
+                cd = {}
+            if depth > 0:
+                depth -= 1
+            if cd.get("default"):
+                out.append(ind() + "} DEFAULT {")
+            else:
+                out.append("%s} CASE (%s) {" % (
+                    ind(), expr_to_str(cd.get("value", {"lit": True}))))
+            depth += 1
+        elif t == "END_SWITCH":
             depth = max(0, depth - 1)
             out.append(ind() + "}")
         elif t == "REPEAT":
