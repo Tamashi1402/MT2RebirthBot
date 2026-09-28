@@ -1,5 +1,5 @@
 @echo off
-set "ROOT=%~dp0.."
+set "ROOT=%~dp0"
 cd /d "%ROOT%"
 echo ============================================
 echo   MT2 Bot - Installing requirements
