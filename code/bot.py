@@ -4605,6 +4605,23 @@ def _run_fast_meteor_cycle() -> bool:
     # watcher immediately ends (stone already at target) - a few seconds,
     # cheaper than every run paying a multi-read OCR check.
     _shortcut_stone = _last_live_stone
+    if _shortcut_stone is None:
+        # v20375: no trusted stone yet (F9 soft reset, fresh bot start,
+        # restart mid-grind). One live HUD read BEFORE committing to the
+        # baserock trip: when the game already sits at/above the shortcut
+        # threshold the bot goes straight to meteor instead of walking to
+        # baserock first and discovering there that the trip was unneeded.
+        # The read also seeds the trusted stone for the rest of the cycle.
+        _rb_time_push("precheck stone (OCR)")
+        try:
+            _shortcut_stone = _read_stone_live(update_last=True, check_glitch=False)
+        finally:
+            _rb_time_pop()
+        if _shortcut_stone is not None:
+            log.info(
+                f"[Fast Meteor] fresh precheck read: {_fmt_stone(_shortcut_stone)} "
+                f"(no trusted stone yet)"
+            )
     if _shortcut_stone is not None and float(_shortcut_stone) <= 0:
         log.info("[Fast Meteor] stone=0 — farm baserock (no precheck)")
         _shortcut_stone = 0.0
