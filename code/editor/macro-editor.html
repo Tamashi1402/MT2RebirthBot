@@ -278,6 +278,16 @@
         <value name="IMG2"><block type="pcr_image_from_res"><value name="TEXT"><block type="text"><field name="TEXT">images/template.png</field></block></value></block></value>
       </block>
     </category>
+    <category name="OCR" colour="290">
+      <block type="mfm_ocr_read">
+        <value name="BOX"><block type="pcr_box_xyxy"><value name="X1"><block type="math_number"><field name="NUM">0</field></block></value><value name="Y1"><block type="math_number"><field name="NUM">0</field></block></value><value name="X2"><block type="math_number"><field name="NUM">200</field></block></value><value name="Y2"><block type="math_number"><field name="NUM">50</field></block></value></block></value>
+      </block>
+      <block type="mfm_ocr_read_cal">
+        <value name="BOX"><block type="pcr_box_xyxy"><value name="X1"><block type="math_number"><field name="NUM">0</field></block></value><value name="Y1"><block type="math_number"><field name="NUM">0</field></block></value><value name="X2"><block type="math_number"><field name="NUM">200</field></block></value><value name="Y2"><block type="math_number"><field name="NUM">50</field></block></value></block></value>
+        <value name="CAL"><block type="mfm_ocr_cal"></block></value>
+      </block>
+      <block type="mfm_ocr_cal"></block>
+    </category>
     <category name="Mouse" colour="40">
       <block type="mfm_scaled_move">
         <value name="POINT"><block type="pcr_point_xy"><value name="X"><block type="math_number"><field name="NUM">0</field></block></value><value name="Y"><block type="math_number"><field name="NUM">0</field></block></value></block></value>
@@ -401,6 +411,12 @@
         <value name="TIMES"><block type="math_number"><field name="NUM">10</field></block></value>
       </block>
       <block type="mfm_break_loop"></block>
+      <block type="controls_whileUntil">
+        <value name="BOOL"><block type="pcr_compare_number">
+          <value name="A"><block type="math_number"><field name="NUM">0</field></block></value>
+          <value name="B"><block type="math_number"><field name="NUM">0</field></block></value>
+        </block></value>
+      </block>
       <block type="controls_if">
         <value name="IF0"><block type="pcr_compare_number">
           <value name="A"><block type="math_number"><field name="NUM">0</field></block></value>
@@ -436,12 +452,19 @@
       </block>
       <block type="logic_operation"></block>
       <block type="logic_negate"></block>
+      <block type="pcr_switch">
+        <value name="SWITCH"><block type="pcr_get_number"></block></value>
+        <value name="CASE0"><block type="math_number"><field name="NUM">1</field></block></value>
+      </block>
     </category>
     <category name="Math" colour="230">
       <block type="math_number"><field name="NUM">0</field></block>
       <block type="math_arithmetic">
         <value name="A"><block type="math_number"><field name="NUM">0</field></block></value>
         <value name="B"><block type="math_number"><field name="NUM">0</field></block></value>
+      </block>
+      <block type="mfm_parse_num">
+        <value name="A"><block type="text"><field name="TEXT">125.25k</field></block></value>
       </block>
     </category>
     <category name="Text" colour="160">
@@ -458,8 +481,15 @@
   <script src="/blockly/lib/python_compressed.js"></script>
   <script src="/blockly/lib/en.js"></script>
   <script src="/blockly/lib/mf-keys.js"></script>
+  <!-- custom block shapes that OVERRIDE/extend the compiled bundle:
+       while/until gains the BACKGROUND arm mutator (one repeat
+       while/until block in the toolbox, gear included), and the
+       switch/case block (pcr_switch) lives here with its case/default
+       mutator quarks. Loaded after blockly.min.js so they win. -->
+  <script src="/blockly/blocks/flow/while.block.js?v=225"></script>
+  <script src="/blockly/blocks/logic/switch_case.block.js?v=225"></script>
   <script src="/editor/mf-plugins.js"></script>
-  <script src="/editor/macro-blocks.js?v=222"></script>
+  <script src="/editor/macro-blocks.js?v=223"></script>
   <script src="/editor/macro-picker.js"></script>
   <script>
   (function () {
@@ -644,18 +674,26 @@
     // detach long chains' members onto the canvas
     MfmCull.prototype._flattenChain = function (head, canvas, bo) {
       var ws = this.ws;
-      // the ORIGINAL relative offset of every already-flat member: its svg
-      // transform is absolute now, so re-walking must not re-add it
-      var recById = {};
-      for (var r = 0; r < this.flatRecs.length; r++) recById[this.flatRecs[r].id] = this.flatRecs[r];
       var members = [], cur = head.b, cx = head.x, cy = head.y;
       for (;;) {
         members.push({ b: cur, x: cx, y: cy });
         var nx = cur.getNextBlock ? cur.getNextBlock() : null;
         if (!nx) break;
-        var ko = (nx.mfmFlat && recById[nx.id])
-          ? { x: recById[nx.id].relX, y: recById[nx.id].relY }
-          : bo(nx);                       // nested → transform is relative
+        // nx already flat (its <g> lives on the canvas with an ABSOLUTE
+        // transform we set) → bo(nx) would read that absolute transform
+        // and misinterpret it as a relative delta (double-counted position).
+        // FIX (was the "empty space" bug): the old code instead cached
+        // cur→nx's relative offset ONCE, at the moment nx first flattened,
+        // and replayed that forever — collapsing/expanding cur (a Section,
+        // Lock, anything) never touched that cache, so the walk kept
+        // adding cur's OLD height long after cur's real rendered height
+        // shrank/grew, leaving a stale gap (or overlap) exactly the size
+        // of the change. cur.height is live — render() recomputes it on
+        // every collapse/expand/edit regardless of where cur's <g> lives
+        // in the DOM — and a straight next-connection stack never indents
+        // horizontally, so {x:0, y:cur.height} is the correct FRESH delta
+        // every single rebuild, self-healing the moment cur's height changes.
+        var ko = nx.mfmFlat ? { x: 0, y: cur.height || 0 } : bo(nx);
         if (!ko) break;
         cx += ko.x; cy += ko.y;
         cur = nx;

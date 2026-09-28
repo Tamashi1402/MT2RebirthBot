@@ -1679,6 +1679,9 @@ function mfmListToXml(blocks) {
   const groupStack = [];   // each: {steps: [], el, depth: 0}
   const ifStack = [];      // open controls_if: {el, branches, hasElse}
   const awaitingBg = [];   // controls_whileUntil blocks whose BG_BEGIN arm hasn't arrived yet
+  const switchStack = [];  // open pcr_switch blocks: {el, cases, default}
+                            // cases: -1 until the first CASE: arrives (CASE0/DO0
+                            // exist on the block already), then the EXTRA case index
 
   // ── Lock reconstruction ──────────────────────────────────────────
   // New format: a visible LOCK { ... } envelope (LOCK:/LOCK_END: markers)
@@ -2036,6 +2039,90 @@ function mfmListToXml(blocks) {
         } else if (stacks.length > 1) {
           stacks.pop();
           cur = stacks[stacks.length - 1];
+        }
+        continue;
+      }
+      case 'SWITCH': {
+        flushLock();
+        if (groupStack.length) {
+          groupStack[groupStack.length - 1].steps.push({ type: type, value: value, locked: locked });
+        } else {
+          el = mk('pcr_switch');
+          const swv = document.createElement('value'); swv.setAttribute('name', 'SWITCH');
+          swv.appendChild(_mfm_exprXml(_mfm_condExpr(value), document));
+          el.appendChild(swv);
+          appendTo(cur.dom, el);
+          switchStack.push({ el: el, cases: -1, default: false, armOpen: false });
+        }
+        continue;
+      }
+      case 'CASE': {
+        flushLock();
+        if (groupStack.length) {
+          groupStack[groupStack.length - 1].steps.push({ type: type, value: value, locked: locked });
+        } else {
+          const sw = switchStack[switchStack.length - 1];
+          if (sw) {
+            let cd = {};
+            try { cd = JSON.parse(value || '{}'); } catch (e) { cd = {}; }
+            // close the previous arm's body first — but only if THIS
+            // switch opened one (armOpen): the first CASE must not pop
+            // the parent container. Nested switches inside a body popped
+            // their own frames at END_SWITCH, so when armOpen is set the
+            // stack top really is our arm's body.
+            if (sw.armOpen && stacks.length > 1) {
+              stacks.pop(); cur = stacks[stacks.length - 1];
+            }
+            sw.armOpen = true;
+            if (cd.default) {
+              // DEFAULT arm — mutation flag, one statement input
+              sw.default = true;
+              const dSt = document.createElement('statement');
+              dSt.setAttribute('name', 'DEFAULT');
+              sw.el.appendChild(dSt);
+              stacks.push({ dom: dSt, locked: cur.locked || locked });
+              cur = stacks[stacks.length - 1];
+            } else {
+              sw.cases++;
+              const cName = 'CASE' + sw.cases, dName = 'DO' + sw.cases;
+              const cv = document.createElement('value'); cv.setAttribute('name', cName);
+              cv.appendChild(_mfm_exprXml((cd.value !== undefined && cd.value !== null)
+                ? cd.value : { lit: true }, document));
+              sw.el.appendChild(cv);
+              const dSt = document.createElement('statement');
+              dSt.setAttribute('name', dName);
+              sw.el.appendChild(dSt);
+              stacks.push({ dom: dSt, locked: cur.locked || locked });
+              cur = stacks[stacks.length - 1];
+            }
+          }
+        }
+        continue;
+      }
+      case 'END_SWITCH': {
+        flushLock();
+        if (groupStack.length) {
+          groupStack[groupStack.length - 1].steps.push({ type: type, value: value, locked: false });
+        } else {
+          const sw = switchStack.pop();
+          if (sw) {
+            // the mutation carries the final shape: extra cases beyond
+            // CASE0 + whether the DEFAULT arm exists — Blockly rebuilds
+            // the input list from it, then plugs the value/statement
+            // XML children in by name
+            const mu = document.createElement('mutation');
+            mu.setAttribute('cases', String(Math.max(0, sw.cases)));
+            if (sw.default) mu.setAttribute('default', '1');
+            sw.el.appendChild(mu);
+          }
+          if (sw && sw.armOpen && stacks.length > 1) {
+            stacks.pop(); cur = stacks[stacks.length - 1];
+          } else if (!sw && stacks.length > 1) {
+            // stray END_SWITCH (no matching SWITCH): tolerate by closing
+            // one container, same as a stray END_IF/END_WHILE would
+            stacks.pop(); cur = stacks[stacks.length - 1];
+          }
+          // sw with no open arm (empty switch, no CASE steps): nothing to pop
         }
         continue;
       }
@@ -2433,6 +2520,26 @@ function mfmWorkspaceToList(workspace, includeLocals) {
           emitStack(b.getInputTargetBlock('BACKGROUND'), locked);
           push('BG_END', '', locked);
         }
+        b = b.getNextBlock();
+      } else if (b.type === 'pcr_switch') {
+        // switch/case (Logic) — the runner evaluates the SWITCH value ONCE
+        // into a frame and compares each CASE top-to-bottom; DEFAULT runs
+        // when nothing matched. CASE0 is always exported (the block always
+        // shows it, like IF0), extra CASEn follow, DEFAULT last.
+        push('SWITCH', branchCond(b, 'SWITCH'), locked);
+        let sci = 0;
+        while (b.getInput('CASE' + sci)) {
+          push('CASE', JSON.stringify({
+            value: _mfm_expr(b.getInputTargetBlock('CASE' + sci))
+          }), locked);
+          emitStack(b.getInputTargetBlock('DO' + sci), locked);
+          sci++;
+        }
+        if (b.getInput('DEFAULT')) {
+          push('CASE', JSON.stringify({ default: true }), locked);
+          emitStack(b.getInputTargetBlock('DEFAULT'), locked);
+        }
+        push('END_SWITCH', '', locked);
         b = b.getNextBlock();
       } else if (b.type === 'mfm_section') {
         pushC('SECTION', b.getFieldValue('TEXT') || 'note', locked, b.getFieldValue('COLOUR'));
