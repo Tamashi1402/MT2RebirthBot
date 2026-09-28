@@ -7336,6 +7336,23 @@ def run_bot():
                     log.debug(f"[Recorder] stop_run error: {_rec_e}")
             else:
                 if _rebirth_strike_record(False):
+                    # v20372: a strike-out must not park a 24/7 grind. Boss
+                    # modes already auto-recover from strike-out with a full
+                    # leave-to-lobby restart when Force Restart is on; the
+                    # rebirth loop now does the same. Only when FR is OFF (or
+                    # the restart itself fails) does the bot soft-kill and
+                    # wait for a manual Start.
+                    if _force_restart_enabled(None):
+                        log.warning("[REBIRTH] strike out — Force Restart ON: leaving to lobby and rejoining (24/7 auto-resume)")
+                        _console_status("RESTART", "Strike out - Force Restart")
+                        set_overlay(status="RESTART", goal="Force Restart", run_start_time=0)
+                        if _try_force_restart_after_failure(
+                            "rebirth strike out: dead-loop guard", in_game_short_circuit=False
+                        ):
+                            log.info("[REBIRTH] force restart OK after strike out — resuming the grind")
+                            _just_started = True
+                            continue
+                        log.error("[REBIRTH] force restart failed after strike out — stopping (waiting for Start)")
                     _console_status("STOPPED", "Too many failed runs")
                     set_overlay(status="STOPPED", goal="Strike out")
                     _dash_update(run_active=False, run_start_time=None, status="STOPPED", goal="Strike out")
