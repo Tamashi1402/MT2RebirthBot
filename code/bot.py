@@ -436,10 +436,15 @@ def _state_stone_snapshot():
     global _last_live_stone
     return _last_live_stone
 
+_REBIRTH_ZERO_CONFIRMED_AT = 0.0   # epoch of the last confirmed stone=0 (rebirth / fresh join)
+
+
 def _mark_rebirth_zero_confirmed(reason: str = ""):
     """Rebirth is the one moment where stone=0 is authoritative, not a glitch."""
     global _last_live_stone, _A5_UNLOCKED_THIS_RUN, _AREA_UNLOCKED_THIS_RUN, _DRILLS_UNLOCKED
     global _QUESTS_DONE_THIS_RUN, _QUESTS_STARTED_THIS_RUN, _QUEST_PLAN
+    global _REBIRTH_ZERO_CONFIRMED_AT
+    _REBIRTH_ZERO_CONFIRMED_AT = time.time()
     _last_live_stone = 0.0
     _A5_UNLOCKED_THIS_RUN = False
     _AREA_UNLOCKED_THIS_RUN = {1: False, 2: False, 3: False, 4: False, 5: False}
@@ -2774,6 +2779,7 @@ def _try_force_restart_after_failure(
     reason: str, ds_snap: dict | None = None, in_game_short_circuit: bool = True
 ) -> bool:
     global _WAITING_FOR_START, _STONE_LOST, _at_base, _menu_resume_fresh_start
+    global _REBIRTH_ZERO_CONFIRMED_AT
     reason_l = str(reason or "").lower()
     if "loadouts not set" in reason_l or "missing_loadout" in reason_l:
         log.info("[FORCE_RESTART] skipped — loadouts not set (user config, not a run failure)")
@@ -2817,6 +2823,7 @@ def _try_force_restart_after_failure(
                     goal="Restarting",
                 )
                 set_overlay(status="RESTART", goal="Restarting")
+                _REBIRTH_ZERO_CONFIRMED_AT = time.time()
                 log.info("[FORCE_RESTART] menu join OK; starting fresh run")
                 return True
             log.warning("[FORCE_RESTART] menu join failed \u2014 falling back to leave-to-lobby")
@@ -2862,6 +2869,7 @@ def _try_force_restart_after_failure(
         goal="Restarting",
     )
     set_overlay(status="RESTART", goal="Restarting")
+    _REBIRTH_ZERO_CONFIRMED_AT = time.time()
     log.info("[FORCE_RESTART] lobby Ready + shard OK; starting fresh run")
     return True
 
@@ -7160,16 +7168,28 @@ def run_bot():
 
             start_mode = _RUN_MODE
             start_stone = None
-            try:
-                # v2023: post-rebirth the verify read stone=0 a moment ago —
-                # reuse it instead of paying a second HUD OCR every cycle.
-                from screen import get_fresh_stone as _get_fresh_start_stone
-                start_stone = _get_fresh_start_stone(max_age=1.5)
-                if start_stone is None:
-                    from screen import read_stone as _read_start_stone
-                    start_stone = _read_start_stone()
-            except Exception:
-                start_stone = None
+            # v20373: a run started right after a confirmed rebirth (or a
+            # fresh force-restart join) logically has stone=0 — that's what
+            # _mark_rebirth_zero_confirmed established moments ago. Re-reading
+            # the HUD here lets a misreading stone region (e.g. a constant 7.0
+            # OCR artefact) mark EVERY fresh run as "resumed" — orange on the
+            # chart and excluded from avg/best/worst. Trust the confirmation
+            # for 5 minutes; a manual start on a game that already has stone
+            # (or an OCR miss outside the window) still reads the HUD.
+            if time.time() - _REBIRTH_ZERO_CONFIRMED_AT <= 300.0:
+                start_stone = 0.0
+                log.debug("start stone: post-rebirth/fresh-join confirmation — stone=0 (no HUD re-read)")
+            if start_stone is None:
+                try:
+                    # v2023: post-rebirth the verify read stone=0 a moment ago —
+                    # reuse it instead of paying a second HUD OCR every cycle.
+                    from screen import get_fresh_stone as _get_fresh_start_stone
+                    start_stone = _get_fresh_start_stone(max_age=1.5)
+                    if start_stone is None:
+                        from screen import read_stone as _read_start_stone
+                        start_stone = _read_start_stone()
+                except Exception:
+                    start_stone = None
             if start_stone is None and _last_live_stone is not None:
                 start_stone = _last_live_stone
                 log.debug(f"start stone OCR miss — using last live {_fmt_stone(start_stone)}")
