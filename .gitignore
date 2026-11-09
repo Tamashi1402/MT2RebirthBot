@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Runtime data (auto-created on first run)
+logs/
+data/dashboard_state.json
+data/stats.json
+
+# Build output
+build/
+dist/
+*.spec
+
+# OS
+Thumbs.db
+desktop.ini
+
+# Per-user runtime files (setup by each user via dashboard/wizard)
+data/game_detect/
+data/kraken_stats.json
+data/macro_engine_state.json
+data/crater_stats.json
+
+# Runtime state (logs, per-user) — never commit
+logs/
+data/dashboard_state.json
+data/stats.json
+macros/**/*.macro.bak
+
+# shipped 1080 defaults (user picks stay ignored)
+!data/game_detect/
+!data/game_detect/game_detect_1080.png
+!data/game_detect/game_logo_1080.png
+!data/game_detect/game_logo.png
+!data/game_detect/game_detect.png

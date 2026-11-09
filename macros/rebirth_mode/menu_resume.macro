@@ -1,0 +1,21 @@
+# Macro: menu_resume
+# Placeholder used when the in-game stone icon image is not found.
+# Edit this if the lobby/menu resume flow changes.
+# SENS_RECORDED_H:17.0
+# SENS_RECORDED_V:17.0
+# SENS_USER_H:17.0
+# SENS_USER_V:17.0
+VARIABLE:{"name":"inGame","var_type":"boolean","value":false}
+DELAY:500
+MOUSE_MOVE_ABS:251,907
+DELAY:100
+MOUSE_LEFT_CLICK
+REPEAT:120
+DELAY:1000
+IMAGE:{"var":"inGame","path":"images/1920x1080_inGame.png","threshold":90,"fixed":true,"base_w":1920,"base_h":1080,"x1":1667,"y1":663,"x2":1703,"y2":721,"search_x1":0,"search_y1":0,"search_x2":1920,"search_y2":1080,"result_mode":"bool","x_var":"image_found_x","y_var":"image_found_y"}
+IF:{"mode":"boolean","name":"inGame","value":true}
+GOTO:IN_GAME
+END_IF
+ENDREPEAT
+LABEL:IN_GAME
+DELAY:1000

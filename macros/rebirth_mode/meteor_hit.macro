@@ -1,0 +1,9 @@
+# Hold left button — bot centres mouse first, kills macro when the bar is gone.
+# DELAY must stay short so stop_macro() does not wait out a 5s slice.
+DELAY:600
+KEY_PRESS:0x46
+DELAY:150
+MOUSE_LEFT_DOWN
+LABEL:HOLD
+DELAY:200
+GOTO:HOLD

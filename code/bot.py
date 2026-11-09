@@ -1,0 +1,6243 @@
+# ============================================================
+# MT2 BOT - MAIN STATE MACHINE  (v19.0 — fixes: fast-tp fallback, glitch guard, OCR seed guard, manual-str icon crop, F-key before F4, orange-crop HUD guard, baserock auto-str peak-freeze)
+# ============================================================
+import time
+import sys
+import threading
+import os
+import ctypes
+import keyboard   # pip install keyboard
+
+# When this file is launched directly it runs as __main__. Dashboard routes later
+# import "bot"; point that import at this live module instead of a shadow copy.
+if __name__ == "__main__":
+    sys.modules.setdefault("bot", sys.modules[__name__])
+
+from logger        import get_logger, cprint
+from config        import (
+    STONE_STALL_TIMEOUT, SMART_FAILURE_TIMEOUT,
+    REBIRTH_POST_CONFIRM_WAIT,
+    STONE_FOR_A5_STAGE1, STONE_FOR_A5_STAGE2,
+    STONE_FOR_A5_STAGE3, STONE_FOR_A5_STAGE4, STONE_FOR_METEOR,
+    STONE_FOR_AREA6_SHORTCUT,
+    STONE_FOR_A1_STAGE2, STONE_FOR_A1_STAGE3, STONE_FOR_A1_STAGE4,
+    STONE_FOR_A2_STAGE1, STONE_FOR_A2_STAGE2, STONE_FOR_A2_STAGE3, STONE_FOR_A2_STAGE4,
+    STONE_FOR_A3_STAGE1, STONE_FOR_A3_STAGE2, STONE_FOR_A3_STAGE3, STONE_FOR_A3_STAGE4,
+    STONE_FOR_A4_STAGE1, STONE_FOR_A4_STAGE2, STONE_FOR_A4_STAGE3, STONE_FOR_A4_STAGE4,
+    STAGE_TOPUP_SECONDS, TOPUP_TIMEOUT, BOT_HANDLES_AUTO_STRENGTH,
+    MANUAL_STR_MAX_SECONDS, MANUAL_STR_NO_STRENGTH_TIMEOUT, MANUAL_STR_STRENGTH_POLL_SECONDS, MANUAL_STR_STRENGTH_MIN_REL_CHANGE,
+    MANUAL_STR_POST_CLOSE_SETTLE_SECONDS, MANUAL_STR_POST_CLOSE_TOPUP_SECONDS,
+    MANUAL_STR_POST_CLOSE_CONFIRM_TIMEOUT_SECONDS,
+    STONE_FOR_UNLOCK_DRILLS, ACTIVATE_DRILLS as _CFG_ACTIVATE_DRILLS,
+    USE_DRILL_ON_A5_METEOR as _CFG_USE_DRILL_ON_A5_METEOR,
+    USE_DRILL_ON_ROCK as _CFG_USE_DRILL_ON_ROCK,
+    USE_DRILL_ON_BASEROCK as _CFG_USE_DRILL_ON_BASEROCK,
+    AUTO_ROCK_MAX_GRIND_SECONDS,
+    normalize_binding_name,
+    BOSS_FIGHT_A1_BASEROCK_THRESHOLD,
+    BOSS_FIGHT_A1_AMOUNT,
+    BOSS_FIGHT_A1_METEOR_GRIND_SECONDS,
+    BOSS_FIGHT_A1_LOADOUT_FIGHTING,
+    BOSS_FIGHT_A1_LOADOUT_FARMING,
+
+)
+from macro_runner  import (
+    run_macro, kill_macro_recorder, stop_macro, macro_exists,
+    is_fortnite_focused, wait_for_fortnite_focus,
+    enable_auto_strength, disable_auto_strength, trigger_binding_action, _binding_to_vk,
+)
+from screen        import (
+    read_stone,
+    read_manual_strength_stone, read_manual_strength_strength,
+    rock_health_red_percent,
+    rock_health_bar_seen,
+    rock_health_bar_metrics,
+    meteor_health_bar_metrics,
+    meteor_health_bar_seen,
+    is_auto_strength_active,
+    is_in_menu, is_rebirth_screen, grab_region, get_menu_play_center, kraken_health_bar_seen, save_debug_fullscreen,
+    read_bramble_mode_text, bramble_mode_matches,
+)
+from stats         import StatsTracker
+from overlay       import start_overlay, set_overlay
+# auth: login only, no suspension checks
+from teleport_menu import (
+    spam_f4_until_menu as _spam_f4_until_menu,
+    arm_rebirth_fade_watch as _arm_rebirth_fade_watch,
+    disarm_rebirth_fade_watch as _disarm_rebirth_fade_watch,
+    teleport as _builtin_teleport,
+    set_killed_fn as _teleport_set_killed_fn,
+    confirm_rebirth_ui as _confirm_rebirth_ui,
+    wait_map_loaded as _wait_map_loaded,
+    select_loadout as _select_loadout_ui,
+    ensure_f4_closed as _ensure_f4_closed,
+    f4_menu_open as _f4_menu_open,
+)
+
+from dashboard     import start_dashboard, update_state as _dash_update, record_delve_run as _dash_record_delve_run, record_kraken_run as _dash_record_kraken_run, record_zytos_run as _dash_record_zytos_run
+from run_recorder  import get_recorder as _get_recorder
+from kraken_dodge import stop_kraken_dodge
+from zytos.dodge import stop_zytos_dodge
+
+
+def stop_kraken_esp():
+    """Kraken assist drawing was removed. Kept so old call sites stay valid."""
+    return None
+
+
+def _run_crater_loop():
+    """Crater mode entry point."""
+    try:
+        from crater.loop import run_crater
+        run_crater()
+    except Exception as e:
+        cprint(f"Crater mode error: {e}", "err")
+        log.error(f"Crater mode error: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def _run_farm_meteor_loop():
+    """Meteor mode entry point."""
+    try:
+        from farm_meteor.loop import run_farm_meteor
+        run_farm_meteor()
+    except Exception as e:
+        cprint(f"Meteor mode error: {e}", "err")
+        log.error(f"Meteor mode error: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+
+
+log   = get_logger()
+stats = StatsTracker()
+
+
+def _fmt_stone(v) -> str:
+    """Format stone with readable suffix (k/M/B/T/Qa/Qi/Sx/Sp/Oc/No/Dc...).
+    Falls back to engineering notation for very large exponents (>57)."""
+    if v is None:
+        return "?"
+    try:
+        import math
+        v = float(v)
+        if v <= 0:
+            return "0"
+        exp = int(math.floor(math.log10(abs(v))))
+        _SUFFIXES = [
+            (3,  "k"),   (6,  "M"),    (9,  "B"),    (12, "T"),
+            (15, "Qa"),  (18, "Qi"),   (21, "Sx"),   (24, "Sp"),
+            (27, "Oc"),  (30, "No"),   (33, "Dc"),   (36, "UDc"),
+            (39, "DDc"), (42, "TDc"),  (45, "QaDc"), (48, "QiDc"),
+            (51, "SxDc"),(54, "SpDc"), (57, "OcDc"),
+        ]
+        chosen_suffix, chosen_exp = None, 0
+        for _exp, _suf in _SUFFIXES:
+            if exp >= _exp:
+                chosen_suffix, chosen_exp = _suf, _exp
+        if chosen_suffix and exp <= 59:
+            mantissa = v / (10 ** chosen_exp)
+            return f"{mantissa:.2f}{chosen_suffix}"
+        if exp < 3:
+            return f"{v:.2f}"
+        # Engineering notation fallback (exp divisible by 3)
+        eng_exp  = (exp // 3) * 3
+        mantissa = v / (10 ** eng_exp)
+        return f"{mantissa:.2f}e{eng_exp}"
+    except Exception:
+        return str(v)
+
+# ——— Stone freeze flag —————————————————————————————————————————————————————
+_stone_frozen: bool = False
+_stone_freeze_depth: int = 0
+
+def _freeze_stone(frozen: bool):
+    """Nestable freeze. True increments; False decrements.
+
+    The stone watcher stays suppressed while depth > 0 so an inner nav
+    macro / teleport cannot re-enable it during a covering parent phase
+    (Bramble menu + arena, F4 teleports, etc.). Previously a boolean
+    toggle meant fight_bramble_open.macro un-froze the watcher while the
+    boss menu still covered the HUD, which fired Force Restart.
+    """
+    global _stone_frozen, _stone_freeze_depth
+    if frozen:
+        _stone_freeze_depth += 1
+    else:
+        _stone_freeze_depth = max(0, _stone_freeze_depth - 1)
+    now_frozen = _stone_freeze_depth > 0
+    if now_frozen == _stone_frozen:
+        return
+    _stone_frozen = now_frozen
+    # Notify overlay so it doesn't need to import bot (avoids PyInstaller circular import)
+    try:
+        from overlay import set_overlay as _so
+        _so(stone_frozen=now_frozen)
+    except Exception:
+        pass
+
+# ——— Navigation macros that cover the stone HUD — watcher suppressed during these ———
+# Hit macros (rock_hit, meteor_hit, baserock_hit) are intentionally NOT listed here;
+# those are the long-running ones where we DO want the watcher active.
+_NAV_MACROS: frozenset = frozenset({
+    "base_to_rebirth",
+    "force_restart",
+    "menu_resume",
+    "base_to_baserock",
+    "base_to_meteor",
+    "unlock_drills",
+    "area5_to_delve",
+    "area7_to_kraken",
+    "a8_to_zytos",
+    "quest_menu",
+    "hatch_pets",
+    "break_1_star_rocks",
+    "break_2_star_rocks",
+    "break_3_star_rocks",
+})
+
+# ——— At-base tracking ——————————————————————————————————————————————————————
+_at_base: bool = False
+_CURRENT_STAGE_POINT: tuple[int, int] | None = None
+_LOADOUT_BLOCKED = False
+_LOADOUT_BLOCK_SEQ = 0
+
+def _mark_left_base():
+    global _at_base
+    _at_base = False
+    _clear_current_stage_point("left base")
+
+
+def _clear_current_stage_point(reason: str = ""):
+    global _CURRENT_STAGE_POINT
+    if _CURRENT_STAGE_POINT is not None and reason:
+        log.debug(f"[SHORTCUT] clearing current rock position ({reason})")
+    _CURRENT_STAGE_POINT = None
+
+
+def _mark_area5_unlocked(reason: str = ""):
+    """Remember that Area 5 has been reached, including shortcut-macro landings."""
+    global _A5_UNLOCKED_THIS_RUN
+    if not _A5_UNLOCKED_THIS_RUN:
+        suffix = f" via {reason}" if reason else ""
+        log.info(f"[A5] reached{suffix}; marking Area 5 unlocked for this run")
+        try:
+            _rec_log_action("area5_detected", source=reason or "unknown")
+        except Exception:
+            pass
+    _A5_UNLOCKED_THIS_RUN = True
+    _mark_left_base()
+
+
+def _mark_area5_unlocked_if_visible(reason: str = "", attempts: int = 5, delay: float = 0.25) -> bool:
+    """Pink-sky detection removed: assume success when caller reached Area 5 flow."""
+    _mark_area5_unlocked(reason or "assumed")
+    return True
+
+# ——— Hotkey / run state ————————————————————————————————————————————————————
+_KILLED             = False   # F9 sets — bot soft-resets to fresh start
+_TEST_FORCE_FAILURE = False   # Down Arrow simulates a non-user run failure for Force Restart testing
+_WAITING_FOR_START  = True    # True until dashboard Start button is pressed
+_DRILLS_UNLOCKED    = False   # reset each run; True after drills macro fires once
+_A5_UNLOCKED_THIS_RUN = False # True after first manual base—A5 teleport this run
+_QUESTS_DONE_THIS_RUN = False  # reset each run; True once the quest phase ran
+_QUESTS_STARTED_THIS_RUN = False  # True once quests were accepted at run start
+_QUEST_PLAN = None  # run-start plan: quest panels/kinds for the end-of-run phase
+_RUN_MODE           = "a5meteor"  # Area 5 - Meteor is the only mode
+_ACTIVATE_DRILLS    = _CFG_ACTIVATE_DRILLS  # press I before every hit macro — toggled via dashboard
+# _suspended_flag removed — no suspension checks
+_STONE_LOST         = False   # set by watcher thread when stone icon missing; cleared after recovery
+_ACTIVE_HIT_MACRO   = None
+
+# ── Rebirth cycle timing (v2018: per-step duration report after rebirth) ──────
+_RB_TIMING_STEPS: list[tuple[str, float, int]] = []  # (label, ms, depth) in end-order
+_RB_TIMING_STACK: list[tuple[str, float]] = []   # (label, t0) for open steps
+
+def _rb_time_reset() -> None:
+    """Clear the timing report at the start of each fast-meteor cycle."""
+    global _RB_TIMING_STEPS, _RB_TIMING_STACK
+    _RB_TIMING_STEPS = []
+    _RB_TIMING_STACK = []
+    for _k in _MS_READ_STATS:
+        _MS_READ_STATS[_k] = 0 if isinstance(_MS_READ_STATS[_k], int) else 0.0
+
+# ── Manual-strength read-cost stats (v2021) ────────────────────────────────────
+_MS_READ_STATS = {
+    "alive_calls": 0, "alive_secs": 0.0,
+    "surge_reads": 0, "surge_secs": 0.0,
+    "stone_reads": 0, "stone_secs": 0.0,
+}
+
+def _ms_read_stat(count_key: str, secs: float) -> None:
+    """Accumulate one read: increments its counter and adds seconds to the
+    matching *_secs key (alive_calls -> alive_secs, surge_reads -> surge_secs)."""
+    _MS_READ_STATS[count_key] = _MS_READ_STATS.get(count_key, 0) + 1
+    secs_key = count_key.replace("_calls", "_secs").replace("_reads", "_secs")
+    _MS_READ_STATS[secs_key] = _MS_READ_STATS.get(secs_key, 0.0) + secs
+
+def _rb_time_push(step: str) -> None:
+    """Begin a timed step (may nest — manual strength inside baserock, etc.)."""
+    _RB_TIMING_STACK.append((step, time.time()))
+
+def _rb_time_pop(final_label: str | None = None) -> None:
+    """End the most recently pushed step and record its duration."""
+    if not _RB_TIMING_STACK:
+        return
+    step, t0 = _RB_TIMING_STACK.pop()
+    # depth AFTER pop = how many steps this one was nested inside.
+    # TOTAL only sums depth-0 steps — nested spans (manual strength inside
+    # baserock, respawn/verify inside the rebirth attempt) were being
+    # double-counted in v1.10.5's report.
+    depth = len(_RB_TIMING_STACK)
+    _RB_TIMING_STEPS.append((final_label or step, (time.time() - t0) * 1000.0, depth))
+
+def _rb_time_report(title: str = "REBIRTH CYCLE TIMING") -> None:
+    """Log the per-step duration breakdown after rebirth finished."""
+    if not _RB_TIMING_STEPS:
+        return
+    total = sum(ms for _, ms, d in _RB_TIMING_STEPS if d == 0)
+    bar = "─" * 58
+    log.info(f"[RB-TIME] {bar}")
+    log.info(f"[RB-TIME] {title}")
+    for step, ms, depth in _RB_TIMING_STEPS:
+        log.info(f"[RB-TIME]   {'  ' * depth}{step:<30} {ms:8.0f}ms ({ms/1000:.1f}s)")
+    log.info(f"[RB-TIME]   {'TOTAL':<30} {total:8.0f}ms ({total/1000:.1f}s)")
+    _ms = _MS_READ_STATS
+    if _ms.get("surge_reads") or _ms.get("stone_reads") or _ms.get("alive_calls"):
+        log.info(
+            f"[RB-TIME]   MS stop-check cost: alive {_ms['alive_calls']}x "
+            f"{_ms['alive_secs']:.2f}s | surge reads {_ms['surge_reads']}x "
+            f"{_ms['surge_secs']:.2f}s | stone reads {_ms['stone_reads']}x "
+            f"{_ms['stone_secs']:.2f}s"
+        )
+    log.info(f"[RB-TIME] {bar}")    # name of the hit macro (rock_hit/meteor_hit/baserock_hit) currently
+                               # running via _run_hit_macro(wait=False); closed by _close_hit_macro().
+_REBIRTH_IN_PROGRESS = False # suppress stone-lost/Menu Resume checks during rebirth flow
+_menu_resume_fresh_start = False  # True after successful menu resume — forces run to start from base
+_watcher_thread     = None    # background stone-icon watcher thread handle
+_watcher_stop_ev    = None    # threading.Event to stop the watcher thread
+_manual_strength_active = False
+_active_manual_strength_handle = None
+_last_live_stone = None
+_last_f8_start_ts = 0.0
+_f9_lock = threading.Lock()
+_f9_in_progress = False
+_last_f9_stop_ts = 0.0
+_f9_started_ts = 0.0
+_hotkey_f8_handle = None
+_hotkey_f9_handle = None
+_hotkey_test_fail_handle = None
+_f9_poll_started = False
+_win_hotkey_poll_started = False
+_last_failure_ss_ts = 0.0
+_last_status_line = None
+
+# Guard against rare stale-stop states after hook/poller races.
+_F9_STALE_TIMEOUT_SECONDS = 2.5
+
+
+def _hotkey_binding_from_config(cfg_key: str, default: str) -> str:
+    try:
+        import config as _cfg_hotkey
+        raw = getattr(_cfg_hotkey, cfg_key, default)
+    except Exception:
+        raw = default
+    normalized = normalize_binding_name(str(raw or default))
+    return normalized or normalize_binding_name(default)
+
+
+def _hotkey_binding_to_keyboard_key(binding: str) -> str:
+    b = normalize_binding_name(binding)
+    if not b:
+        return ""
+    alias = {
+        "ESC": "esc",
+        "SPACE": "space",
+        "TAB": "tab",
+        "ENTER": "enter",
+        "SHIFT": "shift",
+        "CTRL": "ctrl",
+        "ALT": "alt",
+    }
+    if b in alias:
+        return alias[b]
+    if b.startswith("MOUSE_"):
+        # keyboard.is_pressed supports these names for our usage.
+        return b.lower()
+    return b.lower()
+
+
+def _hotkey_binding_to_event_name(binding: str) -> str:
+    key = _hotkey_binding_to_keyboard_key(binding)
+    if not key:
+        return ""
+    return key.replace("_", " ")
+
+
+def _start_binding() -> str:
+    return _hotkey_binding_from_config("BOT_START_BINDING", "F8")
+
+
+def _stop_binding() -> str:
+    return _hotkey_binding_from_config("BOT_STOP_BINDING", "F9")
+
+
+def _is_f9_stop_in_progress() -> bool:
+    global _f9_in_progress, _f9_started_ts
+    with _f9_lock:
+        if _f9_in_progress and _f9_started_ts > 0:
+            age = time.time() - float(_f9_started_ts)
+            if age > float(_F9_STALE_TIMEOUT_SECONDS):
+                log.warning(f"[F9] stale stop state detected ({age:.2f}s) - auto-clearing")
+                _f9_in_progress = False
+                _f9_started_ts = 0.0
+        return bool(_f9_in_progress)
+
+def _state_stone_snapshot():
+    """Return the most recently read stone value (thread-safe read)."""
+    global _last_live_stone
+    return _last_live_stone
+
+_REBIRTH_ZERO_CONFIRMED_AT = 0.0   # epoch of the last confirmed stone=0 (rebirth / fresh join)
+
+# v1.9.18: set when a rebirth respawned us but the stone HUD could not be read
+# afterwards. The pre-rebirth stone is then WRONG (the rebirth just reset it),
+# so it must never be reused as "trusted": the a5 fast cycle skipped baserock
+# on that stale value and walked straight back into a rebirth the game refused.
+_POST_REBIRTH_STONE_UNTRUSTED = False
+
+
+def _reset_post_rebirth_flags():
+    """Per-run progress flags that a rebirth always invalidates."""
+    global _A5_UNLOCKED_THIS_RUN, _AREA_UNLOCKED_THIS_RUN, _DRILLS_UNLOCKED
+    global _QUESTS_DONE_THIS_RUN, _QUESTS_STARTED_THIS_RUN, _QUEST_PLAN
+    _A5_UNLOCKED_THIS_RUN = False
+    _AREA_UNLOCKED_THIS_RUN = {1: False, 2: False, 3: False, 4: False, 5: False}
+    _DRILLS_UNLOCKED = False
+    _QUESTS_DONE_THIS_RUN = False
+    _QUESTS_STARTED_THIS_RUN = False
+    _QUEST_PLAN = None
+
+
+def _mark_rebirth_zero_confirmed(reason: str = ""):
+    """Rebirth is the one moment where stone=0 is authoritative, not a glitch."""
+    global _last_live_stone, _REBIRTH_ZERO_CONFIRMED_AT, _POST_REBIRTH_STONE_UNTRUSTED
+    _REBIRTH_ZERO_CONFIRMED_AT = time.time()
+    _POST_REBIRTH_STONE_UNTRUSTED = False
+    _last_live_stone = 0.0
+    _reset_post_rebirth_flags()
+    log.debug(f"Post-rebirth state reset: stone=0{f' ({reason})' if reason else ''}")
+    try:
+        _dash_update(cur_stone=0.0, stone=0.0)
+    except Exception:
+        pass
+
+
+def _mark_rebirth_stone_unverified(reason: str = ""):
+    """Respawned, but the stone HUD never produced a value afterwards.
+
+    The rebirth itself is confirmed by the respawn fade, so the run continues —
+    but the stone we knew before the rebirth is now a lie (the rebirth reset
+    it). Drop it instead of leaving it trusted, and tell the next cycle it
+    MUST read the HUD again before it decides to skip the baserock trip.
+    """
+    global _last_live_stone, _POST_REBIRTH_STONE_UNTRUSTED
+    _POST_REBIRTH_STONE_UNTRUSTED = True
+    _last_live_stone = None
+    _reset_post_rebirth_flags()
+    log.warning(
+        "Post-rebirth state reset: stone UNKNOWN"
+        f"{f' ({reason})' if reason else ''} — next cycle re-reads the HUD instead of "
+        "reusing the pre-rebirth value"
+    )
+    try:
+        _dash_update(cur_stone=None, stone=None)
+    except Exception:
+        pass
+
+# Current farming stage — updated at each stage transition, read by recorder
+_current_stage: str = "unknown"
+_drill_binding_warned = False
+
+def _set_stage(stage: str):
+    """Update the current stage and notify recorder for per-frame annotations."""
+    global _current_stage
+    _current_stage = stage
+    _dash_update(stage=stage)
+    try:
+        _get_recorder().log_stage(stage, stone=_last_live_stone)
+    except Exception as _e:
+        log.debug(f"[Recorder] log_stage error: {_e}")
+
+
+def _rec_log_action(action_type: str, **fields):
+    try:
+        payload = {"type": action_type}
+        payload.update(fields)
+        _get_recorder().log_action(payload)
+    except Exception as _e:
+        log.debug(f"[Recorder] log_action error: {_e}")
+
+
+def _rec_log_macro(name: str, event: str, **fields):
+    try:
+        _get_recorder().log_macro_event(name, event, **fields)
+    except Exception as _e:
+        log.debug(f"[Recorder] log_macro_event error: {_e}")
+
+
+def _rec_set_failure(reason: str):
+    try:
+        _get_recorder().set_failure_reason(reason)
+    except Exception as _e:
+        log.debug(f"[Recorder] set_failure_reason error: {_e}")
+
+def _capture_failure_fullscreen(reason: str):
+    """Capture a full-screen failure frame (non-F9 diagnostics), throttled."""
+    global _last_failure_ss_ts
+    try:
+        if _KILLED:
+            return
+        now = time.time()
+        if (now - float(_last_failure_ss_ts)) < 1.0:
+            return
+        _last_failure_ss_ts = now
+        from dashboard import get_state as _ds_get
+        _mode = str(_ds_get().get("bot_mode", "rebirth")).lower()
+        _stage = str(_current_stage or "unknown")
+        _label = f"{_mode}_{_stage}_{reason}"
+        path = save_debug_fullscreen(_label)
+        if path:
+            log.info(f"[FAILSHOT] saved: {path}")
+    except Exception as _e:
+        log.debug(f"[FAILSHOT] capture failed: {_e}")
+
+
+def _trigger_drill_binding(stop_ev=None, check_active: bool = True) -> bool:
+    global _drill_binding_warned
+    if stop_ev is not None and stop_ev.is_set():
+        return False
+    if check_active:
+        try:
+            from screen import is_drill_active
+            if is_drill_active():
+                log.debug("[DRILLS] already active (cyan timer) — skip press")
+                return True
+        except Exception as e:
+            log.debug(f"[DRILLS] active-check failed, pressing anyway: {e}")
+    import config as _cfg_runtime
+    binding = str(getattr(_cfg_runtime, "DRILL_ACTIVATE_BINDING", "I") or "").strip()
+    auto_toggle = str(getattr(_cfg_runtime, "AUTO_STRENGTH_TOGGLE_BINDING", "MOUSE_MIDDLE") or "").strip()
+    if binding.upper().replace("-", "_").replace(" ", "_") == auto_toggle.upper().replace("-", "_").replace(" ", "_"):
+        binding = "I"
+        if not _drill_binding_warned:
+            log.warning("[DRILLS] drill binding matched auto-strength toggle; using default I for drill activation")
+            _drill_binding_warned = True
+    ok = trigger_binding_action(binding, hold_ms=30)
+    used = binding
+    if not ok:
+        used = "I"
+        ok = trigger_binding_action(used, hold_ms=30)
+        if not _drill_binding_warned:
+            log.warning(f"[DRILLS] invalid DRILL_ACTIVATE_BINDING={binding!r}; using fallback {used}")
+            _drill_binding_warned = True
+    if ok:
+        _rec_log_action("drill_binding_press", binding=used, stage=_current_stage)
+    return ok
+
+
+def _auto_strength_enabled() -> bool:
+    """Live dashboard setting: ON uses game auto-strength, OFF uses manual upgrades."""
+    try:
+        from dashboard import get_state as _ds
+        return bool(_ds().get("auto_strength", BOT_HANDLES_AUTO_STRENGTH))
+    except Exception:
+        return bool(BOT_HANDLES_AUTO_STRENGTH)
+
+def _manual_strength_enabled() -> bool:
+    return not _auto_strength_enabled()
+
+
+def _manual_str_detection() -> str:
+    """Manual strength stop detection: "stone" (default) or "surge"."""
+    try:
+        import config as _cfg_det
+        d = str(getattr(_cfg_det, "MANUAL_STR_DETECTION", "stone") or "stone").strip().lower()
+        return d if d in ("stone", "surge") else "stone"
+    except Exception:
+        return "stone"
+
+
+def _manual_surge_detection() -> bool:
+    """Surge-level detection only works in bottom-row-only mode - the surge
+    level is read from the bottom row display. Anywhere else (or with
+    detection=stone), the bot uses the old stone detection."""
+    if not _manual_strength_enabled():
+        return False
+    if _manual_str_detection() != "surge":
+        return False
+    try:
+        import config as _cfg_det
+        return bool(getattr(_cfg_det, "MANUAL_STR_ONLY_LAST_ROW", True))
+    except Exception:
+        return True
+
+
+def _manual_surge_target() -> int:
+    try:
+        import config as _cfg_det
+        return max(1, int(float(getattr(_cfg_det, "MANUAL_STR_SURGE_TARGET", 145) or 145)))
+    except Exception:
+        return 145
+
+
+def _read_surge_view() -> tuple[int | None, bytes | None]:
+    """OCR the surge level and grab a signature of that crop in one shot."""
+    try:
+        from screen import grab_surge_view
+        return grab_surge_view()
+    except Exception as e:
+        log.debug(f"[BASEROCK] surge view unavailable: {e}")
+        return None, None
+
+
+def _route_redo_limit() -> int:
+    try:
+        import config as _cfg_rr
+        return max(1, int(getattr(_cfg_rr, "ROUTE_REDO_LIMIT", 5) or 5))
+    except Exception:
+        return 5
+
+
+def _manual_hud_stall_seconds() -> float:
+    try:
+        import config as _cfg_ms
+        return max(1.0, float(getattr(_cfg_ms, "MANUAL_STR_HUD_STALL_SECONDS", 5.0) or 5.0))
+    except Exception:
+        return 5.0
+
+
+def _farm_env_bits() -> str:
+    """One-line HUD/input snapshot for stall / force-restart logs."""
+    bits: list[str] = []
+    try:
+        from macro_runner import is_fortnite_focused
+        bits.append(f"focus={'ok' if is_fortnite_focused() else 'NO'}")
+    except Exception:
+        pass
+    try:
+        # click pacing in the stall dump — 0ms pacing eats every click and
+        # looks exactly like a dead farm (Sep 17 09:27 baserock stall)
+        import config as _cfg_pace
+        bits.append(
+            f"pace={int(getattr(_cfg_pace, 'MANUAL_STR_CLICK_DELAY_MS', 1))}/"
+            f"{int(getattr(_cfg_pace, 'MANUAL_STR_CLICK_HOLD_MS', 1))}ms"
+        )
+    except Exception:
+        pass
+    try:
+        bits.append(f"ingame={'yes' if _stone_icon_visible_restart_image() else 'NO'}")
+    except Exception:
+        pass
+    try:
+        from screen import _manual_strength_window_open
+        bits.append(f"menu={'open' if _manual_strength_window_open() else 'closed'}")
+    except Exception:
+        pass
+    try:
+        import ctypes
+        dpi = int(ctypes.windll.user32.GetDpiForSystem())
+        bits.append(f"dpi={dpi} scale={round(dpi * 100 / 96)}%")
+    except Exception:
+        pass
+    try:
+        bits.append(f"stone={_fmt_stone(_last_live_stone) if _last_live_stone is not None else '?'}")
+    except Exception:
+        pass
+    return "  ".join(bits) if bits else "-"
+
+_STONE_LOW_GLITCH_RATIO = 0.10
+_STONE_HIGH_GLITCH_RATIO = 1_000_000.0
+
+def _stone_glitch_reason(
+    v: float | None,
+    reference: float | None,
+    *,
+    check_high: bool = True,
+) -> str | None:
+    """Return 'low', 'high', or None.
+
+    check_high=False disables the upper-bound check.  Pass this when the
+    reference is a *local* peak tracker (e.g. inside _do_base_rock) rather
+    than the global _last_live_stone.  With auto-strength ON the stone can
+    legitimately multiply by >1e6 per macro cycle, which would otherwise
+    freeze the peak and block every subsequent real read as a 'high glitch'.
+    The low-glitch check (catches OCR artefacts like "7") is always applied.
+    """
+    if v is None or reference is None or reference <= 0:
+        return None
+    if v < reference * _STONE_LOW_GLITCH_RATIO:
+        return "low"
+    # FIX 2: Only apply the HIGH glitch check when the reference value is
+    # large enough to be meaningful (>= 1e6). At run start _last_live_stone
+    # can be tiny (e.g. 7.12M from the previous run tail) causing every real
+    # mid-run value like 78e156 to look like a 1e148x spike and get rejected.
+    # FIX 5 (baserock auto-str peak freeze): check_high=False bypasses this
+    # for local peak trackers where legitimate >1e6x growth is possible.
+    if check_high and reference >= 1e6 and v > reference * _STONE_HIGH_GLITCH_RATIO:
+        return "high"
+    return None
+
+
+def _make_manual_strength_watchdog(label: str):
+    timeout_s = max(0.0, float(MANUAL_STR_NO_STRENGTH_TIMEOUT))
+    if timeout_s <= 0:
+        return None
+    return {
+        "label": label,
+        "timeout_s": timeout_s,
+        "poll_s": max(0.12, float(MANUAL_STR_STRENGTH_POLL_SECONDS)),
+        "min_rel": max(0.0, float(MANUAL_STR_STRENGTH_MIN_REL_CHANGE)),
+        "next_poll": 0.0,
+        "last_val": None,
+        "last_change_at": time.time(),
+        "seen_valid": False,
+        "pending_stall_since": 0.0,
+        "recent_activity_grace_s": max(2.0, min(timeout_s * 0.35, 10.0)),
+        "stall_confirm_s": max(1.5, min(timeout_s * 0.20, 6.0)),
+    }
+
+
+def _manual_strength_watchdog_stalled(
+    state,
+    *,
+    recent_activity_at: float | None = None,
+) -> bool:
+    if not state:
+        return False
+    if not (_manual_strength_enabled() and _manual_strength_active):
+        return False
+
+    now = time.time()
+    if now >= float(state["next_poll"]):
+        state["next_poll"] = now + float(state["poll_s"])
+        sval = read_manual_strength_strength()
+        if sval is not None:
+            ref = state["last_val"]
+            glitch_reason = _stone_glitch_reason(sval, ref)
+            if glitch_reason:
+                log.debug(
+                    f"[{state['label']}] manual strength OCR {glitch_reason} glitch ignored: "
+                    f"{_fmt_stone(sval)} (last={_fmt_stone(ref)})"
+                )
+            else:
+                if ref is None:
+                    state["last_val"] = sval
+                    state["last_change_at"] = now
+                    state["seen_valid"] = True
+                    state["pending_stall_since"] = 0.0
+                    log.debug(f"[{state['label']}] manual strength baseline: {_fmt_stone(sval)}")
+                else:
+                    threshold = ref * (1.0 + float(state["min_rel"]))
+                    if sval >= threshold:
+                        state["last_val"] = sval
+                        state["last_change_at"] = now
+                        state["pending_stall_since"] = 0.0
+                        log.debug(f"[{state['label']}] manual strength progress: {_fmt_stone(sval)}")
+                    elif sval > ref:
+                        # Keep monotonic best read without resetting the stall timer.
+                        state["last_val"] = sval
+
+    if bool(state["seen_valid"]):
+        stalled_for = now - float(state["last_change_at"])
+        if stalled_for >= float(state["timeout_s"]):
+            if recent_activity_at is not None:
+                recent_age = now - float(recent_activity_at)
+                if recent_age <= float(state.get("recent_activity_grace_s", 5.0)):
+                    state["last_change_at"] = now
+                    state["pending_stall_since"] = 0.0
+                    log.debug(
+                        f"[{state['label']}] suppressing strength-timeout ({stalled_for:.1f}s) "
+                        f"due to recent farming activity {recent_age:.1f}s ago"
+                    )
+                    return False
+
+            pending_since = float(state.get("pending_stall_since") or 0.0)
+            if pending_since <= 0.0:
+                state["pending_stall_since"] = now
+                log.warning(
+                    f"[{state['label']}] possible manual strength stall after {stalled_for:.1f}s; "
+                    f"confirming for {float(state.get('stall_confirm_s', 4.0)):.1f}s"
+                )
+                return False
+            if (now - pending_since) < float(state.get("stall_confirm_s", 4.0)):
+                return False
+
+            log.warning(
+                f"[{state['label']}] no manual strength change for {stalled_for:.1f}s "
+                f"(timeout {state['timeout_s']:.1f}s) - re-navigate needed"
+            )
+            return True
+    else:
+        state["pending_stall_since"] = 0.0
+    return False
+
+def _read_stone_live(
+    *,
+    update_last: bool = True,
+    allow_stale: bool = False,
+    check_glitch: bool = True,
+) -> float | None:
+    """Read stone from HUD normally, or from the strength menu while it is open."""
+    global _last_live_stone
+    def _accept(v: float | None, source: str) -> float | None:
+        global _last_live_stone
+        if v is None:
+            return None
+        if check_glitch:
+            reason = _stone_glitch_reason(v, _last_live_stone)
+            if reason:
+                log.debug(f"{source} OCR rejected as {reason} glitch: {_fmt_stone(v)} (last={_fmt_stone(_last_live_stone)})")
+                return None
+        if update_last:
+            _last_live_stone = v
+        return v
+
+    if _manual_strength_active:
+        manual_window_open = True
+        try:
+            from manual_strength import is_window_open as _manual_window_open_fn
+            manual_window_open = bool(_manual_window_open_fn())
+        except Exception:
+            manual_window_open = True
+        if manual_window_open:
+            v = read_manual_strength_stone()
+            accepted = _accept(v, "[MANUAL_STR] menu stone")
+            if accepted is not None:
+                return accepted
+        else:
+            log.debug("[MANUAL_STR] menu OCR skipped: strength window not visible")
+
+    accepted = _accept(read_stone(), "HUD stone")
+    if accepted is not None:
+        return accepted
+
+    if allow_stale and _manual_strength_active and _last_live_stone is not None:
+        return _last_live_stone
+    return None
+
+def _read_stone_with_retry(
+    label: str,
+    *,
+    attempts: int = 4,
+    delay: float = 0.2,
+    update_last: bool = True,
+) -> float | None:
+    """Read the HUD stone, retrying briefly while the HUD is still redrawing.
+
+    v1.9.18: used where a MISS has consequences — right after a rebirth respawn
+    and for the post-rebirth precheck. A single blind read there used to return
+    None while the stone HUD was still coming back, which left the OLD
+    pre-rebirth stone trusted and sent the bot into a rebirth it could not do.
+    """
+    global _last_live_stone, _POST_REBIRTH_STONE_UNTRUSTED
+    attempts = max(1, int(attempts))
+    for _i in range(attempts):
+        if _KILLED or _STONE_LOST:
+            return None
+        v = _read_stone_live(update_last=False, check_glitch=False)
+        if v is not None and float(v) >= 0:
+            v = float(v)
+            if update_last:
+                _last_live_stone = v
+                _POST_REBIRTH_STONE_UNTRUSTED = False
+            return v
+        if _i < attempts - 1:
+            try:
+                time.sleep(max(0.02, float(delay)))
+            except Exception:
+                pass
+    log.debug(f"{label}: stone OCR miss after {attempts} attempt(s)")
+    return None
+
+
+def _read_stone_checked(
+    label: str,
+    *,
+    attempts: int = 6,
+    delay: float = 0.18,
+    min_reads: int = 2,
+    min_expected: float | None = None,
+    fallback_to_last_if_plausible: bool = False,
+) -> float | None:
+    """Read several fresh OCR samples and return a conservative median value."""
+    global _last_live_stone
+    values: list[float] = []
+    reference = _last_live_stone
+    attempts = max(1, int(attempts))
+    for attempt in range(attempts):
+        if _KILLED or _STONE_LOST:
+            log.debug(f"{label}: aborted checked read due to stop signal")
+            break
+        v = _read_stone_live(update_last=False, check_glitch=False)
+        if v is not None:
+            values.append(v)
+        if attempt < attempts - 1:
+            if _KILLED or _STONE_LOST:
+                break
+            time.sleep(max(0.0, delay))
+
+    if not values:
+        log.debug(f"{label}: OCR checked 0/{attempts} valid reads")
+        return None
+
+    # FIX 3: Filter out glitch values relative to the known-good reference.
+    # OCR artifacts like "153" (parsed as 153.0) are 10^100+ below real stone
+    # values and will be caught by _stone_glitch_reason as "low" glitch.
+    # Only filter if we have a meaningful reference (>= 1e6) so early-run
+    # reads aren't discarded when _last_live_stone is still tiny/None.
+    if reference is not None and reference >= 1e6:
+        clean = [v for v in values if _stone_glitch_reason(v, reference) is None]
+        if clean:
+            if len(clean) < len(values):
+                log.debug(f"{label}: filtered {len(values)-len(clean)} glitch value(s) from checked read")
+            values = clean
+        else:
+            threshold_hits = []
+            if min_expected is not None:
+                threshold_hits = [v for v in values if v >= min_expected]
+            if len(threshold_hits) >= max(2, min_reads):
+                log.debug(
+                    f"{label}: all samples differ from last trusted stone, "
+                    f"but {len(threshold_hits)} meet expected threshold"
+                )
+                values = threshold_hits
+            elif fallback_to_last_if_plausible and min_expected is not None and reference >= min_expected:
+                log.debug(
+                    f"{label}: all {len(values)} OCR sample(s) rejected as glitches; "
+                    f"keeping trusted {_fmt_stone(reference)}"
+                )
+                return reference
+            else:
+                log.debug(
+                    f"{label}: all {len(values)} OCR sample(s) rejected as glitches "
+                    f"against trusted {_fmt_stone(reference)}"
+                )
+                return None
+    # else: keep all values (no trustworthy reference yet)
+
+    ordered = sorted(values)
+    chosen = ordered[(len(ordered) - 1) // 2]
+    if min_expected is not None:
+        threshold_hits = [v for v in ordered if v >= min_expected]
+        if len(threshold_hits) >= max(2, min_reads):
+            chosen = min(threshold_hits)
+            log.debug(
+                f"{label}: using threshold-confirmed OCR cluster "
+                f"{_fmt_stone(chosen)}+ ({len(threshold_hits)} hits, need {_fmt_stone(min_expected)})"
+            )
+            _last_live_stone = chosen
+            return chosen
+
+    if len(ordered) >= max(2, min_reads):
+        high = ordered[-1]
+        high_cluster = [v for v in ordered if high > 0 and v >= high * 0.75]
+        if len(high_cluster) >= max(2, min_reads):
+            chosen = min(high_cluster)
+            log.debug(
+                f"{label}: using high-confidence OCR cluster "
+                f"{_fmt_stone(chosen)}-{_fmt_stone(high)}"
+            )
+    _last_live_stone = chosen
+    if len(values) < min_reads:
+        log.debug(f"{label}: OCR only {len(values)}/{attempts} valid read(s); using {_fmt_stone(chosen)}")
+    else:
+        log.debug(
+            f"{label}: OCR checked {len(values)}/{attempts}; "
+            f"using {_fmt_stone(chosen)} (range {_fmt_stone(ordered[0])}-{_fmt_stone(ordered[-1])})"
+        )
+    return chosen
+
+def _confirm_stone_at_least(
+    threshold: float,
+    label: str,
+    *,
+    first_value: float | None = None,
+    attempts: int = 6,
+    required_hits: int = 4, #2
+    delay: float = 0.15,
+) -> tuple[bool, float | None]:
+    """Require multiple fresh OCR samples at/above a threshold before acting."""
+    values: list[float] = []
+    if first_value is not None:
+        values.append(first_value)
+
+    attempts = max(1, int(attempts))
+    remaining = attempts - (1 if first_value is not None else 0)
+    for _ in range(max(0, remaining)):
+        time.sleep(max(0.0, delay))
+        v = _read_stone_live(update_last=False, check_glitch=False)
+        if v is not None:
+            values.append(v)
+        hits = [x for x in values if x >= threshold]
+        if len(hits) >= required_hits:
+            confirmed = max(hits)
+            log.debug(
+                f"{label}: OCR threshold confirmed with {len(hits)} hits "
+                f"(stone={_fmt_stone(confirmed)}, need {_fmt_stone(threshold)})"
+            )
+            return True, confirmed
+
+    hits = [x for x in values if x >= threshold]
+    below = [x for x in values if x < threshold]
+    fallback = max(below) if below else None
+    log.debug(
+        f"{label}: OCR threshold not confirmed "
+        f"({len(hits)}/{required_hits} hits, need {_fmt_stone(threshold)})"
+    )
+    return False, fallback
+
+def _disable_auto_strength_for_manual(reason: str = ""): ##?
+    """Manual-strength mode must not touch the in-game auto-strength toggle."""
+    if _auto_strength_enabled():
+        return
+    try:
+        set_overlay(auto_str=None, show_auto_str=False)
+    except Exception:
+        pass
+
+def _start_manual_strength_live(
+    reason: str,
+    activity_callback=None,
+    window_ready: bool = False,
+):
+    """Open the manual strength window right away and buy until stopped.
+
+    No pre-open stone checks — the buying loop's own HUD stall watchdog
+    (MANUAL_STR_HUD_STALL_SECONDS, ~5s) already detects a dead grind, and
+    every skipped OCR read is ~0.5-1s less standing around.
+    """
+    global _manual_strength_active, _active_manual_strength_handle
+    if _KILLED or _STONE_LOST:
+        return None
+    if not _manual_strength_enabled():
+        return None
+    try:
+        from manual_strength import start_manual_strength_loop
+        _disable_auto_strength_for_manual(reason)
+        set_overlay(show_auto_str=False, manual_position=True)
+        _manual_strength_active = True
+        handle = start_manual_strength_loop(
+            reason=reason,
+            min_hit_seconds=0.0,
+            max_hit_wait_seconds=0.0,
+            wait_for_hit_fn=None,
+            stop_fn=lambda: _KILLED or _STONE_LOST,
+            activity_callback=activity_callback,
+            window_ready=window_ready,
+        )
+        if handle is None:
+            _manual_strength_active = False
+            set_overlay(manual_position=False)
+            return None
+        _active_manual_strength_handle = handle
+        _rec_log_action("manual_strength_flow", phase="start")
+        return handle
+    except Exception as e:
+        _manual_strength_active = False
+        _active_manual_strength_handle = None
+        set_overlay(manual_position=False)
+        log.warning(f"[MANUAL_STR] {reason}: live loop failed to start: {e}")
+        return None
+
+def _stop_manual_strength_live(handle):
+    global _manual_strength_active, _active_manual_strength_handle
+    _rec_log_action("manual_strength_flow", phase="end")
+    closed_ok = True
+    if handle is None:
+        if _active_manual_strength_handle is None:
+            _manual_strength_active = False
+            set_overlay(manual_position=False)
+            if _manual_strength_enabled():
+                try:
+                    from manual_strength import close_window_verified
+                    closed_ok = bool(close_window_verified(attempts=8))
+                except Exception as e:
+                    log.debug(f"[MANUAL_STR] verified close without handle failed: {e}")
+                    closed_ok = False
+        return closed_ok
+    try:
+        if not handle.stop():
+            log.warning("[MANUAL_STR] live loop did not stop before timeout")
+            closed_ok = False
+    except Exception as e:
+        log.warning(f"[MANUAL_STR] live loop stop failed: {e}")
+        closed_ok = False
+    finally:
+        try:
+            from manual_strength import close_window_verified
+            if not close_window_verified(attempts=8):
+                log.warning("[MANUAL_STR] window may still be open after stop")
+                closed_ok = False
+        except Exception as e:
+            log.debug(f"[MANUAL_STR] verified close after stop failed: {e}")
+            closed_ok = False
+        if _active_manual_strength_handle is handle:
+            _active_manual_strength_handle = None
+        _manual_strength_active = False
+        set_overlay(manual_position=False)
+    return closed_ok
+
+def _stop_active_manual_strength_for_action(reason: str):
+    """Close the manual strength window before navigation/action macros take over."""
+    handle = _active_manual_strength_handle
+    if handle is None:
+        closed_ok = True
+        try:
+            from manual_strength import close_window_verified
+            closed_ok = bool(close_window_verified(attempts=8))
+        except Exception as e:
+            log.debug(f"[MANUAL_STR] verified close before {reason} failed: {e}")
+            closed_ok = False
+        set_overlay(manual_position=False)
+        if not closed_ok:
+            log.warning(f"[MANUAL_STR] strength window still open before {reason}; blocking action")
+            return closed_ok
+        _equip_pickaxe(f"after {reason}")
+        return True
+    log.info(f"[MANUAL_STR] stopping active manual strength before {reason}")
+    closed_ok = _stop_manual_strength_live(handle)
+    if not closed_ok:
+        log.warning(f"[MANUAL_STR] strength window still open before {reason}; blocking action")
+        return closed_ok
+    _equip_pickaxe(f"after {reason}")
+    return True
+
+def _manual_post_threshold_topup(label: str, target: float, confirmed_cur: float | None, hit_macro: str) -> float:
+    """Manual strength already proves the live threshold; do not run extra topup."""
+    global _last_live_stone
+    trusted = confirmed_cur if confirmed_cur is not None and confirmed_cur >= target else target
+    _last_live_stone = max(_last_live_stone or 0, trusted)
+    log.debug(f"[{label}] manual threshold trusted at {_fmt_stone(trusted)}; post-threshold topup skipped")
+    _last_live_stone = trusted
+    set_overlay(stone=trusted)
+    _dash_update(cur_stone=trusted)
+    return trusted
+
+def _maybe_unlock_drills():
+    """Fire unlock_drills macro once per run when stone threshold is met."""
+    global _DRILLS_UNLOCKED, _last_live_stone
+    from dashboard import get_state as _ds
+    _ds_snap = _ds()
+    if not _ds_snap.get("unlock_drills", True) or _DRILLS_UNLOCKED:
+        return False
+    cur = _read_stone_live(update_last=False, check_glitch=False)
+    _unlock_threshold = _ds_snap.get("stone_for_unlock_drills", STONE_FOR_UNLOCK_DRILLS)
+    if cur is None or cur < _unlock_threshold:
+        return False
+    _unlock_confirmed, _confirmed_cur = _confirm_stone_at_least(
+        _unlock_threshold,
+        "[DRILLS] unlock threshold",
+        first_value=cur,
+        attempts=5,
+        required_hits=2,
+        delay=0.12,
+    )
+    if not _unlock_confirmed:
+        return False
+    cur = _confirmed_cur or cur
+    _last_live_stone = cur
+
+    log.info(f"[DRILLS] Stone {cur:.2e} >= threshold {_unlock_threshold:.2e} — unlocking drills")
+    _stop_active_manual_strength_for_action("unlock drills")
+    _stop_drill_loop()
+    stop_macro()
+
+    if _auto_strength_enabled():
+        disable_auto_strength()
+        set_overlay(auto_str=False)
+
+    # Only teleport to base if not already there — avoids a redundant round trip
+    # when _maybe_unlock_drills is called right after _do_base_rock's initial teleport.
+    if not _at_base:
+        _console_status("ACTION", "Base")
+        if not _teleport_to_base():
+            log.warning("[DRILLS] could not reach base for drill unlock")
+            return False
+    else:
+        log.debug("[DRILLS] Already at base — skipping pre-drill teleport")
+
+    _DRILLS_UNLOCKED = True
+    _mark_left_base()
+    _console_status("ACTION", "Unlocking drills")
+    # _run_macro auto-freezes watcher for unlock_drills (it's in _NAV_MACROS)
+    _rec_log_macro("unlock_drills", "start")
+    _drills_proc = run_macro("unlock_drills", wait=False)
+    if _drills_proc is None:
+        log.error("[DRILLS] unlock_drills macro failed to start")
+        _rec_log_macro("unlock_drills", "error", error="macro_start_failed")
+        _rec_set_failure("macro_start_failed:unlock_drills")
+        return False
+    _drills_deadline = time.time() + 300
+    while _drills_proc.poll() is None:
+        if time.time() > _drills_deadline:
+            log.warning("[DRILLS] unlock_drills macro exceeded 5-minute timeout — killing and continuing")
+            stop_macro()
+            _rec_log_macro("unlock_drills", "error", error="macro_timeout")
+            _rec_set_failure("macro_timeout:unlock_drills")
+            break
+        time.sleep(0.5)
+    _drills_rc = _drills_proc.poll()
+    if _drills_rc in (0, None):
+        _rec_log_macro("unlock_drills", "end", return_code=0 if _drills_rc is None else _drills_rc)
+    else:
+        _rec_log_macro("unlock_drills", "error", return_code=_drills_rc, error="macro_return_nonzero")
+        _rec_set_failure(f"macro_return_nonzero:unlock_drills:{_drills_rc}")
+    log.info("[DRILLS] unlock_drills macro finished")
+
+    _console_status("ACTION", "Base")
+    if not _teleport_to_base():
+        log.warning("[DRILLS] unlock finished, but base return was not confirmed")
+        return False
+
+    if _auto_strength_enabled():
+        enable_auto_strength()
+        set_overlay(auto_str=True)
+
+    log.info("[DRILLS] Drill unlock done — back at base, resuming farming")
+    _console_status("FARMING", "Base Rock")
+    return True
+
+
+
+def _on_f9():
+    """F9 = immediate hard kill. Stops EVERYTHING: macros, dodge/esp threads,
+    drill loop, auto/manual strength, mouse, and all keyboard keys.
+    The overlay and dashboard are updated immediately."""
+    global _KILLED, _WAITING_FOR_START, _active_manual_strength_handle, _manual_strength_active, _f9_in_progress, _last_f9_stop_ts, _f9_started_ts
+    _now = time.time()
+    with _f9_lock:
+        if (_now - float(_last_f9_stop_ts)) < 0.20:
+            _KILLED = True
+            _WAITING_FOR_START = True
+            return
+        _last_f9_stop_ts = _now
+        if _f9_in_progress:
+            _KILLED = True
+            _WAITING_FOR_START = True
+            return
+        _f9_in_progress = True
+        _f9_started_ts = _now
+    _KILLED = True
+    _WAITING_FOR_START = True
+    cprint("Hotkey F9 | IMMEDIATE STOP - press Start to run again", "warn")
+    log.info("Hotkey F9: immediate kill triggered")
+
+    try:
+        # 1. Stop macro runner (sets stop event + releases _HELD_KEYS via SendInput)
+        try:
+            import macro_runner as _mr
+            if getattr(_mr, "_active_stop_event", None) is not None:
+                _mr._active_stop_event.set()
+        except Exception:
+            pass
+        try:
+            stop_macro()
+        except Exception:
+            pass
+
+        # 2. Stop drill loop
+        try:
+            _stop_drill_loop()
+        except Exception:
+            pass
+
+        # 3. Stop watcher and bot workers
+        try:
+            _stop_stone_watcher()
+        except Exception:
+            pass
+        try:
+            stop_kraken_esp()
+        except Exception:
+            pass
+        try:
+            # Non-blocking on hotkey thread: direct stop signal, no join wait here.
+            stop_kraken_dodge(wait=False, timeout=0.0)
+        except Exception:
+            pass
+        try:
+            stop_zytos_dodge(wait=False, timeout=0.0)
+        except Exception:
+            pass
+
+        # Stop crater ESP overlay (transparent window with boxes/timer)
+        try:
+            from crater.overlay import stop_esp_overlay as _stop_crater_esp
+            _stop_crater_esp()
+        except Exception:
+            pass
+        # 4. Stop auto-strength + signal manual strength stop (non-blocking).
+        try:
+            disable_auto_strength()
+        except Exception:
+            pass
+        try:
+            _h = _active_manual_strength_handle
+            if _h is not None:
+                _sev = getattr(_h, "_stop_event", None)
+                if _sev is not None:
+                    _sev.set()
+            _active_manual_strength_handle = None
+            _manual_strength_active = False
+            set_overlay(manual_position=False)
+        except Exception:
+            pass
+
+        # 5. Release mouse (left button held during kraken/delve shoot loop)
+        try:
+            from macro_runner import _mouse_left_up
+            _mouse_left_up()
+        except Exception:
+            pass
+
+        try:
+            kill_macro_recorder()
+        except Exception:
+            pass
+
+        # 6. Release all keyboard keys that could be held
+        # Via keyboard lib (covers keyboard.press("w") used in kraken reward walk)
+        _release_names = ["w", "a", "s", "d", "e", "space", "shift", "ctrl", "lshift", "lctrl", "f", "1", "2"]
+        try:
+            from macro_runner import live_wasd, binding_to_keyboard_name
+            import config as _cfg_rel
+            for _letter, (_name, _vk) in live_wasd().items():
+                if _name:
+                    _release_names.append(_name)
+            for _ck, _df in (
+                ("SPRINT_BINDING", "SHIFT"),
+                ("CROUCH_BINDING", "CTRL"),
+                ("JUMP_BINDING", "SPACE"),
+                ("WEAPON_1_BINDING", "1"),
+                ("MONITOR_ITEM_BINDING", "2"),
+                ("PICKAXE_EQUIP_BINDING", "F"),
+            ):
+                _release_names.append(binding_to_keyboard_name(getattr(_cfg_rel, _ck, _df), _df))
+        except Exception:
+            pass
+        for _key in dict.fromkeys(_release_names):
+            try:
+                keyboard.release(_key)
+            except Exception:
+                pass
+        # Via SendInput VK codes (covers macro _key_down calls)
+        try:
+            import macro_runner as _mr2
+            for _vk in _mr2._HELD_KEYS:
+                try:
+                    _mr2._key_up(_vk)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # 7. Update overlay and dashboard immediately
+        if _auto_strength_enabled():
+            set_overlay(status="STOPPED", goal="Press Start to begin", show_auto_str=True, run_start_time=0)
+        else:
+            set_overlay(status="STOPPED", goal="Press Start to begin", auto_str=None, show_auto_str=False, run_start_time=0)
+        from dashboard import update_state as _du
+        _du(
+            status="STOPPED",
+            goal="Press Start to begin",
+            waiting_for_start=True,
+            run_active=False,
+            run_start_time=None,
+        )
+    finally:
+        with _f9_lock:
+            _f9_in_progress = False
+            _f9_started_ts = 0.0
+
+def _on_f9_hotkey():
+    """Dispatch F9 stop on a worker thread so keyboard hook thread never blocks."""
+    if not _run_panel_active():
+        return
+    try:
+        threading.Thread(target=_on_f9, daemon=True, name="hotkey-f9-stop").start()
+    except Exception:
+        # Last-chance fallback: run inline if thread creation fails.
+        _on_f9()
+
+def _on_test_force_failure():
+    """Down Arrow = test-only non-user failure, so Force Restart can be verified live."""
+    global _TEST_FORCE_FAILURE, _active_manual_strength_handle, _manual_strength_active
+    if _TEST_FORCE_FAILURE:
+        return
+    _TEST_FORCE_FAILURE = True
+    cprint("Hotkey Down | simulated run failure for Force Restart test", "warn")
+    log.warning("[TEST_FAIL] Down Arrow requested a simulated non-user run failure")
+    try:
+        stop_macro()
+    except Exception:
+        pass
+    try:
+        _stop_drill_loop()
+    except Exception:
+        pass
+    try:
+        from macro_runner import _mouse_left_up as _tf_mouse_up
+        _tf_mouse_up()
+    except Exception:
+        pass
+    try:
+        stop_kraken_dodge(wait=False, timeout=0.0)
+    except Exception:
+        pass
+    try:
+        stop_zytos_dodge(wait=False, timeout=0.0)
+    except Exception:
+        pass
+    try:
+        _h = _active_manual_strength_handle
+        if _h is not None:
+            _sev = getattr(_h, "_stop_event", None)
+            if _sev is not None:
+                _sev.set()
+        _active_manual_strength_handle = None
+        _manual_strength_active = False
+        set_overlay(manual_position=False)
+    except Exception:
+        pass
+    try:
+        _rec_set_failure("test_force_restart_hotkey")
+    except Exception:
+        pass
+    set_overlay(status="TEST FAIL", goal="Force Restart test")
+    try:
+        _dash_update(status="TEST FAIL", goal="Force Restart test")
+    except Exception:
+        pass
+
+def _on_test_force_failure_hotkey():
+    try:
+        threading.Thread(target=_on_test_force_failure, daemon=True, name="hotkey-test-force-failure").start()
+    except Exception:
+        _on_test_force_failure()
+
+def _on_f8_start():
+    """F8 = same start signal as the dashboard Start button, guarded against ghost starts."""
+    global _WAITING_FOR_START, _last_f8_start_ts, _KILLED, _STONE_LOST, _TEST_FORCE_FAILURE
+
+    now = time.time()
+    if now - _last_f8_start_ts < 0.75:
+        return
+    _last_f8_start_ts = now
+
+    if _is_f9_stop_in_progress():
+        log.info("Hotkey F8 ignored: F9 stop still in progress")
+        return
+
+    try:
+        from dashboard import get_state as _dash_get_state
+        state = _dash_get_state()
+    except Exception as e:
+        log.warning(f"Hotkey F8 ignored: dashboard state unavailable: {e}")
+        return
+
+
+
+    if not bool(state.get("waiting_for_start", True)):
+        log.info("Hotkey start ignored: bot already running")
+        return
+
+    missing = missing_required_loadouts()
+    if missing:
+        _block_for_missing_loadouts(missing)
+        cprint("Hotkey F8  |  loadouts not set", "warn")
+        log.info("Hotkey F8 ignored: loadouts not set")
+        return
+
+    # Force start state from hotkey even if dashboard flags are slightly stale.
+    _KILLED = False
+    _STONE_LOST = False
+    _TEST_FORCE_FAILURE = False
+    _WAITING_FOR_START = False
+    run_start_time = time.time()
+    if _auto_strength_enabled():
+        set_overlay(status="STARTING", goal="Initialising...", show_auto_str=True, run_start_time=run_start_time)
+    else:
+        set_overlay(status="STARTING", goal="Initialising...", auto_str=None, show_auto_str=False, run_start_time=run_start_time)
+    _dash_update(
+        waiting_for_start=False,
+        status="STARTING",
+        goal="Initialising...",
+        run_active=True,
+        run_start_time=run_start_time,
+        run_steps=0,
+        run_errors=0,
+        run_quests_completed=0,
+    )
+    cprint("Hotkey F8  |  start", "ok")
+    log.info("Hotkey F8: start triggered")
+
+def _run_panel_active() -> bool:
+    """Start/stop hotkeys only while the Run tab is the active panel."""
+    try:
+        from dashboard import get_state
+        snap = get_state() or {}
+        if str(snap.get("active_app_tab") or "run") != "run":
+            return False
+        if snap.get("recorder_busy"):
+            return False
+    except Exception:
+        pass
+    return True
+
+
+def _on_f8_hotkey():
+    """Dispatch F8 start on a worker thread to avoid hook callback stalls."""
+    if not _run_panel_active():
+        return
+    try:
+        threading.Thread(target=_on_f8_start, daemon=True, name="hotkey-f8-start").start()
+    except Exception:
+        _on_f8_start()
+
+
+_FORCE_RESTART_STONE_ICON_IMAGE = {
+    "var": "inGame",
+    "path": "images/1920x1080_inGame.png",
+    "threshold": 90,
+    "fixed": True,
+    "base_w": 1920,
+    "base_h": 1080,
+    "x1": 1667,
+    "y1": 663,
+    "x2": 1703,
+    "y2": 721,
+    "search_x1": 0,
+    "search_y1": 0,
+    "search_x2": 1920,
+    "search_y2": 1080,
+    "result_mode": "bool",
+    "x_var": "image_found_x",
+    "y_var": "image_found_y",
+}
+
+
+def _stone_icon_visible_restart_image() -> bool:
+    """In-game check for every mode.
+
+    Image (default) matches macros/images/1920x1080_inGame.png on the old
+    fixed HUD box. Pixel Check averages the gold HUD box. The choice is
+    Config → General → In-Game check type.
+    """
+    try:
+        from fr_flow import in_game_hud
+        return bool(in_game_hud())
+    except Exception as e:
+        log.info(f"[IN_GAME] check failed: {e}")
+    return False
+
+def _in_game_ready_for_macros() -> bool:
+    """True only in a real match. One HUD box, averaged against the in-game color."""
+    try:
+        return bool(_stone_icon_visible_restart_image())
+    except Exception as e:
+        log.warning(f"[MENU_RESUME] in-game check failed: {e}")
+        return False
+
+
+def _do_menu_resume(debug: bool = False) -> bool:
+    """Attempt to resume the game from the Fortnite main menu.
+
+    Flow:
+      1. Wait 250 ms — confirm PLAY button visible (bail if not in menu)
+      2. Wait 500 ms for UI to settle
+      3. Click PLAY
+      4. Wait MENU_RESUME_JOIN_WAIT s for game to load
+      5. Check stone icon — return True / False
+
+    Just confirm menu and hit PLAY.
+
+    Returns True if a new game was started, False otherwise.
+    """
+    if _in_game_ready_for_macros():
+        log.info("[MENU_RESUME] already in-game (stone icon); no resume needed")
+        return True
+
+    log.info("[MENU_RESUME] detect Ready → shard")
+    _console_status("MENU RESUME", "Waiting Ready")
+    set_overlay(status="MENU RESUME", goal="Waiting Ready")
+    try:
+        from lobby import menu_resume as _lobby_resume
+        ok = bool(_lobby_resume())
+    except Exception as e:
+        log.warning(f"[MENU_RESUME] failed: {e}")
+        ok = False
+    if ok:
+        log.info("[MENU_RESUME] Ready + shard OK")
+        return True
+    log.warning("[MENU_RESUME] Ready/shard failed — stopping")
+    return False
+
+    if macro_exists("menu_resume"):
+        log.info("[MENU_RESUME] Running menu_resume.macro")
+        _console_status("MENU RESUME", "Running macro")
+        set_overlay(status="MENU RESUME", goal="Running macro")
+        if not _run_macro("menu_resume"):
+            log.warning("[MENU_RESUME] menu_resume.macro failed")
+            return False
+        if _stone_icon_visible_restart_image():
+            log.info("[MENU_RESUME] menu_resume.macro completed and in-game image matched")
+            return True
+        log.warning("[MENU_RESUME] menu_resume.macro finished but in-game image was not detected")
+        return False
+
+    from macro_runner import _mouse_move_abs, _mouse_left_click
+
+    log.info("[MENU_RESUME] Starting menu resume procedure")
+    _console_status("MENU RESUME", "...")
+
+    # ——— Step 1: brief wait then confirm menu ——————————————————————————————
+    time.sleep(0.12)
+    if not is_in_menu():
+        log.warning("[MENU_RESUME] PLAY button not detected — aborting menu resume")
+        _console_status("MENU RESUME", "Not in menu")
+        return False
+    log.info("[MENU_RESUME] Menu confirmed (PLAY button visible)")
+    _console_status("MENU RESUME", "Pressing Play...")
+
+    # ——— Step 2: let UI settle then click PLAY —————————————————————————————
+    time.sleep(0.25)
+    import config as _cfg_mr
+    play_cx, play_cy = get_menu_play_center()
+    _mouse_move_abs(play_cx, play_cy)
+    time.sleep(0.05)
+    _mouse_left_click()
+    log.info(f"[MENU_RESUME] Clicked PLAY at ({play_cx}, {play_cy})")
+    join_wait = _cfg_mr.MENU_RESUME_JOIN_WAIT
+    _console_status("MENU RESUME", "...")
+
+    # ——— Step 3: wait for new game to start ————————————————————————————————
+    _join_deadline = time.time() + float(join_wait)
+    while time.time() < _join_deadline and not _KILLED:
+        if _stone_icon_visible_restart_image():
+            break
+        _wait_polling(0.25, "...", freeze=True)
+
+    # ——— Step 4: check stone icon ———————————————————————————————————————————
+    if _stone_icon_visible_restart_image():
+        log.info("[MENU_RESUME] Stone icon visible — new game started successfully!")
+        _console_status("MENU RESUME", "Resuming...")
+        if debug:
+            cprint("[MENU_RESUME] Complete — stone icon visible, game started!", "ok")
+        return True
+    else:
+        log.warning(f"[MENU_RESUME] Stone icon still not visible after {join_wait} s — menu resume failed")
+        _console_status("MENU RESUME", "Stopping...")
+        if debug:
+            cprint(f"[MENU_RESUME] Stone icon NOT visible after {join_wait} s — resume failed", "warn")
+        return False
+
+
+def _soft_reset_state():
+    """Reset all per-run globals. Called at the start of each outer loop iteration."""
+    global _KILLED, _WAITING_FOR_START, _A5_UNLOCKED_THIS_RUN, _AREA_UNLOCKED_THIS_RUN, _at_base, _DRILLS_UNLOCKED, _STONE_LOST, _TEST_FORCE_FAILURE, _last_live_stone, _POST_REBIRTH_STONE_UNTRUSTED
+    try:
+        _stop_active_manual_strength_for_action("soft reset")
+    except Exception:
+        pass
+    _KILLED = False
+    _STONE_LOST = False
+    _TEST_FORCE_FAILURE = False
+    _WAITING_FOR_START = True
+    _A5_UNLOCKED_THIS_RUN = False
+    _AREA_UNLOCKED_THIS_RUN = {1: False, 2: False, 3: False, 4: False, 5: False}
+    _at_base = False
+    _DRILLS_UNLOCKED = False
+    _last_live_stone = None
+    _POST_REBIRTH_STONE_UNTRUSTED = False   # v1.9.18: fresh start re-reads everything
+
+def _register_hotkeys():
+    """Register start/stop hotkeys. Called on every soft-reset so they survive game focus loss.
+    Uses both add_hotkey (high-level) AND a low-level hook so at least one always fires."""
+    global _hotkey_f8_handle, _hotkey_f9_handle, _hotkey_test_fail_handle
+    start_binding = _start_binding()
+    stop_binding = _stop_binding()
+    start_key = _hotkey_binding_to_keyboard_key(start_binding)
+    stop_key = _hotkey_binding_to_keyboard_key(stop_binding)
+    try:
+        if _hotkey_f8_handle is not None:
+            keyboard.remove_hotkey(_hotkey_f8_handle)
+    except Exception:
+        pass
+    try:
+        if _hotkey_f9_handle is not None:
+            keyboard.remove_hotkey(_hotkey_f9_handle)
+    except Exception:
+        pass
+    try:
+        if _hotkey_test_fail_handle is not None:
+            keyboard.remove_hotkey(_hotkey_test_fail_handle)
+    except Exception:
+        pass
+    _hotkey_f8_handle = keyboard.add_hotkey(start_key, _on_f8_hotkey, suppress=False)
+    _hotkey_f9_handle = keyboard.add_hotkey(stop_key, _on_f9_hotkey, suppress=False)
+    _hotkey_test_fail_handle = keyboard.add_hotkey("down", _on_test_force_failure_hotkey, suppress=False)
+    log.debug(f"Hotkeys registered: {start_binding}=start, {stop_binding}=soft-reset, Down=test failure")
+
+# Low-level keyboard hook — survives game window focus steal
+def _low_level_key_hook(event):
+    """Fires on every key event. Intercept configured start/stop keys regardless of focus."""
+    try:
+        if event.event_type != "down":
+            return
+        key_name = str(event.name or "").lower().strip()
+        start_name = _hotkey_binding_to_event_name(_start_binding())
+        stop_name = _hotkey_binding_to_event_name(_stop_binding())
+        if key_name == start_name:
+            _on_f8_hotkey()
+        elif key_name == stop_name:
+            _on_f9_hotkey()
+        elif key_name in ("down", "arrow down"):
+            _on_test_force_failure_hotkey()
+    except Exception:
+        pass
+
+_ll_hook_registered = False
+def _ensure_low_level_hook():
+    global _ll_hook_registered
+    if not _ll_hook_registered:
+        try:
+            keyboard.hook(_low_level_key_hook, suppress=False)
+            _ll_hook_registered = True
+            log.debug("Low-level F8/F9 hook registered")
+        except Exception as e:
+            log.warning(f"Low-level hook failed: {e}")
+
+def _ensure_hotkey_poll_failsafe():
+    """Extra safety: detect configured start/stop keys via polling if keyboard hooks get flaky."""
+    global _f9_poll_started
+    if _f9_poll_started:
+        return
+
+    def _poll():
+        last_start_down = False
+        last_stop_down = False
+        last_test_down = False
+        while True:
+            start_key = _hotkey_binding_to_keyboard_key(_start_binding())
+            stop_key = _hotkey_binding_to_keyboard_key(_stop_binding())
+            try:
+                start_down = bool(start_key and keyboard.is_pressed(start_key))
+            except Exception:
+                start_down = False
+            if start_down and not last_start_down:
+                _on_f8_hotkey()
+            last_start_down = start_down
+
+            try:
+                stop_down = bool(stop_key and keyboard.is_pressed(stop_key))
+            except Exception:
+                stop_down = False
+            if stop_down and not last_stop_down:
+                _on_f9_hotkey()
+            last_stop_down = stop_down
+            try:
+                test_down = bool(keyboard.is_pressed("down"))
+            except Exception:
+                test_down = False
+            if test_down and not last_test_down:
+                _on_test_force_failure_hotkey()
+            last_test_down = test_down
+            time.sleep(0.03)
+
+    try:
+        threading.Thread(target=_poll, daemon=True, name="hotkey-failsafe-poll").start()
+        _f9_poll_started = True
+        log.debug("Start/Stop failsafe poller started")
+    except Exception as e:
+        log.warning(f"Start/Stop failsafe poller failed: {e}")
+
+
+def _ensure_win_hotkey_poll_failsafe():
+    """OS-level fallback (independent from keyboard lib hooks/is_pressed)."""
+    global _win_hotkey_poll_started
+    if _win_hotkey_poll_started:
+        return
+
+    def _poll_vk():
+        try:
+            _user32 = ctypes.windll.user32
+        except Exception as e:
+            log.warning(f"WinVK Start/Stop poller init failed: {e}")
+            return
+
+        last_start = False
+        last_stop = False
+        last_test = False
+        while True:
+            start_vk = _binding_to_vk(_start_binding())
+            stop_vk = _binding_to_vk(_stop_binding())
+            test_vk = _binding_to_vk("DOWN") or 0x28
+            try:
+                start_down = bool(start_vk is not None and (_user32.GetAsyncKeyState(start_vk) & 0x8000))
+            except Exception:
+                start_down = False
+            if start_down and not last_start:
+                _on_f8_hotkey()
+            last_start = start_down
+
+            try:
+                stop_down = bool(stop_vk is not None and (_user32.GetAsyncKeyState(stop_vk) & 0x8000))
+            except Exception:
+                stop_down = False
+            if stop_down and not last_stop:
+                _on_f9_hotkey()
+            last_stop = stop_down
+            try:
+                test_down = bool(test_vk is not None and (_user32.GetAsyncKeyState(test_vk) & 0x8000))
+            except Exception:
+                test_down = False
+            if test_down and not last_test:
+                _on_test_force_failure_hotkey()
+            last_test = test_down
+            time.sleep(0.02)
+
+    try:
+        threading.Thread(target=_poll_vk, daemon=True, name="hotkey-winvk-poll").start()
+        _win_hotkey_poll_started = True
+        log.debug("WinVK Start/Stop poller started")
+    except Exception as e:
+        log.warning(f"WinVK Start/Stop poller failed: {e}")
+
+
+def _wait_for_start():
+    """Block until dashboard Start button is pressed."""
+    global _WAITING_FOR_START
+    if not _WAITING_FOR_START:
+        return
+    log.debug("Waiting for dashboard Start button...")
+    if _auto_strength_enabled():
+        set_overlay(status="WAITING", goal="Ready", show_auto_str=True)
+    else:
+        set_overlay(status="WAITING", goal="Ready", auto_str=None, show_auto_str=False)
+    _dash_update(status="WAITING", goal="Ready", waiting_for_start=True)
+    while _WAITING_FOR_START and not _KILLED:
+        from dashboard import get_state as _ds
+        if not _ds()["waiting_for_start"]:
+            _WAITING_FOR_START = False
+            break
+        time.sleep(0.1)
+    log.debug("Start button pressed — beginning run loop")
+    try:
+        from macro_runner import _boost_playback_timing
+        _boost_playback_timing()
+    except Exception as e:
+        log.debug(f"[INPUT] playback boost failed: {e}")
+
+
+def _run_macro(name: str):
+    """Run a named macro. Raises nothing on kill — bot checks _KILLED after return.
+
+    Navigation macros (those in _NAV_MACROS) briefly cover the stone HUD, so the
+    watcher is paused for their duration and resumed immediately after.  Hit macros
+    are NOT in _NAV_MACROS, so the watcher stays active during long farming loops.
+    """
+    if _KILLED or _STONE_LOST or _TEST_FORCE_FAILURE:
+        return False
+
+    _is_nav = (
+        name in _NAV_MACROS
+        or name.endswith("_shortcut")
+        or name.startswith("select_loadout_")
+    )
+    if _is_nav:
+        _freeze_stone(True)   # suppress watcher for this nav macro
+        log.debug(f"[WATCHER] paused for nav macro: {name}")
+
+    _rec_log_macro(name, "start")
+    handle = run_macro(name, wait=False)
+    if handle is None:
+        log.error(f"Required macro failed to start: {name}")
+        _console_status("ERROR", f"Macro failed: {name}")
+        _rec_log_macro(name, "error", error="macro_start_failed")
+        _rec_set_failure(f"macro_start_failed:{name}")
+        if _is_nav:
+            _freeze_stone(False)
+        return False
+
+    while handle.poll() is None:
+        if _KILLED or _TEST_FORCE_FAILURE:
+            stop_macro()
+            _rec_log_macro(name, "error", error="macro_killed" if _KILLED else "test_force_failure")
+            if _is_nav:
+                _freeze_stone(False)
+            return False
+        try:
+            from net_guard import hold_if_needed, peek_redo
+            if not hold_if_needed():
+                stop_macro()
+                if _is_nav:
+                    _freeze_stone(False)
+                return False
+            if peek_redo():
+                stop_macro()
+                _rec_log_macro(name, "error", error="net_pause_redo")
+                if _is_nav:
+                    _freeze_stone(False)
+                    log.debug(f"[WATCHER] resumed after nav macro: {name}")
+                return False
+        except Exception:
+            pass
+        time.sleep(0.005)
+
+    rc = handle.poll()
+    if rc not in (0, None):
+        _rec_log_macro(name, "error", return_code=rc, error="macro_return_nonzero")
+        _rec_set_failure(f"macro_return_nonzero:{name}:{rc}")
+        if _is_nav:
+            _freeze_stone(False)
+            log.debug(f"[WATCHER] resumed after nav macro: {name}")
+        return False
+    _rec_log_macro(name, "end", return_code=0)
+
+    if _is_nav:
+        _freeze_stone(False)
+        log.debug(f"[WATCHER] resumed after nav macro: {name}")
+    _map_area = {
+        "base_to_a5_teleport": "area5",
+        "base_to_area6": "area6",
+    }.get(name)
+    if _map_area:
+        # Best-effort settle after the walk. Never fail the nav on a miss —
+        # F4 A5 is the real unlock check; dest missing redos P1 from base.
+        _wait_map_loaded(_map_area)
+    return True
+    # Macro finished — check if a pause arrived at the exact finish moment
+
+
+# ——— Console status printer —————————————————————————————————————
+
+def _overlay_goal_text(goal: str) -> str:
+    text = str(goal or "")
+    low = text.lower()
+    if "topup" not in low:
+        return text
+    if "base" in low or "baserock" in low:
+        return "Base Rock"
+    import re
+    area_stage = re.search(r"\b(a\d+s\d+)\b", text, re.IGNORECASE)
+    if area_stage:
+        return f"{area_stage.group(1).upper()} Rock"
+    stage = re.search(r"\bstage\s+(\d+)\b", text, re.IGNORECASE)
+    if stage:
+        return f"Stage {stage.group(1)} Rock"
+    if "rock" in low:
+        return text[:low.find("topup")].rstrip(" -\u2013\u2014").strip() or text
+    return text
+
+
+def _console_status(status: str, goal: str, stone=None, next_steps: str = ""):
+    _auto_mode = _auto_strength_enabled()
+    _astr_active = is_auto_strength_active() if _auto_mode else None
+    _focused     = is_fortnite_focused()
+    stone_str = _fmt_stone(stone)
+    astr      = ("on" if _astr_active else "off") if _auto_mode else "manual"
+    focused   = "ok" if _focused else "UNFOCUSED"
+    level     = "warn" if not _focused else "info"
+    line = f"[{status}] {goal} | stone={stone_str} | str={astr} | focus={focused}"
+    if next_steps:
+        line += f" | next={next_steps}"
+    global _last_status_line
+    if line != _last_status_line:
+        _last_status_line = line
+        cprint(line, level)
+    set_overlay(status=status, goal=_overlay_goal_text(goal), next_steps=next_steps, show_auto_str=_auto_mode)
+    if stone is not None:
+        set_overlay(stone=stone)
+
+
+# ——— Polling wait helper ————————————————————————————————————————
+
+def _wait_polling(seconds: float, goal: str, freeze: bool = True):
+    """Sleep for `seconds` in short ticks, updating overlay & checking pause/kill."""
+    overlay_goal = _overlay_goal_text(goal)
+    deadline = time.time() + seconds
+    if freeze:
+        _freeze_stone(True)
+    while deadline is None or time.time() < deadline:
+        if _KILLED or _TEST_FORCE_FAILURE or (_STONE_LOST and not freeze):
+            break
+        remaining = max(0.0, deadline - time.time())
+        set_overlay(goal=overlay_goal)
+        try:
+            from net_guard import hold_if_needed
+            if not hold_if_needed():
+                break
+        except Exception:
+            pass
+        time.sleep(min(0.1, remaining))
+    if freeze:
+        _freeze_stone(False)
+    set_overlay(goal=overlay_goal)
+
+
+# ——— Stone icon watcher (always-on background thread) —————————————————————
+
+def _start_stone_watcher():
+    """Start the background thread that checks stone icon every 1 s.
+
+    Five consecutive misses (5 s) — triggers _stone_lost_handler() which:
+      - stops macros immediately
+      - stops drill loop
+      - sets _STONE_LOST = True  (interrupts all run loops via _check_alive)
+      - updates overlay / dashboard
+
+    The thread is suppressed during phases where stone icon is expected to
+    be hidden: while _stone_frozen is True (rebirth animation, menu resume
+    join-wait, etc.).  Callers must set _stone_frozen before those phases.
+    """
+    global _watcher_thread, _watcher_stop_ev, _STONE_LOST
+    _stop_stone_watcher()   # kill any previous instance
+    _STONE_LOST = False
+    _watcher_stop_ev = threading.Event()
+
+    def _watcher_loop(stop_ev: threading.Event):
+        miss_count = 0
+        while not stop_ev.wait(0.5):   # fires every 0.5s
+            if stop_ev.is_set():
+                break
+            # ——— Feed recorder one frame per second (= ~30 game frames) ———
+            try:
+                _rec = _get_recorder()
+                if _rec.is_active():
+                    from dashboard import get_state as _ds_rec
+                    _ds_rec_snap = _ds_rec()
+                    _rec.record_frame(
+                        stone=_last_live_stone,
+                        status=_ds_rec_snap.get("status", "RUNNING"),
+                        goal=_ds_rec_snap.get("goal", ""),
+                        stage=_current_stage,
+                        run_number=_ds_rec_snap.get("run_number", 0),
+                        auto_str=bool(_ds_rec_snap.get("auto_strength", True)),
+                        activate_drills=bool(_ds_rec_snap.get("activate_drills", True)),
+                    )
+            except Exception as _rec_e:
+                log.debug(f"[Recorder] record_frame error: {_rec_e}")
+            if _KILLED or _stone_frozen or _REBIRTH_IN_PROGRESS:
+                miss_count = 0   # reset while frozen/killed — don't falsely trigger
+                continue
+            try:
+                from manual_strength import live_active as _ms_live
+                if _ms_live():
+                    # Strength buy loop running: the window covers the HUD,
+                    # so in-game checks always miss. Skip ALL of them (no
+                    # grabs, no template diffs) until the loop stops.
+                    miss_count = 0
+                    continue
+            except Exception:
+                pass
+            if _stone_icon_visible_restart_image():
+                miss_count = 0
+            else:
+                try:
+                    from manual_strength import is_window_open as _manual_window_open
+                    if _manual_window_open():
+                        # Strength window (close button visible) = manual strength
+                        # legitimately running — the HUD image may be covered.
+                        # Never close it from the watcher — closing it mid-tag
+                        # froze the bot at the rock (window opened, watcher closed it).
+                        # Window CLOSED + image missing = stuck outside game ->
+                        # the miss counts and recovery takes over.
+                        log.debug("[WATCHER] strength window up — ignore in-game miss")
+                        miss_count = 0
+                        continue
+                except Exception as e:
+                    log.debug(f"[WATCHER] manual strength stray-menu check failed: {e}")
+                miss_count += 1
+                log.debug(f"[WATCHER] stone icon miss {miss_count}/8")
+                if miss_count >= 8:
+                    miss_count = 0
+                    log.warning("[WATCHER] stone icon missing 5s — triggering stone-lost handler")
+                    _stone_lost_handler()
+                    # After handler sets _STONE_LOST we stop watching — outer loop owns recovery
+                    break
+
+    _watcher_thread = threading.Thread(target=_watcher_loop, args=(_watcher_stop_ev,), daemon=True)
+    _watcher_thread.start()
+    log.debug("[WATCHER] stone icon watcher started")
+
+def _stop_stone_watcher():
+    """Stop the background stone-icon watcher thread."""
+    global _watcher_thread, _watcher_stop_ev
+    _t = _watcher_thread
+    if _watcher_stop_ev is not None:
+        _watcher_stop_ev.set()
+        _watcher_stop_ev = None
+    if _t is not None and _t.is_alive():
+        _t.join(timeout=0.6)
+    _watcher_thread = None
+
+def _stone_lost_handler():
+    """Called by watcher thread when stone icon has been missing for 3 s.
+    Stops macros/drills immediately and signals the run loop via _STONE_LOST."""
+    global _STONE_LOST
+    if _STONE_LOST or _KILLED:
+        return   # already handling
+    _STONE_LOST = True
+    log.warning("[WATCHER] In-game image detection failure (stone icon not visible) — stopping macros and drills")
+    try: stop_macro()
+    except Exception: pass
+    try: _stop_drill_loop()
+    except Exception: pass
+    if _auto_strength_enabled():
+        try: disable_auto_strength()
+        except Exception: pass
+        try: set_overlay(auto_str=False)
+        except Exception: pass
+    set_overlay(status="IMAGE DETECT FAIL", goal="Recovering...")
+    _dash_update(status="IMAGE DETECT FAIL", goal="Recovering...")
+    cprint("[WATCHER] In-game image detection failure — waiting for recovery", "warn")
+
+# ——— Alive check ————————————————————————————————————————————————
+
+def _check_alive() -> bool:
+    """Returns False if the watcher flagged stone lost, or if F9 was pressed.
+
+    The heavy stone-icon polling is now done by the always-on watcher thread
+    (_start_stone_watcher).  _check_alive() is a lightweight gate used inside
+    polling loops to break out as soon as either flag is set.
+    """
+    if _KILLED:
+        log.debug("_check_alive: killed")
+        return False
+
+    if _STONE_LOST:
+        log.debug("_check_alive: stone lost (watcher flagged)")
+        return False
+
+    if _TEST_FORCE_FAILURE:
+        log.debug("_check_alive: test force failure requested")
+        return False
+
+    if not is_fortnite_focused():
+        stop_macro()
+        log.warning("Fortnite lost focus — stopping macro")
+        set_overlay(status="WAITING", goal="No focus")
+        return False
+
+    return True
+
+
+# ——— Hit macro runner (with mouse centre pre-settle) ————————————
+
+# Background thread handle for the drill-presser loop
+_drill_thread = None
+_drill_stop_event = None
+
+_DRILL_AUTO_PRESSES = 1
+_DRILL_MANUAL_PRESSES = 6
+_DRILL_BURST_INTERVAL = 0.05
+_DRILL_EDGE_DELAY = 0.05
+
+
+def _do_drill_burst(reason: str, presses: int, stop_ev=None) -> None:
+    """50ms → press(es) 50ms apart → 50ms, then caller starts hitting."""
+    n = max(0, int(presses))
+    if n <= 0:
+        return
+    if stop_ev is not None and stop_ev.is_set():
+        return
+    time.sleep(_DRILL_EDGE_DELAY)
+    try:
+        from screen import is_drill_active
+        if is_drill_active():
+            log.debug("[DRILLS] already active (cyan timer) — skip press")
+            time.sleep(_DRILL_EDGE_DELAY)
+            return
+    except Exception as e:
+        log.debug(f"[DRILLS] active-check failed, pressing anyway: {e}")
+    for idx in range(n):
+        if stop_ev is not None and stop_ev.is_set():
+            return
+        if _KILLED or _STONE_LOST:
+            return
+        if idx > 0:
+            time.sleep(_DRILL_BURST_INTERVAL)
+        if not _trigger_drill_binding(stop_ev=stop_ev, check_active=False):
+            break
+    time.sleep(_DRILL_EDGE_DELAY)
+    log.debug(f"[DRILLS] {reason}: burst x{n} ({_DRILL_BURST_INTERVAL:.2f}s)")
+
+def _base_rock_drill_presses() -> int:
+    try:
+        import config as _cfg_runtime
+        return max(0, int(getattr(_cfg_runtime, "BASE_ROCK_DRILL_PRESSES", _DRILL_MANUAL_PRESSES)))
+    except Exception:
+        return _DRILL_MANUAL_PRESSES
+
+
+def _rebirth_drills_enabled(target: str, ds_snap: dict | None = None) -> bool:
+    """Return whether rebirth drill usage is enabled for a specific target."""
+    if ds_snap is None:
+        from dashboard import get_state as _ds
+        ds_snap = _ds()
+
+    master = bool(ds_snap.get("rebirth_activate_drills", ds_snap.get("activate_drills", _ACTIVATE_DRILLS)))
+    if not master:
+        return False
+
+    target_to_state = {
+        "a5_meteor": "rebirth_drill_on_a5_meteor",
+        "rock": "rebirth_drill_on_rock",
+        "baserock": "rebirth_drill_on_baserock",
+    }
+    target_defaults = {
+        "a5_meteor": _CFG_USE_DRILL_ON_A5_METEOR,
+        "rock": _CFG_USE_DRILL_ON_ROCK,
+        "baserock": _CFG_USE_DRILL_ON_BASEROCK,
+    }
+    key = target_to_state.get(target)
+    if key is None:
+        return master
+    return bool(ds_snap.get(key, target_defaults.get(target, True)))
+
+# ——— Background stone reader (baserock overlay fix) ————————————————————————————
+_br_stone_reader_stop: "threading.Event | None" = None
+_br_stone_reader_thread: "threading.Thread | None" = None
+
+def _start_br_stone_reader():
+    """Start a background thread that reads stone every 0.5s during baserock farming.
+
+    The baserock_hit macro takes ~6.75s per run — the stop-flag check (which
+    calls read_stone) only fires AFTER the macro finishes, so the overlay can
+    lag up to ~6.75s between updates.  This thread keeps the display live.
+    """
+    global _br_stone_reader_stop, _br_stone_reader_thread
+    if _br_stone_reader_thread and _br_stone_reader_thread.is_alive():
+        return
+    _br_stone_reader_stop = threading.Event()
+    _stop_ev = _br_stone_reader_stop
+
+    def _reader(_stop_ev=_stop_ev):
+        while not _stop_ev.is_set():
+            if not _stone_frozen:
+                try:
+                    val = _read_stone_live()
+                    if val is not None:
+                        set_overlay(stone=val)
+                        _dash_update(cur_stone=val)
+                except Exception:
+                    pass
+            _stop_ev.wait(0.5)
+
+    _br_stone_reader_thread = threading.Thread(target=_reader, daemon=True)
+    _br_stone_reader_thread.start()
+    log.debug("[BR-READER] background stone reader started")
+
+def _stop_br_stone_reader():
+    """Stop the background stone reader thread."""
+    global _br_stone_reader_stop
+    if _br_stone_reader_stop:
+        _br_stone_reader_stop.set()
+        _br_stone_reader_stop = None
+    log.debug("[BR-READER] background stone reader stopped")
+# ——————————————————————————————————————————————————————————————————————————————
+
+def _start_drill_loop(manual_presses: int | None = None, force_presses: int | None = None):
+    """Start background thread that presses configured drill binding every 10s while hitting."""
+    import threading
+    global _drill_thread, _drill_stop_event
+    _stop_drill_loop()  # kill any existing one first
+    _drill_stop_event = threading.Event()
+
+    def _loop(stop_ev):
+        while not stop_ev.wait(10):
+            if stop_ev.is_set():
+                break
+            _do_drill_burst("Periodic drill refresh", presses, stop_ev=stop_ev)
+
+    def _loop_boot():
+        if force_presses is not None:
+            return max(0, int(force_presses))
+        return (manual_presses if manual_presses is not None else _DRILL_MANUAL_PRESSES) if _manual_strength_enabled() else _DRILL_AUTO_PRESSES
+
+    presses = _loop_boot()
+    _drill_thread = threading.Thread(target=_loop, args=(_drill_stop_event,), daemon=True)
+    _drill_thread.start()
+    log.debug("[DRILLS] Drill loop started")
+
+def _stop_drill_loop():
+    """Stop the background drill-presser thread."""
+    global _drill_thread, _drill_stop_event
+    _t = _drill_thread
+    if _drill_stop_event is not None:
+        _drill_stop_event.set()
+        _drill_stop_event = None
+    if _t is not None and _t.is_alive():
+        _t.join(timeout=0.4)
+    _drill_thread = None
+
+
+def _builtin_hits_enabled(cfg_key: str) -> bool:
+    """True if the bot is allowed to swing/hit itself (Rebirth → Fine-Tuning → Hit Controls).
+
+    False means the player's own macro does the swinging: no LMB swings from
+    the bot and no hit-confirmation waits — monitoring/manual strength still run.
+    """
+    try:
+        import config as _cfg_hits
+        return bool(getattr(_cfg_hits, cfg_key, True))
+    except Exception:
+        return True
+
+
+def _select_monitor_item() -> None:
+    """Press the monitor-item slot (default 2) — a left click then opens the strength window."""
+    import config as _cfg_mi
+    binding = str(getattr(_cfg_mi, "MONITOR_ITEM_BINDING", "2") or "2").strip() or "2"
+    used = binding
+    if not trigger_binding_action(binding, hold_ms=30):
+        used = "2"
+        trigger_binding_action(used, hold_ms=30)
+    log.debug(f"[MANUAL_STR] monitor item selected: {used}")
+
+
+def _run_hit_macro(macro: str, wait: bool = True, skip_center: bool = False):
+    """Press configured drill binding if enabled, then run a hit macro."""
+    if _KILLED or _STONE_LOST:
+        return None
+    from dashboard import get_state as _ds
+    _ds_snap = _ds()
+    import config as _cfg_hits
+    _hit_gate = {
+        "rock_hit":     bool(getattr(_cfg_hits, "HIT_ROCKS", True)),
+        "meteor_hit":   bool(getattr(_cfg_hits, "HIT_A5_METEOR", True)),
+        "baserock_hit": bool(getattr(_cfg_hits, "HIT_BASEROCK", True)),
+    }.get(macro)
+    if _hit_gate is False:
+        log.info(f"[HIT] {macro} disabled via config (HIT_* = false) — skipping built-in hit")
+        return True
+    drill_target = {
+        "rock_hit": "rock",
+        "meteor_hit": "a5_meteor",
+        "baserock_hit": "baserock",
+    }.get(macro)
+    drill_presses = _base_rock_drill_presses() if macro == "baserock_hit" else 1
+
+    _equip_pickaxe(macro)
+
+    if drill_target is not None and _rebirth_drills_enabled(drill_target, _ds_snap):
+        _do_drill_burst("Immediate drill activation", drill_presses)
+        if not wait:
+            _start_drill_loop(force_presses=drill_presses)
+    if wait:
+        return _run_macro(macro)
+    global _ACTIVE_HIT_MACRO
+    _rec_log_macro(macro, "start")
+    handle = run_macro(macro, wait=False)
+    if handle is None:
+        _rec_log_macro(macro, "error", error="macro_start_failed")
+        _rec_set_failure(f"macro_start_failed:{macro}")
+        return handle
+    _ACTIVE_HIT_MACRO = macro
+    return handle
+
+
+def _close_hit_macro(status: str = "end", **fields) -> None:
+    """Log the real stop time of whichever hit macro is currently tracked as
+    active (started via _run_hit_macro(wait=False)). No-op if none is open.
+    Call this right before stop_macro() wherever a hit-macro session ends —
+    without it, rock_hit/meteor_hit/baserock_hit never get a macro_end and
+    the timeline either shows a stretched/merged block or a blank gap where
+    the bot was actually mining.
+    """
+    global _ACTIVE_HIT_MACRO
+    if _ACTIVE_HIT_MACRO:
+        _rec_log_macro(_ACTIVE_HIT_MACRO, status, **fields)
+        _ACTIVE_HIT_MACRO = None
+
+def _run_baserock_loop_until(
+    stop_flag_fn,
+    skip_center: bool = False,
+    manual_reason: str = "",
+    activity_callback=None,
+):
+    global _manual_strength_active
+    """Run baserock_hit macro repeatedly until stop_flag_fn() returns True or _KILLED.
+
+    Each iteration runs the macro to COMPLETION (wait=True) before checking
+    whether to continue.  This guarantees the LCtrl toggle is always fully
+    paired inside a single run — the character can never be left crouched
+    mid-loop.
+    """
+    from dashboard import get_state as _ds
+    from macro_runner import _mouse_left_click as _br_click
+    _ds_snap = _ds()
+    _HIT_MACRO = "baserock_hit"
+
+    # HIT_BASEROCK off = the player's own macro already swings the baserock.
+    # The bot must NOT left-click the rock (no hit macro, no prime taps) and must
+    # NOT wait on hit confirmation — but manual strength (menu + buying) still runs.
+    import config as _cfg_hits
+    _hit_off = not bool(getattr(_cfg_hits, "HIT_BASEROCK", True))
+
+    if _rebirth_drills_enabled("baserock", _ds_snap):
+        _do_drill_burst("Base rock drill activation", _base_rock_drill_presses())
+        _start_drill_loop(force_presses=_base_rock_drill_presses())
+
+    _start_br_stone_reader()
+    _manual_handle = None
+
+    try:
+        if manual_reason and not _KILLED and not _STONE_LOST and not stop_flag_fn():
+            # Fast open sequence (user-specified): after the nav macro ends,
+            # wait 100ms -> [optional single swing if HIT_BASEROCK on] ->
+            # wait MANUAL_STR_OPEN_AFTER_HIT_WAIT (default 0.5s) -> select
+            # monitor item -> wait MANUAL_STR_OPEN_AFTER_MONITOR_WAIT (default
+            # 0.5s) -> left click -> 250ms -> manual
+            # strength starts buying. No pre-open stone checks — the buying
+            # loop's own ~5s HUD stall watchdog is enough.
+            # Direct open sequence (slim fused): no timers between the
+            # nav macro and manual strength — the macros carry their own
+            # delays. Just: [single swing if HIT_BASEROCK on] -> select
+            # monitor item -> left click opens the strength window -> the
+            # live loop starts buying. No pre-open stone checks, no waits.
+            log.info(f"[MANUAL_STR] {manual_reason}: direct open (no timers)")
+            _rb_time_push("manual strength")
+            try:
+                # Claim the manual-strength phase BEFORE opening the window: the
+                # stone watcher must not treat the freshly-opened menu as a stray
+                # menu covering the icon (it closes it and stalls the whole run).
+                _manual_strength_active = True
+                _rec_log_macro("baserock_open_sequence", "start")
+                if _builtin_hits_enabled("HIT_BASEROCK"):
+                    _br_click()   # single swing to start the grind — trust it hits
+                import config as _cfg_msopen
+                _ms_open_enabled = bool(getattr(_cfg_msopen, "MANUAL_STR_OPEN", False))
+                if _ms_open_enabled:
+                    _select_monitor_item()
+                    _br_click()      # opens the strength window
+                else:
+                    log.info("[MANUAL_STR] auto-open disabled (Manual Strength Open) — macro must open the window")
+                _rec_log_macro("baserock_open_sequence", "end")
+                # The macro already clicked the shop open. Look for it and
+                # start buying. Cap is 300ms — a miss used to sit 750ms, and
+                # a cached "closed" froze the next 250ms of polls.
+                try:
+                    from manual_strength import is_window_open as _win_open
+                except Exception:
+                    _win_open = None
+                _shop_t0 = time.perf_counter()
+                _shop_seen = False
+                _shop_deadline = time.time() + 0.30
+                while _win_open and time.time() < _shop_deadline and not _KILLED and not _STONE_LOST:
+                    if _win_open():
+                        _shop_seen = True
+                        break
+                    time.sleep(0.04)
+                log.info(
+                    f"[MANUAL_STR] probe: shop {'seen' if _shop_seen else 'not seen'} "
+                    f"in {(time.perf_counter()-_shop_t0)*1000:.0f}ms (cap 300ms)"
+                )
+                _manual_handle = _start_manual_strength_live(
+                    manual_reason, activity_callback=activity_callback,
+                    window_ready=_shop_seen,
+                )
+                if _manual_handle is None:
+                    _manual_strength_active = False
+                    log.warning(f"[MANUAL_STR] {manual_reason}: manual strength failed to start; retrying route")
+                    return
+                while not _KILLED and not _STONE_LOST and not stop_flag_fn():
+                    if hasattr(_manual_handle, "is_alive") and not _manual_handle.is_alive():
+                        _manual_strength_active = False
+                        log.warning(f"[MANUAL_STR] {manual_reason}: live loop ended before target — re-navigating")
+                        return
+                    time.sleep(0.08)
+            finally:
+                _rb_time_pop()
+            return
+
+        if _hit_off:
+            # Auto strength + hit disabled: the player's macro does the swinging —
+            # nothing to click, just watch the stone HUD.
+            log.info("[HIT] built-in baserock hit disabled via config (HIT_BASEROCK = false) — watching stone")
+            _peak = None
+            _last_gain = time.time()
+            while not _KILLED and not _STONE_LOST and not stop_flag_fn():
+                time.sleep(0.25)
+                c = _read_stone_live(update_last=False, check_glitch=False)
+                if c is not None and c > 0:
+                    if _peak is None or c > _peak:
+                        _peak = c
+                        _last_gain = time.time()
+                    elif time.time() - _last_gain >= 30.0:
+                        log.warning("Base rock: no stone gain for 30.0s (built-in hit disabled) — re-navigate")
+                        return
+            return
+
+        # Blocking loop: run one full macro at a time, check stop condition after.
+        # Blocking loop: run one full macro at a time, check stop condition after.
+        # This ensures KEY_DOWN:LCtrl and KEY_UP:LCtrl are always paired.
+        while not _KILLED and not _STONE_LOST and not stop_flag_fn():
+            _ok = _run_macro(_HIT_MACRO)   # blocks until macro finishes cleanly
+            if not _ok:
+                log.error(f"Hit macro failed or was interrupted: {_HIT_MACRO}")
+                break
+            # stop_flag_fn() / _KILLED is re-checked at the top of the next iteration
+    finally:
+        _stop_manual_strength_live(_manual_handle)
+        _stop_drill_loop()
+        _stop_br_stone_reader()
+
+
+# ——— Navigation helpers —————————————————————————————————————————
+
+_phase_stamps: list = []   # [(label, perf_counter)] from conf to conf
+
+
+def _phase_stamp(label: str) -> None:
+    """Stamp a phase boundary (phase = time since the previous stamp)."""
+    try:
+        _phase_stamps.append((str(label), time.perf_counter()))
+    except Exception:
+        pass
+
+
+def _phase_emit_cycle() -> None:
+    """Emit the phase breakdown of the finished cycle, then reset."""
+    global _phase_stamps
+    stamps = _phase_stamps
+    _phase_stamps = []
+    try:
+        if len(stamps) < 2 or stamps[0][0] != "conf":
+            return    # cycle wasn't tracked from its start (restart/kill)
+        parts = []
+        for idx in range(1, len(stamps)):
+            label, t = stamps[idx]
+            parts.append(f"{label}={t - stamps[idx - 1][1]:.1f}s")
+        total = stamps[-1][1] - stamps[0][1]
+        log.info(f"[CYCLE] {' '.join(parts)} total={total:.1f}s")
+    except Exception:
+        pass
+
+
+def _teleport_to_base(phase: str = "", menu_open: bool = False):
+    global _at_base
+    _clear_current_stage_point("teleport to base")
+    if _manual_strength_enabled():
+        if not _stop_active_manual_strength_for_action("teleport to base"):
+            _rec_set_failure("manual_strength_close_failed:teleport_to_base")
+            return False
+    if _auto_strength_enabled():
+        disable_auto_strength()
+        set_overlay(auto_str=False)
+    else:
+        _disable_auto_strength_for_manual("teleport to base")
+    _console_status("NAVIGATING", "Base")
+    _rb_time_push(f"teleport to base{' (' + phase + ')' if phase else ''}")
+    try:
+        ok = bool(_builtin_teleport_safe("base", menu_open=menu_open))
+    finally:
+        _rb_time_pop()
+    _at_base = bool(ok)
+    if ok and phase:
+        _phase_stamp(phase)
+    return ok
+
+
+def _equip_pickaxe(reason: str = "teleport") -> None:
+    """Press pickaxe (default F). Manual-str leaves you on the monitor item;
+    LMB on that slot re-opens the strength window instead of mining."""
+    if _KILLED:
+        return
+    try:
+        from manual_strength import is_window_open, close_window_verified
+        if is_window_open():
+            log.info(f"[PICKAXE] strength window open before {reason} — closing")
+            close_window_verified(attempts=5)
+    except Exception:
+        pass
+    import config as _cfg_pk
+    binding = str(getattr(_cfg_pk, "PICKAXE_EQUIP_BINDING", "F") or "F").strip() or "F"
+    used = binding
+    if not trigger_binding_action(binding, hold_ms=35):
+        used = "F"
+        trigger_binding_action(used, hold_ms=35)
+    time.sleep(0.04)
+    trigger_binding_action(used, hold_ms=35)
+    log.info(f"[PICKAXE] {used} after {reason}")
+
+
+def _builtin_teleport_safe(destination: str, *, attempts: int | None = None, wait_seconds: float = 0.0, menu_open: bool = False) -> bool:
+    """Detect-based F4 teleport (no teleport_to_*.macro)."""
+    destination = str(destination or "").strip().lower()
+    _freeze_stone(True)
+    _rec_log_macro(f"teleport_{destination}", "start")
+    try:
+        n = _route_redo_limit() if attempts is None else max(1, min(int(attempts), _route_redo_limit()))
+        log.info(f"[TELEPORT] {destination} via F4 detect ({n} attempts)")
+        ok = bool(_builtin_teleport(destination, attempts=n, wait_seconds=wait_seconds, menu_open=menu_open))
+        if ok:
+            # F during the load screen is eaten — wait for the map, then pickaxe.
+            _wait_map_loaded(destination)
+            _equip_pickaxe(f"teleport {destination}")
+        if not ok and not _KILLED:
+            # Dest locked / menu miss — caller retries the unlock path.
+            # Don't stamp redo_limit here (that looks like a hard route fail).
+            log.warning(f"[TELEPORT] {destination} failed")
+        _rec_log_macro(f"teleport_{destination}", "end" if ok else "error",
+                        error=None if ok else "teleport_failed")
+        return ok
+    finally:
+        _freeze_stone(False)
+
+
+def _hold_for_network() -> bool:
+    """Pause on Lag: wait out disconnects. False if F9."""
+    try:
+        from net_guard import hold_if_needed
+        return bool(hold_if_needed())
+    except Exception:
+        return True
+
+
+def _peek_net_redo() -> bool:
+    try:
+        from net_guard import peek_redo
+        return bool(peek_redo())
+    except Exception:
+        return False
+
+
+def _take_net_redo() -> bool:
+    try:
+        from net_guard import take_redo
+        return bool(take_redo())
+    except Exception:
+        return False
+
+
+def _nav_or_redo(name: str) -> str:
+    """Run a nav/farm walk macro. 'ok' | 'kill' | 'redo' | 'fail'."""
+    ok = _run_macro(name)
+    if _KILLED or _STONE_LOST:
+        return "kill"
+    if _take_net_redo():
+        return "redo"
+    return "ok" if ok else "fail"
+
+
+def _force_restart_enabled(ds_snap: dict | None = None) -> bool:
+    try:
+        if ds_snap is None:
+            from dashboard import get_state as _ds_fr
+            ds_snap = _ds_fr()
+        mode = str(ds_snap.get("bot_mode", "rebirth")).lower()
+        # Force Restart is an engine feature: rebirth, crater, kraken, zytos, farm meteor.
+        if mode not in ("rebirth", "crater", "kraken", "zytos", "farm_meteor"):
+            return False
+        if "force_restart" in ds_snap:
+            return bool(ds_snap.get("force_restart"))
+        import config as _cfg_fr
+        return bool(getattr(_cfg_fr, "FORCE_RESTART_ON_FAILURE", False))
+    except Exception:
+        return False
+
+
+def _menu_resume_enabled(ds_snap: dict | None = None) -> bool:
+    """Menu Resume is bundled with Force Restart, with legacy state as fallback."""
+    try:
+        if ds_snap is None:
+            from dashboard import get_state as _ds_mr
+            ds_snap = _ds_mr()
+        return bool(ds_snap.get("force_restart") or ds_snap.get("menu_resume"))
+    except Exception:
+        return False
+
+
+def _try_force_restart_after_failure(
+    reason: str, ds_snap: dict | None = None, in_game_short_circuit: bool = True
+) -> bool:
+    global _WAITING_FOR_START, _STONE_LOST, _at_base, _menu_resume_fresh_start
+    global _REBIRTH_ZERO_CONFIRMED_AT, _TEST_FORCE_FAILURE
+    reason_l = str(reason or "").lower()
+    # Down Arrow is a live test of the real leave, not of the "still in
+    # game, so don't touch the lobby" shortcut. That shortcut is what made
+    # the test click around (close menus, ESC, edge clicks) and then stay
+    # in the match. Drop the flag first so loadout/macro waits don't abort
+    # the leave, and skip the three-state probe entirely.
+    test_leave = bool(_TEST_FORCE_FAILURE) or "test_force_restart" in reason_l
+    if test_leave:
+        _TEST_FORCE_FAILURE = False
+        in_game_short_circuit = False
+        log.info("[FORCE_RESTART] Down Arrow test — already in game, leaving to the main menu")
+    # F4 never opened. "In game, try again" is the 84-minute loop from the
+    # overnight log: HUD colour still matched, the menu did not, and every
+    # recovery just pressed F4 again. Leave.
+    if "loadout_ui_failed" in reason_l or "f4_never_opened" in reason_l:
+        in_game_short_circuit = False
+        log.info("[FORCE_RESTART] menu never opened — leaving to lobby instead of retrying F4")
+    if "loadouts not set" in reason_l or "missing_loadout" in reason_l:
+        log.info("[FORCE_RESTART] skipped — loadouts not set (user config, not a run failure)")
+        return False
+    if _LOADOUT_BLOCKED:
+        return False
+    if _KILLED or not _force_restart_enabled(ds_snap):
+        return False
+
+    # ── Three-state check: in game? GUI open? clearly not in game? ──
+    # Runs BEFORE leaving anything. Most "failures" are a stray GUI or a
+    # slow join — those recover without touching the lobby, and if we are
+    # already in the lobby menu we join straight from there (no ESC round
+    # trip, no chance to land on the wrong game).
+    try:
+        from fr_flow import three_state_recovery as _tsr, menu_join_flow as _mjf
+        state = "give_up" if test_leave else _tsr(tag=reason)
+        if test_leave:
+            log.info("[FORCE_RESTART] test leave — not probing HUD/menus, going straight to ESC → Menu → lobby")
+        if state == "in_game":
+            if in_game_short_circuit:
+                log.info(f"[FORCE_RESTART] three-state: in game \u2014 recovered without leaving ({reason})")
+                return True
+            # Kraken strike-out: the game looks loaded but the map is bugged
+            # (character stuck). Only a real leave-to-lobby restart clears it.
+            log.info(
+                f"[FORCE_RESTART] three-state: in game but a real restart is required ({reason}) "
+                "\u2014 leaving to lobby anyway"
+            )
+        if state == "menu":
+            log.info("[FORCE_RESTART] three-state: already in the lobby menu \u2014 joining Miner Tycoon 2")
+            if _mjf(reason):
+                if _KILLED:
+                    return False
+                _WAITING_FOR_START = False
+                _at_base = False
+                _menu_resume_fresh_start = True
+                _dash_update(
+                    killed=False,
+                    run_active=False,
+                    waiting_for_start=False,
+                    status="RESTART",
+                    goal="Restarting",
+                )
+                set_overlay(status="RESTART", goal="Restarting")
+                _REBIRTH_ZERO_CONFIRMED_AT = time.time()
+                log.info("[FORCE_RESTART] menu join OK; starting fresh run")
+                return True
+            log.warning("[FORCE_RESTART] menu join failed \u2014 falling back to leave-to-lobby")
+        # "give_up" -> leave-to-lobby below
+    except Exception as e:
+        log.warning(f"[FORCE_RESTART] three-state check failed: {e}")
+
+    for attempt in range(1, 4):
+        if _KILLED:
+            return False
+        log.warning(f"[FORCE_RESTART] detect flow after failure: {reason}  attempt={attempt}/3  {_farm_env_bits()}")
+        _console_status("Restarting", "Leaving To Menu")
+        set_overlay(status="Restarting", goal="Leaving To Menu")
+        _close_hit_macro()
+        stop_macro()
+        _stop_drill_loop()
+        _clear_current_stage_point("force restart")
+        _STONE_LOST = False
+        try:
+            from lobby import force_restart as _lobby_force
+            ok = bool(_lobby_force())
+        except Exception as e:
+            log.warning(f"[FORCE_RESTART] failed: {e}")
+            ok = False
+        if ok:
+            break
+        log.warning(f"[FORCE_RESTART] Ready/shard failed (attempt {attempt}/3)")
+        if attempt < 3 and not _KILLED:
+            time.sleep(2.0)
+    else:
+        log.warning("[FORCE_RESTART] Ready/shard failed after 3 attempts — stopping")
+        return False
+    if _KILLED:
+        return False
+    _WAITING_FOR_START = False
+    _at_base = False
+    _menu_resume_fresh_start = True
+    _dash_update(
+        killed=False,
+        run_active=False,
+        waiting_for_start=False,
+        status="RESTART",
+        goal="Restarting",
+    )
+    set_overlay(status="RESTART", goal="Restarting")
+    _REBIRTH_ZERO_CONFIRMED_AT = time.time()
+    log.info("[FORCE_RESTART] lobby Ready + shard OK; starting fresh run")
+    return True
+
+
+def _mark_area_unlocked(area: int, reason: str = ""):
+    global _A5_UNLOCKED_THIS_RUN, _AREA_UNLOCKED_THIS_RUN
+    if area in _AREA_UNLOCKED_THIS_RUN:
+        _AREA_UNLOCKED_THIS_RUN[area] = True
+    if area == 5:
+        _A5_UNLOCKED_THIS_RUN = True
+    _mark_left_base()
+    if reason:
+        log.info(f"[AREA] Area {area} unlocked ({reason})")
+
+
+def _go_to_area(area: int, attempt_label: str = "") -> bool:
+    global _A5_UNLOCKED_THIS_RUN, _AREA_UNLOCKED_THIS_RUN
+    _clear_current_stage_point(f"go to area{area}")
+    if _manual_strength_enabled():
+        if not _stop_active_manual_strength_for_action(f"go to area{area}"):
+            _rec_set_failure(f"manual_strength_close_failed:go_to_area{area}")
+            return False
+
+    if _auto_strength_enabled():
+        disable_auto_strength()
+        set_overlay(auto_str=False)
+    else:
+        _disable_auto_strength_for_manual(f"go to area{area}")
+
+    area_goal = f"Area {area}"
+
+    if area == 5:
+        if not _A5_UNLOCKED_THIS_RUN:
+            _console_status("NAVIGATING", area_goal)
+            if not _teleport_to_base():
+                _rec_set_failure("teleport_failed:base_before_area5")
+                return False
+            _console_status("NAVIGATING", area_goal)
+            r = _nav_or_redo("base_to_a5_teleport")
+            if r == "kill":
+                return False
+            if r == "fail":
+                _rec_set_failure("macro_failed:base_to_a5_teleport")
+                return False
+            if r == "redo":
+                log.warning("[NET] lag during base_to_a5 — retry area5 path")
+                return _go_to_area(5, attempt_label)
+            _mark_area_unlocked(5, "first_manual")
+            return True
+
+        _console_status("NAVIGATING", area_goal)
+        if not _builtin_teleport_safe("area5", attempts=3, wait_seconds=3.5):
+            _rec_set_failure("teleport_failed:area5")
+            return False
+        _mark_area_unlocked(5, "teleport")
+        return True
+
+    if area not in (1, 2, 3, 4):
+        log.warning(f"Unsupported area request: {area}")
+        return False
+
+    if not _AREA_UNLOCKED_THIS_RUN.get(area, False):
+        _console_status("NAVIGATING", area_goal)
+        if area != 1 or not _at_base:
+            if not _teleport_to_base():
+                _rec_set_failure(f"teleport_failed:base_before_area{area}")
+                return False
+            _console_status("NAVIGATING", area_goal)
+        macro_name = f"base_to_a{area}_teleport"
+        r = _nav_or_redo(macro_name)
+        if r == "kill":
+            return False
+        if r == "fail":
+            _rec_set_failure(f"macro_failed:{macro_name}")
+            return False
+        if r == "redo":
+            log.warning(f"[NET] lag during {macro_name} — retry area{area} path")
+            return _go_to_area(area, attempt_label)
+        _mark_area_unlocked(area, "first_manual")
+        return True
+
+    _console_status("NAVIGATING", area_goal)
+    if not _builtin_teleport_safe(f"area{area}", attempts=3, wait_seconds=3.5):
+        _rec_set_failure(f"teleport_failed:area{area}")
+        return False
+    _mark_area_unlocked(area, "teleport")
+    return True
+
+
+# ——— Stage farming ——————————————————————————————————————————————
+
+
+# The only rebirth start point. Kept as a function so the run log, the
+# recorder thresholds and the dashboard all read one value, and so areas
+# can be reintroduced later without touching the call sites.
+_RUN_MODES = ("a5meteor",)
+DEFAULT_RUN_MODE = "a5meteor"
+
+
+def _normalize_start_mode(run_mode: str) -> str:
+    """Normalize a stored run-mode string. Always 'a5meteor' today.
+
+    Every legacy value (a1s1..a5s4, stage2-4, meteor, a6s*, full) collapses
+    to a5meteor: the stage/area pipelines no longer exist, so an old
+    config.json must not resurrect them.
+    """
+    mode = str(run_mode or "").strip().lower()
+    if mode in _RUN_MODES:
+        return mode
+    return DEFAULT_RUN_MODE
+
+
+# — Boss Fight A1 —
+
+def _select_bramble_fight_mode(tag: str = "BOSS_A1") -> bool:
+    """After the boss card opens, OCR the mode name and cycle until it matches.
+
+    Config > Boss Fight > Mode is solo/normal/hard/ex (shared by Bramble and
+    Zytos). Kraken is Solo-only and never calls this. Each mode has OCR
+    aliases for translations. Loop:
+      1. OCR BRAMBLE_MODE_REGION (subtitle under the boss name).
+      2. If it already matches, continue the fight.
+      3. If not, click the HARD pill at BRAMBLE_MODE_SWAP_CENTER
+         (bottom of the left INFO card — do not OCR the pill) and read again.
+    """
+    from macro_runner import _mouse_move_abs, _mouse_left_click
+    from config import (
+        normalize_bramble_mode, normalize_bramble_mode_ocr, DEFAULT_BRAMBLE_MODE_OCR,
+    )
+    import config as _cfg_mode
+
+    want = normalize_bramble_mode(getattr(_cfg_mode, "BOSS_FIGHT_A1_MODE", "normal"))
+    aliases_map = normalize_bramble_mode_ocr(getattr(_cfg_mode, "BOSS_FIGHT_A1_MODE_OCR", DEFAULT_BRAMBLE_MODE_OCR))
+    aliases = list(aliases_map.get(want) or [])
+    if not aliases:
+        aliases = list(DEFAULT_BRAMBLE_MODE_OCR.get(want) or [want.upper()])
+    max_swaps = max(1, int(getattr(_cfg_mode, "BRAMBLE_MODE_SWAP_MAX", 8)))
+    wait_s = max(0.15, float(getattr(_cfg_mode, "BRAMBLE_MODE_SWAP_WAIT", 0.45)))
+    swap = getattr(_cfg_mode, "BRAMBLE_MODE_SWAP_CENTER", (439, 826))
+    try:
+        sx, sy = int(swap[0]), int(swap[1])
+    except Exception:
+        sx, sy = 439, 826
+
+    log.info(f"[{tag}] mode target={want} aliases={aliases}")
+    _console_status("ZYTOS" if tag == "ZYTOS" else "BOSS FIGHT", f"Mode {want.upper()}")
+
+    for attempt in range(max_swaps + 1):
+        if _KILLED:
+            return False
+        text = read_bramble_mode_text()
+        if bramble_mode_matches(text, aliases):
+            log.info(f"[{tag}] mode match {text!r} == {want} (attempt {attempt + 1})")
+            return True
+        if attempt >= max_swaps:
+            break
+        log.info(f"[{tag}] mode {text!r} != {want} — clicking HARD pill ({attempt + 1}/{max_swaps})")
+        try:
+            _mouse_move_abs(sx, sy)
+            time.sleep(0.05)
+            _mouse_left_click()
+        except Exception as e:
+            log.warning(f"[{tag}] mode swap click failed: {e}")
+            return False
+        time.sleep(wait_s)
+
+    log.warning(f"[{tag}] mode still not {want} after {max_swaps} swaps")
+    return False
+
+
+def _loadout_slot(raw) -> str:
+    slot = str(raw or "none").strip().lower()
+    if slot in ("", "none", "0", "null"):
+        return "none"
+    if slot in ("1", "2", "3", "4", "5", "6"):
+        return slot
+    return "none"
+
+
+def missing_required_loadouts(bot_mode: str | None = None) -> list[str]:
+    """Loadouts that MUST be set for the current run. Empty = ok to start.
+
+    Rebirth needs the Farming loadout only: the Area 5 - Meteor cycle never
+    opens a boss card, so the Fighting slot is no longer checked here
+    (Kraken/Zytos/Delve still need it for their own modes).
+    """
+    try:
+        from dashboard import get_state as _ds
+        snap = _ds()
+    except Exception:
+        snap = {}
+    import config as _cfg_lo
+    mode = str(bot_mode or snap.get("bot_mode") or "rebirth").strip().lower()
+    fighting = _loadout_slot(getattr(_cfg_lo, "BOSS_FIGHT_A1_LOADOUT_FIGHTING", "none"))
+    meteor_rw = _loadout_slot(getattr(_cfg_lo, "CRATER_LOADOUT_METEOR_REWARDS", "none"))
+    missing: list[str] = []
+    if mode in ("kraken", "zytos", "delve"):
+        if fighting == "none":
+            missing.append("Fighting")
+        return missing
+    if mode == "farm_meteor":
+        meteor_farm = meteor_rw
+        if meteor_farm == "none":
+            meteor_farm = _loadout_slot(getattr(_cfg_lo, "FARM_METEOR_LOADOUT", "none"))
+        if meteor_farm == "none":
+            missing.append("Meteor Rewards")
+        return missing
+    if mode == "crater":
+        if meteor_rw == "none":
+            missing.append("Meteor Rewards")
+        return missing
+    farming = _loadout_slot(getattr(_cfg_lo, "BOSS_FIGHT_A1_LOADOUT_FARMING", "none"))
+    if farming == "none":
+        missing.append("Farming")
+    return missing
+
+
+_last_loadout_focus_ts = 0.0
+
+
+def _focus_bot_window() -> bool:
+    """Bring the MT2 dashboard window to the front (Windows).
+
+    Uses the classic ALT-key trick — SetForegroundWindow is normally denied
+    for a background process, but a synthetic Alt press makes the OS treat
+    this process as if it just received input, allowing the focus steal.
+    """
+    try:
+        import ctypes
+        u32 = ctypes.windll.user32
+        hwnd = u32.FindWindowW(None, "MT2 Rebirth Bot")
+        if not hwnd:
+            return False
+        fg = u32.GetForegroundWindow()
+        if fg == hwnd:
+            return True          # already focused
+        u32.ShowWindow(hwnd, 9)  # SW_RESTORE (un-minimize)
+        # momentary Alt tap — harmless in-game, enables foreground steal
+        u32.keybd_event(0x12, 0, 0, 0)        # VK_MENU down
+        u32.keybd_event(0x12, 0, 2, 0)       # VK_MENU up (KEYEVENTF_KEYUP)
+        u32.SetForegroundWindow(hwnd)
+        u32.BringWindowToTop(hwnd)
+        return True
+    except Exception as e:
+        log.debug(f"[LOADOUT] focus bot window failed: {e}")
+        return False
+
+
+def _fresh_start_not_in_game(passes: int = 3) -> bool:
+    """True when the HUD colour box says we are NOT in game yet.
+
+    A few passes, 0.4s apart: the settle window is tiny and one slow draw
+    must not skip the loadout of a real in-game start.
+    """
+    try:
+        for _ in range(max(1, passes)):
+            if not _stone_icon_visible_restart_image():
+                return True
+            time.sleep(0.4)
+        return False
+    except Exception:
+        return False
+
+
+def hard_quit():
+    """Dashboard Quit button - stop macros, save stats, kill the process."""
+    global _KILLED, _watcher_stop_ev, _watcher_thread
+    _KILLED = True
+    try: stop_macro()
+    except Exception: pass
+    try: _stop_drill_loop()
+    except Exception: pass
+    try:
+        stats.save()
+    except Exception: pass
+    import os, sys
+    os._exit(0)
+
+
+def _block_for_missing_loadouts(missing: list[str]) -> None:
+    """User-config error: do not start, do not force-restart, keep dashboard popup up."""
+    global _WAITING_FOR_START, _LOADOUT_BLOCKED, _LOADOUT_BLOCK_SEQ
+    names = [str(x) for x in (missing or []) if str(x).strip()]
+    if not names:
+        return
+    _LOADOUT_BLOCKED = True
+    _LOADOUT_BLOCK_SEQ += 1
+    _WAITING_FOR_START = True
+    label = ", ".join(names)
+    log.warning(f"[LOADOUT] cannot start — set these in Config: {label}")
+    _console_status("ERROR", "Loadouts not set: " + label)
+    try:
+        set_overlay(status="ERROR", goal="Loadouts not set: " + label)
+    except Exception:
+        pass
+    _dash_update(
+        waiting_for_start=True,
+        run_active=False,
+        run_start_time=None,
+        status="ERROR",
+        goal="Loadouts not set: " + label,
+        missing_loadouts=names,
+        loadout_block_seq=_LOADOUT_BLOCK_SEQ,
+    )
+    # Pull the dashboard to the front so the user can fix the loadouts
+    # straight away — even (especially) when the game is fullscreen-focused.
+    global _last_loadout_focus_ts
+    _now = time.time()
+    if _now - _last_loadout_focus_ts >= 5.0:
+        _last_loadout_focus_ts = _now
+        if _focus_bot_window():
+            log.info("[LOADOUT] dashboard window brought to front (loadouts not set)")
+
+
+def _play_loadout(slot: str, label: str) -> bool:
+    """F4 loadout select for a dashboard slot (1-6). Skip if none."""
+    slot = _loadout_slot(slot)
+    if slot == "none":
+        log.info(f"[LOADOUT] {label}: None — skipping")
+        return True
+    log.info(f"[LOADOUT] {label}: slot {slot}")
+    _console_status("LOADOUT", f"{label.capitalize()} loadout {slot}")
+    _freeze_stone(True)
+    try:
+        ok = bool(_select_loadout_ui(int(slot)))
+    finally:
+        _freeze_stone(False)
+    if not ok:
+        log.warning(f"[LOADOUT] {label}: slot {slot} failed")
+        if not _KILLED:
+            _rec_set_failure(f"redo_limit:loadout_{slot}")
+        return False
+    return True
+
+
+def _apply_fresh_start_loadout() -> bool:
+    """F8/Start only: put the bot on the loadout this mode should begin with."""
+    try:
+        from dashboard import get_state as _ds_lo
+        snap = _ds_lo()
+    except Exception:
+        snap = {}
+    import config as _cfg_lo
+    mode = str(snap.get("bot_mode") or "rebirth").strip().lower()
+    if mode in ("kraken", "zytos", "delve"):
+        slot = _loadout_slot(getattr(_cfg_lo, "BOSS_FIGHT_A1_LOADOUT_FIGHTING", "none"))
+        log.info("[LOADOUT] fresh start → Fighting")
+        return _play_loadout(slot, "fighting")
+    if mode == "crater":
+        slot = _loadout_slot(getattr(_cfg_lo, "CRATER_LOADOUT_METEOR_REWARDS", "none"))
+        log.info("[LOADOUT] fresh start → Meteor Rewards")
+        return _play_loadout(slot, "Meteor Rewards")
+    if mode == "farm_meteor":
+        slot = _loadout_slot(getattr(_cfg_lo, "CRATER_LOADOUT_METEOR_REWARDS", "none"))
+        if slot == "none":
+            slot = _loadout_slot(getattr(_cfg_lo, "FARM_METEOR_LOADOUT", "none"))
+        log.info("[LOADOUT] fresh start → Meteor Rewards")
+        return _play_loadout(slot, "Meteor Rewards")
+    slot = _loadout_slot(getattr(_cfg_lo, "BOSS_FIGHT_A1_LOADOUT_FARMING", "none"))
+    log.info("[LOADOUT] fresh start → Farming")
+    return _play_loadout(slot, "farming")
+
+
+def _run_progression_cycle(start_mode: str) -> bool:
+    """Area 5 - Meteor: the bot's only rebirth pipeline.
+
+    base -> baserock to the meteor threshold -> base_to_meteor -> rebirth.
+    Areas 1-6, the stage climbs and the Boss Fight A1 gate are gone, so
+    there is nothing left to branch on: the run-mode selection is always
+    a5meteor and this is the whole cycle.
+    """
+    _missing_lo = missing_required_loadouts(bot_mode="rebirth")
+    if _missing_lo:
+        _block_for_missing_loadouts(_missing_lo)
+        return False
+    log.info("[CYCLE] Area 5 - Meteor (only rebirth mode)")
+    return _run_meteor_shortcut_cycle()
+
+# ——— Meteor farming —————————————————————————————————————————————
+
+def _run_fast_meteor_cycle() -> bool:
+    """Fast meteor cycle: [quests ->] baserock -> base_to_meteor macro -> rebirth.
+
+    base_to_meteor does everything after the base teleport, so the bot skips
+    its own A5 teleport, meteor mining and post-mining base teleport.
+    On a failed rebirth: back to base, re-run base_to_meteor, retry.
+    v1.11.1: with Daily Quests ON, the quest phase runs at cycle START
+    (after the previous rebirth) instead of inside _do_rebirth — quest stone
+    counts toward the shortcut threshold instead of being wiped by rebirth.
+    """
+    global _at_base, _POST_REBIRTH_STONE_UNTRUSTED
+    _set_stage("base")
+    _rb_time_reset()
+    # v1.11.1: Daily Quests run at cycle START — right after the previous
+    # rebirth, BEFORE the baserock/base_to_meteor phase:
+    # - stone from quest rocks counts toward the Area6 shortcut threshold
+    #   instead of being wiped by the rebirth that followed the phase
+    # - the quest phase re-teleports to base itself when quest actions moved
+    #   the character, so base_to_meteor still starts from the base spawn
+    # - finished quests auto-confirm (no board walk / claim buttons), so the
+    #   only HUD signal is the slot-background check
+    if _quests_enabled():
+        _rb_time_push("daily quests")
+        try:
+            _do_daily_quests()
+        finally:
+            _rb_time_pop()
+        if _KILLED or _STONE_LOST:
+            return False
+    # Zero-latency decision: no OCR precheck. Decide from the trusted last
+    # live stone alone. Post-rebirth it is 0.0 -> baserock immediately. If it
+    # is stale/None the worst case is a walk to the baserock the background
+    # watcher immediately ends (stone already at target) - a few seconds,
+    # cheaper than every run paying a multi-read OCR check.
+    _shortcut_stone = _last_live_stone
+    # v1.9.18: after a rebirth whose stone read failed, the cached stone is the
+    # PRE-rebirth value — trusting it is what made the bot skip baserock and
+    # walk straight back into a rebirth the game refuses ("keeps rebirthing
+    # after it already rebirthed"). Force a real HUD read instead.
+    _stone_untrusted = bool(_POST_REBIRTH_STONE_UNTRUSTED)
+    if _stone_untrusted:
+        log.info("[Fast Meteor] stone unverified after the last rebirth — reading the HUD before deciding")
+    if _stone_untrusted or _shortcut_stone is None:
+        # v20375: no trusted stone yet (F9 soft reset, fresh bot start,
+        # restart mid-grind). Live HUD reads BEFORE committing to the
+        # baserock trip: when the game already sits at/above the shortcut
+        # threshold the bot goes straight to meteor instead of walking to
+        # baserock first and discovering there that the trip was unneeded.
+        # The read also seeds the trusted stone for the rest of the cycle.
+        _rb_time_push("precheck stone (OCR)")
+        try:
+            _shortcut_stone = _read_stone_with_retry(
+                "[Fast Meteor] precheck", attempts=5, delay=0.25)
+        finally:
+            _rb_time_pop()
+        if _shortcut_stone is not None:
+            _POST_REBIRTH_STONE_UNTRUSTED = False
+            log.info(
+                f"[Fast Meteor] fresh precheck read: {_fmt_stone(_shortcut_stone)} "
+                f"({'post-rebirth re-read' if _stone_untrusted else 'no trusted stone yet'})"
+            )
+        elif _stone_untrusted:
+            _shortcut_stone = None
+            log.warning(
+                "[Fast Meteor] stone still unreadable after the rebirth — "
+                "farming baserock (the pre-rebirth value is never reused)"
+            )
+    if _shortcut_stone is not None and float(_shortcut_stone) <= 0:
+        log.info("[Fast Meteor] stone=0 — farm baserock (no precheck)")
+        _shortcut_stone = 0.0
+    if _shortcut_stone is not None and _shortcut_stone >= STONE_FOR_AREA6_SHORTCUT:
+        log.info(
+            f"[Fast Meteor] precheck ok: {_fmt_stone(_shortcut_stone)} >= "
+            f"{_fmt_stone(STONE_FOR_AREA6_SHORTCUT)} - skipping baserock trip"
+        )
+    else:
+        if _shortcut_stone is None:
+            log.info("[Fast Meteor] no trusted stone yet - using baserock fallback")
+        else:
+            log.info(
+                f"[Fast Meteor] precheck below threshold: {_fmt_stone(_shortcut_stone)} < "
+                f"{_fmt_stone(STONE_FOR_AREA6_SHORTCUT)} - farming baserock"
+            )
+        _rb_time_push("farm baserock (total)")
+        try:
+            if not _do_base_rock(target_stone=STONE_FOR_AREA6_SHORTCUT):
+                return False
+        finally:
+            _rb_time_pop()
+
+    # Single-macro meteor phase: base_to_meteor starts and ends AT base
+    # (the macro teleports back to base itself).
+    _set_stage("meteor")
+    mined = False
+    SHORTCUT_TRIES = _route_redo_limit()
+    for _try in range(1, SHORTCUT_TRIES + 1):
+        if _KILLED or _STONE_LOST:
+            return False
+        if not _at_base:
+            if not _teleport_to_base(phase="tele_back"):
+                return False
+        _console_status("NAVIGATING", "Meteor (fast)")
+        log.info(f"[Fast Meteor] try {_try}/{SHORTCUT_TRIES} macro=base_to_meteor")
+        _rb_time_push("base_to_meteor macro")
+        r = _nav_or_redo("base_to_meteor")
+        _rb_time_pop()
+        if r == "kill":
+            return False
+        if r == "fail":
+            log.warning(f"[Fast Meteor] base_to_meteor failed (try {_try}/{SHORTCUT_TRIES})")
+            continue
+        if r == "redo":
+            log.warning("[NET] lag during base_to_meteor — redo path")
+            continue
+        _phase_stamp("meteor")
+        mined = True
+        _at_base = True   # macro ends with its own F4 teleport to base
+        stats.mark_step("Meteor")
+        break
+    if not mined:
+        _rec_set_failure("redo_limit:fast_meteor")
+        return False
+
+    # Rebirth phase — the macro already left us at base.
+    REBIRTH_MAX_RETRIES = 3
+    _set_stage("rebirth")
+    for _rebirth_attempt in range(1, REBIRTH_MAX_RETRIES + 1):
+        _rb_time_push(f"rebirth (attempt {_rebirth_attempt})")
+        _ok = _do_rebirth(skip_quests=True)
+        _rb_time_pop()
+        if _ok:
+            stats.mark_step("Rebirth")
+            _rb_time_report()
+            return True
+        if _KILLED or _STONE_LOST:
+            return False
+        stats.record_error()
+        log.warning(f"[Fast Meteor] rebirth retry {_rebirth_attempt}/{REBIRTH_MAX_RETRIES}")
+        if not _at_base:
+            if not _teleport_to_base():
+                return False
+        _console_status("NAVIGATING", "Meteor Retry (fast)")
+        r = _nav_or_redo("base_to_meteor")
+        if r == "kill":
+            return False
+        if r == "fail":
+            return False
+        if r == "redo":
+            log.warning("[NET] lag during base_to_meteor retry — redo path")
+            continue
+        _at_base = True
+    return False
+
+
+def _run_meteor_shortcut_cycle() -> bool:
+    """Meteor mode (fast route): the user-recorded base_to_meteor macro does the
+    whole A5 phase after the base teleport — A6 walk + shortcut interact, F4
+    teleport to A5, break the meteor, F4 teleport back to base."""
+    if not macro_exists("base_to_meteor"):
+        log.error("[METEOR] base_to_meteor macro missing — record it in the Macros tab")
+        _rec_set_failure("missing_macro:base_to_meteor")
+        return False
+    return _run_fast_meteor_cycle()
+
+
+def _quests_enabled(ds_snap: dict | None = None) -> bool:
+    """Daily Quests rail toggle (dashboard state)."""
+    try:
+        if ds_snap is None:
+            from dashboard import get_state as _ds_q
+            ds_snap = _ds_q()
+        return bool(ds_snap.get("daily_quests"))
+    except Exception:
+        return False
+
+
+def _quest_mine_one(panel: int, star: int) -> bool:
+    """Teleport to Area 1, walk to the star rock, hold LMB until HUD Done / timeout."""
+    import config as _cfg_q
+    import quest_menu as qm
+    from macro_runner import _mouse_left_down, _mouse_left_up
+    _console_status("QUESTS", f"Break {star} Star Rocks")
+    if not _builtin_teleport_safe("area1", attempts=3, wait_seconds=3.5):
+        log.warning(f"[QUEST] area1 teleport failed — skipping quest {panel}")
+        return False
+    _mark_area_unlocked(1, "quests")
+    r = _nav_or_redo(f"break_{star}_star_rocks")
+    if r != "ok":
+        log.warning(f"[QUEST] break_{star}_star_rocks macro {r} — skipping quest {panel}")
+        return False
+    if _KILLED or _STONE_LOST:
+        return False
+
+    # Hold LMB and watch the HUD quest slot for completion (v1.11: the
+    # slot's panel background disappears once the game auto-confirms).
+    timeout = max(5.0, float(getattr(_cfg_q, "QUEST_MINE_TIMEOUT_SECONDS", 60)))
+    poll = max(0.05, float(getattr(_cfg_q, "QUEST_HUD_POLL_SECONDS", 0.15)))
+    done = False
+    try:
+        _mouse_left_down()
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if _KILLED or _STONE_LOST:
+                return False
+            if qm.quest_hud_done(panel):
+                done = True
+                break
+            time.sleep(poll)
+    finally:
+        _mouse_left_up()
+
+    if done:
+        log.info(f"[QUEST] quest {panel} complete (HUD slot gone — auto-confirmed by the game)")
+        stats.mark_step(f"Quest {panel}")
+    else:
+        log.warning(f"[QUEST] quest {panel} timed out after {timeout:.0f}s — HUD slot still present, not done")
+    return done
+
+
+def _quest_mimic_one(panel: int) -> bool:
+    """Open Chests quest — the quest is literally opening the chest.
+
+    Play mimic.macro (walk + open) and consider the quest DONE. No combat,
+    no LMB hold, no HUD Done watching — opening it completes the quest.
+    """
+    _console_status("QUESTS", "Open Chests")
+    if not _builtin_teleport_safe("area1", attempts=3, wait_seconds=3.5):
+        log.warning(f"[QUEST] area1 teleport failed — skipping chest quest {panel}")
+        return False
+    _mark_area_unlocked(1, "quests")
+    r = _nav_or_redo("mimic")
+    if r != "ok":
+        log.warning(f"[QUEST] mimic macro {r} — skipping chest quest {panel}")
+        return False
+    if _KILLED or _STONE_LOST:
+        return False
+    log.info(f"[QUEST] chest quest {panel} done (chest opened via macro — auto-confirmed by the game)")
+    stats.mark_step(f"Quest {panel} Chests")
+    # mimic.macro may end on the weapon — back to pickaxe for the rest of the run
+    try:
+        _equip_pickaxe("mimic (weapon back to pickaxe)")
+    except Exception as e:
+        log.warning(f"[QUEST] pickaxe swap-back after mimic failed: {e}")
+    return True
+
+
+def _quest_wait_hud_done(panel: int, timeout: float = 6.0) -> bool:
+    """Poll the HUD quest slot until it disappears (v1.11 done signal:
+    the game auto-confirms the quest and removes the slot)."""
+    import quest_menu as qm
+    deadline = time.time() + max(0.0, float(timeout))
+    while time.time() < deadline:
+        if _KILLED or _STONE_LOST:
+            return False
+        if qm.quest_hud_done(panel):
+            return True
+        time.sleep(0.30)
+    return False
+
+
+def _quest_hatch_action() -> bool:
+    """Hatch Pets ACTIONS — run regardless of quest acceptance.
+
+    Teleport to base, walk to the hatch NPC (hatch_pets.macro opens the GUI),
+    page to 'Area 1 Egg', click Hatch All, close. Returns True when Hatch All
+    was clicked. The 'Hatch Pets' quest itself is completed by the game when
+    the quest was accepted; the actions also run before Combine Pets so
+    there are hatched pets to combine.
+    """
+    import quest_menu as qm
+    _console_status("QUESTS", "Hatch Pets")
+    HATCH_TRIES = 2
+    for attempt in range(1, HATCH_TRIES + 1):
+        if _KILLED or _STONE_LOST:
+            return False
+        if not _builtin_teleport_safe("base", attempts=3, wait_seconds=3.5):
+            log.warning(f"[HATCH] base teleport failed — skipping hatch pets (try {attempt}/{HATCH_TRIES})")
+            return False
+        r = _nav_or_redo("hatch_pets")
+        if r != "ok":
+            log.warning(f"[HATCH] hatch_pets macro {r} (try {attempt}/{HATCH_TRIES})")
+            continue
+        if _KILLED or _STONE_LOST:
+            return False
+        if qm.wait_hatch_menu_open(6.0):
+            opened = True
+            break
+        # The macro's E presses may have landed before the NPC prompt was
+        # ready. Standing at the NPC, one more E retries the interact — but
+        # away from the NPC the same key opens the quest board; if that is
+        # what opened, close it and redo the walk.
+        log.warning(f"[HATCH] hatch GUI not open after macro (try {attempt}/{HATCH_TRIES})")
+        if qm.quest_menu_open():
+            log.warning("[HATCH] quest board opened instead of hatch GUI — closing, redo walk")
+            qm.close_quest_menu()
+            continue
+        qm.press_menu_key()
+        if qm.wait_hatch_menu_open(3.0):
+            opened = True
+            break
+    else:
+        log.warning("[HATCH] hatch GUI never opened — skipping hatch pets")
+        return False
+    if _KILLED or _STONE_LOST:
+        return False
+    ok = False
+    try:
+        ok = qm.hatch_all_flow()
+    except Exception as e:
+        log.warning(f"[HATCH] hatch GUI flow error: {e}")
+    finally:
+        try:
+            # force_click: we KNOW the GUI was open (we clicked Hatch All on
+            # it) — always send one close click even if the yellow reading
+            # hovers just under the threshold; a GUI left open blocks F4.
+            qm.close_hatch_menu(force_click=True)
+        except Exception:
+            pass
+    if ok:
+        log.info("[HATCH] Hatch All clicked — eggs hatched (any 'Hatch Pets' quest counts now)")
+    else:
+        log.warning("[HATCH] Hatch All not clicked (Area 1 Egg not reached)")
+    return ok
+
+
+def _quest_combine_action() -> bool:
+    """Combine Pets — pure F4 monitor-menu flow, no macro needed.
+
+    F4 -> PETS -> ZAPPY -> AUTO COMBINE -> close. The three close-button
+    positions confirm every click landed. Returns True when auto combine ran.
+    """
+    import quest_menu as qm
+    _console_status("QUESTS", "Combine Pets")
+    ok = False
+    try:
+        ok = qm.combine_pets_flow()
+    except Exception as e:
+        log.warning(f"[COMBINE] combine flow error: {e}")
+    # The F4 flow can leave the loadout on the monitor item — back to pickaxe
+    try:
+        _equip_pickaxe("combine pets (loadout back to pickaxe)")
+    except Exception as e:
+        log.warning(f"[QUEST] pickaxe swap-back after combine failed: {e}")
+    return ok
+
+
+def _open_quest_menu_and_wait(qm) -> bool:
+    """Run the quest_menu macro (from the tp-base spawn) and confirm the board
+    is open, with E-retries. True when the quest board is open."""
+    r = _nav_or_redo("quest_menu")
+    if r != "ok":
+        log.warning(f"[QUESTS] quest_menu macro {r} — cannot open quest board")
+        return False
+    if qm.wait_quest_menu_open(5.0):
+        return True
+    log.warning("[QUESTS] quest menu not open after macro — pressing E a few more times")
+    for _ in range(3):
+        if _KILLED or _STONE_LOST:
+            return False
+        qm.press_menu_key()
+        time.sleep(0.6)
+        if qm.wait_quest_menu_open(3.0):
+            return True
+    log.warning("[QUESTS] quest menu did not open")
+    return False
+
+
+def _read_quest_plan(qm) -> dict:
+    """Read all three quest panels and classify them into a quest plan."""
+    quests = {}
+    for panel in (1, 2, 3):
+        text = qm.read_quest_panel(panel)
+        star = qm.classify_quest(text)
+        if star not in (1, 2, 3):
+            star = None
+        kind = "rocks" if star else None
+        if kind is None:
+            if qm.is_mimic_quest(text):
+                kind = "mimic"
+            elif qm.is_hatch_quest(text):
+                kind = "hatch"
+            elif qm.is_combine_quest(text):
+                kind = "combine"
+        quests[panel] = {"text": text, "star": star, "kind": kind}
+    mine_list = [p for p in (1, 2, 3) if quests[p]["kind"] == "rocks"]
+    # only ONE mimic per rebirth — the game only accepts one anyway
+    mimic_panel = next((p for p in (1, 2, 3) if quests[p]["kind"] == "mimic"), None)
+    hatch_panel = next((p for p in (1, 2, 3) if quests[p]["kind"] == "hatch"), None)
+    combine_panel = next((p for p in (1, 2, 3) if quests[p]["kind"] == "combine"), None)
+    # Hatch needs eggs (rock drops) and Combine needs hatched pets — both
+    # are only accepted/done when a "Break X Star Rocks" quest is up too.
+    has_rocks = bool(mine_list)
+    hatch_do = hatch_panel is not None and has_rocks
+    combine_do = combine_panel is not None and has_rocks
+    # Hatch ACTIONS also run for Combine (it needs pets to combine), even
+    # when the Hatch Pets quest itself is not on the board.
+    hatch_actions = hatch_do or combine_do
+    return {
+        "quests": quests,
+        "mine_list": mine_list,
+        "mimic_panel": mimic_panel,
+        "hatch_panel": hatch_panel,
+        "combine_panel": combine_panel,
+        "hatch_do": hatch_do,
+        "combine_do": combine_do,
+        "hatch_actions": hatch_actions,
+    }
+
+
+def _accept_quest_plan(qm, plan: dict, btn_settle: float) -> None:
+    """Click Start ONLY on the quests the bot will actually do, then close the
+    board. The rest are auto-confirmed by the game when they complete."""
+    quests = plan["quests"]
+    mine_list = plan["mine_list"]
+    mimic_panel = plan["mimic_panel"]
+    hatch_do, combine_do = plan["hatch_do"], plan["combine_do"]
+    start_list = list(mine_list)
+    if mimic_panel is not None:
+        start_list.append(mimic_panel)
+    if hatch_do:
+        start_list.append(plan["hatch_panel"])
+    if combine_do:
+        start_list.append(plan["combine_panel"])
+    for panel in start_list:
+        if not qm.click_quest_button(panel):
+            log.warning(f"[QUEST] start click failed for panel {panel}")
+        time.sleep(btn_settle)
+    skipped = [f"q{p}={quests[p]['text']!r}" for p in (1, 2, 3) if p not in start_list]
+    if skipped:
+        log.info("[QUESTS] not started (bot won't do them): " + ", ".join(skipped))
+    if plan["hatch_panel"] is not None and not hatch_do:
+        log.info("[QUESTS] Hatch Pets quest present but no Break Star Rocks quest — skipped (no egg source)")
+    if plan["combine_panel"] is not None and not combine_do:
+        log.info("[QUESTS] Combine Pets quest present but no Break Star Rocks quest — skipped (no egg source)")
+    if start_list:
+        parts = [f"q{p}=Break {quests[p]['star']} Star Rocks" for p in mine_list]
+        if mimic_panel is not None:
+            parts.append(f"q{mimic_panel}=Open Chests")
+        if hatch_do:
+            parts.append(f"q{plan['hatch_panel']}=Hatch Pets")
+        if combine_do:
+            parts.append(f"q{plan['combine_panel']}=Combine Pets")
+        if plan["hatch_actions"] and not hatch_do:
+            parts.append("hatch actions (for Combine Pets)")
+        log.info("[QUESTS] started " + ", ".join(f"q{p}" for p in start_list) + "; doing: " + ", ".join(parts))
+    else:
+        log.info("[QUESTS] no known quests (rocks/chests/pets) on the board")
+    if not qm.close_quest_menu():
+        log.warning("[QUESTS] quest menu close not confirmed")
+
+
+def _start_daily_quests() -> None:
+    """v1.8.32 run-START quest phase: accept (Start) the daily quests right
+    after a fresh rebirth so rock quests can progress NATURALLY while the bot
+    grinds the run. The DOING stays in _do_daily_quests() at the
+    end (between meteor and rebirth) — this phase never does quest actions.
+
+    On success the plan is saved to _QUEST_PLAN for the end phase. If this
+    phase is skipped or fails, the end phase falls back to the legacy full
+    flow (open board, read, accept, do)."""
+    import config as _cfg_q
+    import quest_menu as qm
+    global _QUESTS_STARTED_THIS_RUN, _QUEST_PLAN
+    if _QUESTS_STARTED_THIS_RUN:
+        return
+    _QUESTS_STARTED_THIS_RUN = True
+    if _KILLED or _STONE_LOST:
+        return
+    # Only FRESH runs (started from ~0 stone / after rebirth). After a
+    # force-restart the quests are already done/accepted.
+    try:
+        _cur_run = getattr(stats, "_current_run", None)
+        if _cur_run is not None and getattr(_cur_run, "full_rebirth", True) is False:
+            log.info("[QUESTS] not a fresh run — skipping quest start phase")
+            return
+    except Exception:
+        pass
+    _console_status("QUESTS", "Starting Quests")
+    btn_settle = max(0.05, float(getattr(_cfg_q, "QUEST_BTN_SETTLE", 0.35)))
+    try:
+        # quest_menu macro only works from the fresh tp-base spawn
+        if not _at_base:
+            if not _teleport_to_base():
+                log.warning("[QUESTS] run-start quest phase: could not teleport to base — skipping")
+                return
+        if not _open_quest_menu_and_wait(qm):
+            # The quest_menu macro (walk) may have already moved us off the
+            # tp-base spawn — realign so the run's own nav macros line up.
+            if not _KILLED and not _STONE_LOST:
+                if not _teleport_to_base():
+                    log.warning("[QUESTS] run-start quest phase: re-align to base failed after menu open failure")
+            return
+        plan = _read_quest_plan(qm)
+        if not (plan["mine_list"] or plan["mimic_panel"] is not None
+                or plan["hatch_actions"] or plan["combine_do"]):
+            # nothing to accept — close the board and let the run go
+            if not qm.close_quest_menu():
+                log.warning("[QUESTS] quest menu close not confirmed (empty board)")
+            _QUEST_PLAN = plan
+            # back to a fresh tp-base spawn so the run's own nav macros line up
+            # (the quest_menu walk already moved us off the spawn point)
+            if not _KILLED and not _STONE_LOST:
+                if not _teleport_to_base():
+                    log.warning("[QUESTS] run-start quest phase: re-align to base failed (nothing to accept)")
+            return
+        _accept_quest_plan(qm, plan, btn_settle)
+        _QUEST_PLAN = plan
+        log.info("[QUESTS] quests accepted at run start — rock quests now progress naturally; "
+                 "doing happens before rebirth")
+        # back to a fresh tp-base spawn so the run's own nav macros line up
+        if not _KILLED and not _STONE_LOST:
+            _teleport_to_base()
+    except Exception as e:
+        log.warning(f"[QUESTS] run-start quest phase error (continuing run): {e}")
+        _QUEST_PLAN = None
+
+
+def _do_daily_quests() -> None:
+    """Daily Quests END phase between meteor and rebirth. Best-effort — never
+    blocks rebirth.
+
+    v1.8.32: quests were already accepted at run start (_start_daily_quests)
+    so rock quests could complete naturally during the grind. This phase uses
+    the saved plan and checks the HUD FIRST for every quest: already-Done
+    quests skip the whole teleport+macro trip.
+
+    v1.11: the game auto-confirms finished quests now — there is no claim
+    phase anymore. Quest done = the HUD slot itself disappears (background
+    check in quest_menu.quest_hud_done). The bot never re-opens the quest
+    board after the run-start accept; completed quests just count in stats."""
+    import config as _cfg_q
+    import quest_menu as qm
+    global _QUESTS_DONE_THIS_RUN, _QUEST_PLAN
+    if _QUESTS_DONE_THIS_RUN:
+        return
+    _QUESTS_DONE_THIS_RUN = True
+    if _KILLED or _STONE_LOST:
+        return
+    # Only FRESH runs (started from ~0 stone). After a force-restart the
+    # quests are already done/accepted — running the phase again would just
+    # sit there for 60/90s per quest waiting for a "Done" that never comes.
+    try:
+        _cur_run = getattr(stats, "_current_run", None)
+        if _cur_run is not None and getattr(_cur_run, "full_rebirth", True) is False:
+            log.info("[QUESTS] not a fresh run (resumed / force-restart) — skipping quest phase")
+            return
+    except Exception:
+        pass
+    btn_settle = max(0.05, float(getattr(_cfg_q, "QUEST_BTN_SETTLE", 0.35)))
+    had_auto_str = False
+    quest_moved = False   # True when an action teleported/walked the character
+    _freeze_stone(True)
+    try:
+        if _auto_strength_enabled():
+            had_auto_str = True
+            disable_auto_strength()
+            set_overlay(auto_str=False)
+
+        plan = _QUEST_PLAN
+        if plan is not None:
+            log.info("[QUESTS] Daily Quests ON — doing quests accepted at run start")
+            _console_status("QUESTS", "Doing Quests")
+        else:
+            # legacy fallback — quests were never accepted at run start
+            log.info("[QUESTS] Daily Quests ON — running full quest phase (no run-start plan)")
+            _console_status("QUESTS", "Opening Quest Menu")
+            quest_moved = True   # quest_menu macro walks to the board
+            if not _open_quest_menu_and_wait(qm):
+                return
+            plan = _read_quest_plan(qm)
+            if not (plan["mine_list"] or plan["mimic_panel"] is not None
+                    or plan["hatch_actions"] or plan["combine_do"]):
+                if not qm.close_quest_menu():
+                    log.warning("[QUESTS] quest menu close not confirmed")
+                return
+            _accept_quest_plan(qm, plan, btn_settle)
+            _QUEST_PLAN = plan
+
+        quests = plan["quests"]
+        mine_list = plan["mine_list"]
+        mimic_panel = plan["mimic_panel"]
+        hatch_panel = plan["hatch_panel"]
+        hatch_do, combine_do = plan["hatch_do"], plan["combine_do"]
+        hatch_actions = plan["hatch_actions"]
+
+        # 3) DO phase — HUD pre-check: never waste a teleport/macro walk on a
+        # quest that already completed naturally during the run.
+        completed = []
+        for panel in mine_list:
+            if _KILLED or _STONE_LOST:
+                return
+            if qm.quest_hud_done(panel):
+                log.info(f"[QUEST] quest {panel} already done (HUD slot gone) — skipping teleport/macro")
+                completed.append(panel)
+                stats.mark_step(f"Quest {panel} (natural)")
+                continue
+            quest_moved = True
+            if _quest_mine_one(panel, quests[panel]["star"]):
+                completed.append(panel)
+        if mimic_panel is not None:
+            if _KILLED or _STONE_LOST:
+                return
+            if qm.quest_hud_done(mimic_panel):
+                log.info(f"[QUEST] chest quest {mimic_panel} already done (HUD slot gone) — skipping mimic macro")
+                completed.append(mimic_panel)
+                stats.mark_step(f"Quest {mimic_panel} Chests (natural)")
+            else:
+                quest_moved = True
+                if _quest_mimic_one(mimic_panel):
+                    completed.append(mimic_panel)
+
+        # 3b) hatch pets — eggs come from the rock quests above; the actions
+        # run when the Hatch quest is accepted OR Combine needs pets to combine
+        hatch_done = hatch_do and qm.quest_hud_done(hatch_panel)
+        combine_done = combine_do and qm.quest_hud_done(plan["combine_panel"])
+        if hatch_done:
+            log.info(f"[QUEST] hatch quest {hatch_panel} already Done on HUD — skipping hatch actions")
+            completed.append(hatch_panel)
+            stats.mark_step(f"Quest {hatch_panel} Hatch (natural)")
+        elif hatch_actions:
+            if _KILLED or _STONE_LOST:
+                return
+            quest_moved = True
+            if _quest_hatch_action():
+                if hatch_do and _quest_wait_hud_done(hatch_panel, 8.0):
+                    completed.append(hatch_panel)
+                    stats.mark_step(f"Quest {hatch_panel} Hatch")
+                elif hatch_do:
+                    log.warning(f"[QUEST] hatch quest {hatch_panel} HUD slot still present — not done")
+
+        # 3c) combine pets — only when the Combine quest was accepted.
+        # The in-menu flow only proves the clicks landed (yellow close
+        # samples) — the HUD Done check is the real success signal, so when
+        # the quest does not register we retry the whole flow instead of
+        # trusting "all clicks landed" (a missed AUTO COMBINE click can open
+        # some other panel that still trips the yellow sample check).
+        if combine_do:
+            if combine_done:
+                log.info(f"[QUEST] combine quest {plan['combine_panel']} already Done on HUD — skipping combine")
+                completed.append(plan["combine_panel"])
+                stats.mark_step(f"Quest {plan['combine_panel']} Combine (natural)")
+            elif _KILLED or _STONE_LOST:
+                return
+            else:
+                quest_moved = True
+                COMBINE_PASSES = 3
+                combined_ok = False
+                for attempt in range(1, COMBINE_PASSES + 1):
+                    if _KILLED or _STONE_LOST:
+                        return
+                    if attempt > 1:
+                        log.info(f"[QUESTS] Combine Pets pass {attempt}/{COMBINE_PASSES} — HUD still not Done")
+                    if not _quest_combine_action():
+                        # flow already retried internally and verified missing
+                        # panels — no point looping the same broken clicks
+                        break
+                    if _quest_wait_hud_done(plan["combine_panel"], 8.0):
+                        completed.append(plan["combine_panel"])
+                        stats.mark_step(f"Quest {plan['combine_panel']} Combine")
+                        combined_ok = True
+                        break
+                    log.warning(f"[QUEST] combine quest {plan['combine_panel']} not Done on HUD after pass {attempt}")
+                if not combined_ok:
+                    log.warning(f"[QUEST] combine quest {plan['combine_panel']} HUD slot still present — not done "
+                                "(enable SAVE_DEBUG_CROPS and check the quest_combine_* crops to recalibrate "
+                                "the COMBINE_* click points)")
+
+        # 4) v1.11: claiming removed — the game auto-confirms finished
+        # quests (no board visit, no reward buttons). Done quests just
+        # count toward the run stats.
+        for panel in completed:
+            stats.add_quest_completed()
+        if completed:
+            log.info(f"[QUESTS] quests auto-confirmed by the game: "
+                     + ", ".join(f"q{p}" for p in completed))
+    except Exception as e:
+        log.warning(f"[QUESTS] quest phase error (continuing to rebirth): {e}")
+    finally:
+        try:
+            if qm.quest_menu_open():
+                qm.close_quest_menu()
+        except Exception:
+            pass
+        _freeze_stone(False)
+        # base_to_rebirth only works from the fresh tp-base spawn. Re-teleport
+        # ONLY when quest actions actually moved the character (v1.11: with
+        # claiming gone, all-done runs stay at base and skip this entirely).
+        if (quest_moved or not _at_base) and not _KILLED and not _STONE_LOST:
+            try:
+                log.info("[QUESTS] quest actions moved the character — re-teleport to base")
+                _teleport_to_base()
+            except Exception as e:
+                log.warning(f"[QUESTS] base re-teleport failed: {e}")
+        if had_auto_str and not _KILLED:
+            try:
+                enable_auto_strength()
+                set_overlay(auto_str=True)
+            except Exception:
+                pass
+        log.info("[QUESTS] quest phase finished")
+
+
+def _do_rebirth(skip_quests: bool = False) -> bool:
+    """Play base_to_rebirth (it does all the clicking: walk to the NPC,
+    interact, confirm, respawn). Returns True when the stone reads 0 after
+    the macro ends. No stone detected = failed.
+
+    The stone watcher is suppressed for the whole rebirth flow because the
+    rebirth macro, animation, blank HUD, and post-confirm settle can all hide
+    the stone icon without meaning the run failed.
+    """
+    global _REBIRTH_IN_PROGRESS, _last_live_stone, _POST_REBIRTH_STONE_UNTRUSTED
+    _REBIRTH_IN_PROGRESS = True
+    try:
+        _console_status("REBIRTH", "Rebirthing")
+        # v1.9.18 guard: never play base_to_rebirth on a stone nobody has read
+        # since the last rebirth. That is exactly how the bot ended up
+        # rebirthing twice in a row without farming anything in between.
+        if _POST_REBIRTH_STONE_UNTRUSTED:
+            log.info("[REBIRTH] stone not read since the last rebirth — reading it before rebirthing")
+            _pre_rb_probe = _read_stone_with_retry(
+                "[REBIRTH] pre-rebirth stone", attempts=5, delay=0.25)
+            if _pre_rb_probe is None:
+                log.warning("[REBIRTH] stone still unreadable — refusing to rebirth blind")
+                _rec_log_macro("rebirth_confirm", "error", error="stone_unreadable_precheck")
+                _rec_set_failure("rebirth_failed:stone_unreadable_precheck")
+                _console_status("REBIRTH", "Refused - stone unreadable")
+                return False
+        # v2030: pre-rebirth stone reference for the verify's artefact check.
+        # (The watcher is suppressed during the whole flow, so this is the
+        # last trusted pre-rebirth value.)
+        _pre_rb_stone = _last_live_stone
+        if _auto_strength_enabled():
+            disable_auto_strength()
+            set_overlay(auto_str=False)
+
+        # base_to_rebirth is a walk FROM BASE to the NPC. After meteor / A6 we
+        # are not at base — teleport first.
+        if not _at_base:
+            log.info("[REBIRTH] not at base — teleport_to_base before base_to_rebirth")
+            if not _teleport_to_base():
+                return False
+        # Daily Quests rail: run the quest phase between meteor and rebirth.
+        # (The a5-meteor fast cycle passes skip_quests=True — it runs the
+        # quest phase at cycle start instead, right AFTER the rebirth.)
+        if _quests_enabled() and not skip_quests:
+            _rb_time_push("daily quests")
+            try:
+                _do_daily_quests()
+            finally:
+                _rb_time_pop()
+            if _KILLED or _STONE_LOST:
+                return False
+        _mark_left_base()
+
+        # base_to_rebirth does ALL the clicking (walk, interact, confirm,
+        # respawn). The bot just plays it to the end and then judges the
+        # result purely by the stone read — no button watching.
+        _console_status("REBIRTH", "Playing base_to_rebirth")
+        _rec_log_macro("rebirth_confirm", "start")
+        # v2027: a real rebirth ALWAYS fades the screen near-black. The
+        # confirm click lives inside base_to_rebirth, so the fade can start
+        # mid-macro — arm the watcher BEFORE the macro plays and read it
+        # after the respawn window closes. Menu-open with no fade = the
+        # game refused the rebirth → fail the attempt fast instead of
+        # trusting the menu and re-reading stone (the a5 dead loop fix).
+        try:
+            import config as _cfg_fade
+            _require_fade = bool(getattr(
+                _cfg_fade, "REBIRTH_REQUIRE_RESPAWN_FADE", True))
+        except Exception:
+            _require_fade = True
+        if _require_fade:
+            _arm_rebirth_fade_watch()
+        _rb_time_push("base_to_rebirth macro")
+        try:
+            _ok_rb = _run_macro("base_to_rebirth")
+        finally:
+            _rb_time_pop()
+        if not _ok_rb:
+            if _require_fade:
+                _disarm_rebirth_fade_watch()
+            return False
+        _phase_stamp("rebirth")
+
+        _console_status("REBIRTH", "Waiting respawn")
+        # F4 the moment the macro ends. The close button appearing is the
+        # respawn — a fixed settle here is just standing still.
+        _rb_time_push("waiting for rebirth (respawn)")
+        try:
+            _menu_seen = _spam_f4_until_menu(timeout=30.0, interval=0.1)
+        finally:
+            _fade_seen = _disarm_rebirth_fade_watch() if _require_fade else False
+        if not _menu_seen:
+            _rb_time_pop()
+            if _KILLED or _STONE_LOST:
+                return False
+            log.warning("[REBIRTH] respawn menu never appeared after F4 spam")
+            _rec_log_macro("rebirth_confirm", "error", error="no_respawn_menu")
+            _rec_set_failure("rebirth_failed:no_respawn_menu")
+            _console_status("REBIRTH", "Failed - no respawn")
+            _teleport_to_base()
+            return False
+        if _require_fade and not _fade_seen:
+            # The F4 menu opens whether or not the game respawned us — on a
+            # refused rebirth it opens over the NPC with the stone still
+            # spent on nothing. The fade is the only honest respawn signal.
+            _rb_time_pop()
+            if _KILLED or _STONE_LOST:
+                return False
+            log.warning("[REBIRTH] F4 menu opened but the respawn fade was never seen — rebirth refused")
+            _rec_log_macro("rebirth_confirm", "error", error="rebirth_refused_no_fade")
+            _rec_set_failure("rebirth_refused_no_fade")
+            _console_status("REBIRTH", "Refused - no fade")
+            _teleport_to_base(phase="tele_base", menu_open=True)
+            return False
+
+        # The F4 menu DOES cover the stone HUD — close the cycle on the
+        # respawn signal itself, go to base first (reusing the open menu),
+        # then read stone there. Either stone result leads to the same
+        # next step; only the confirm/failure markers differ.
+        _phase_stamp("verify")
+        _phase_emit_cycle()
+        _phase_stamp("conf")
+        _console_status("REBIRTH", "Respawned")
+        _rb_time_pop()
+        # No post-confirm / post-respawn / post-verify sleeps. Those were a
+        # fixed ~2.4s of standing still (and whatever was saved in config).
+        # The menu is already open; the stone read starts the instant F4 closes.
+        try:
+            import config as _cfg_ver
+            _verify_budget = max(1.0, float(getattr(
+                _cfg_ver, "REBIRTH_VERIFY_BUDGET_SECONDS", 6.0)))
+        except Exception:
+            _verify_budget = 6.0
+        _verify_poll = 0.05
+        if _KILLED:
+            return False
+        if not _teleport_to_base(phase="tele_base", menu_open=True):
+            # A real respawn already happened. Returning False here makes
+            # the fast cycle replay base_to_rebirth — the "already
+            # rebirthed, so it rebirths again" loop. Close F4 if it is
+            # what blocked the teleport, then read stone. Never rebirth
+            # again on the pre-rebirth number.
+            if not (_require_fade and _fade_seen):
+                return False
+            if _f4_menu_open()[0]:
+                log.warning(
+                    "[REBIRTH] teleport returned with F4 still covering the HUD — closing it"
+                )
+                _ensure_f4_closed("[REBIRTH]")
+            if _f4_menu_open()[0]:
+                log.warning(
+                    "[REBIRTH] F4 menu still covering the HUD after close — "
+                    "stone left UNKNOWN (pre-rebirth value is not reused)"
+                )
+                _mark_rebirth_stone_unverified("f4_still_covering_hud")
+                _console_status("REBIRTH", "Respawned - F4 still open")
+                return True
+            log.warning(
+                "[REBIRTH] teleport failed after a real respawn — "
+                "F4 is closed, reading stone instead of rebirthing again"
+            )
+        # The stone HUD does not exist while F4 is up. Confirm the panel
+        # is gone BEFORE spending the verify budget. A timer cannot see
+        # through the menu.
+        _menu_up, _, _ = _f4_menu_open()
+        if _menu_up:
+            log.warning("[REBIRTH] F4 still covering the HUD after teleport — closing before the stone read")
+            if not _ensure_f4_closed("[REBIRTH]"):
+                log.warning(
+                    "[REBIRTH] F4 menu still covering the HUD — refusing the stone read"
+                )
+                _mark_rebirth_stone_unverified("f4_still_covering_hud")
+                _console_status("REBIRTH", "Respawned - F4 still open")
+                return True
+        else:
+            log.info("[REBIRTH] F4 menu is closed — reading stone")
+        if _KILLED:
+            return False
+        # Verify budget starts only once the menu is gone. A miss while F4 is
+        # open is not a stone result — close the menu and read again.
+        _rb_time_push("verify stone (OCR)")
+        _v_t0 = time.perf_counter()
+        stone = None
+        _v_reads = 0
+        _v_deadline = time.perf_counter() + _verify_budget
+        while True:
+            _menu_up, _, _ = _f4_menu_open()
+            if _menu_up:
+                log.warning("[REBIRTH] F4 opened over the HUD during the stone read — closing, sample discarded")
+                if not _ensure_f4_closed("[REBIRTH]"):
+                    stone = None
+                    break
+                if _KILLED or _STONE_LOST or time.perf_counter() >= _v_deadline:
+                    break
+                continue
+            _v_reads += 1
+            stone = _read_stone_live(update_last=False, check_glitch=False)
+            if stone is not None:
+                break
+            if _KILLED or _STONE_LOST:
+                _rb_time_pop()
+                return False
+            if time.perf_counter() >= _v_deadline:
+                break
+            time.sleep(_verify_poll)
+        _rb_time_pop()
+        log.info(
+            f"[REBIRTH] probe: stone read {(time.perf_counter()-_v_t0)*1000:.0f}ms, "
+            f"{_v_reads} sample(s), value={stone if stone is not None else 'none'} "
+            f"(no settle before or after)"
+        )
+        if stone == 0.0:
+            log.debug("Rebirth confirmed (stone=0)")
+            _console_status("REBIRTH", "Rebirth confirmed", stone=0)
+            _mark_rebirth_zero_confirmed("stone=0")
+            set_overlay(stone=0.0, auto_str=None, status="REBIRTH")
+            _rec_log_macro("rebirth_confirm", "end")
+        elif stone is not None:
+            # v2030: the respawn fade + F4 menu are the authoritative
+            # rebirth signals (v2027). A nonzero read that is tiny vs the
+            # pre-rebirth stone (same 10% ratio as the low-glitch check) is
+            # the known OCR "7" artefact or a small game leftover — NOT a
+            # refused rebirth. A user's HUD region read a constant 7.0 at
+            # base (their strength-menu reads showed the true 0), so every
+            # rebirth "failed" and the retry loop replayed base_to_meteor
+            # forever instead of starting the fresh run. v2017's refused
+            # case (counter survived) is still caught: either the fade was
+            # never seen (early refuse) or the surviving value is NOT tiny
+            # vs the pre-rebirth reference and falls through to the fail.
+            # Fade seen = the respawn objectively happened (v2027), so trust
+            # it unless the read is a clearly survived LARGE counter: tiny /
+            # unknown / small pre-rebirth references can't separate an
+            # artefact "7" from a leftover, and failing those dead-loops.
+            _survived_counter = (
+                _pre_rb_stone is not None
+                and float(_pre_rb_stone) >= 1000.0
+                and stone >= float(_pre_rb_stone) * _STONE_LOW_GLITCH_RATIO
+            )
+            if _require_fade and _fade_seen and not _survived_counter:
+                log.warning(
+                    f"Respawned (fade seen) but stone reads {stone} != 0 at base "
+                    f"(pre-rebirth {_fmt_stone(_pre_rb_stone)}) - OCR artefact, trusting the respawn fade"
+                )
+                _rec_log_macro("rebirth_confirm", "end", error="stone_nonzero_artifact")
+                _mark_rebirth_zero_confirmed("fade_seen_artifact_read")
+                set_overlay(stone=0.0, auto_str=None, status="REBIRTH")
+            else:
+                # v2017 dead-loop guard: stone != 0 means the rebirth did NOT
+                # happen (the counter survived base_to_rebirth). The old code
+                # warned and continued, so the fast-meteor precheck kept the
+                # stale trusted stone (target value) and skipped baserock
+                # forever while the HUD sat at the leftover value. Trust the
+                # fresh read, then let the existing rebirth-retry / failed-run
+                # strike / force-restart machinery handle the rest.
+                log.warning(f"Respawned but stone != 0 after base_to_rebirth (stone={stone}) - rebirth failed")
+                _rec_log_macro("rebirth_confirm", "end", error="stone_nonzero")
+                _rec_set_failure("rebirth_failed:stone_nonzero")
+                _last_live_stone = float(stone)
+                try:
+                    _dash_update(cur_stone=_last_live_stone)
+                except Exception:
+                    pass
+                return False
+        else:
+            # v1.9.18: the HUD never produced a value inside the budget. The
+            # respawn fade proves the rebirth happened, so the run goes on —
+            # but the pre-rebirth stone is now WRONG (the rebirth reset it)
+            # and must not stay trusted, or the next cycle "sees" stone it no
+            # longer has, skips baserock and re-runs a rebirth the game refuses.
+            log.warning(
+                f"Respawned (fade seen) but stone still unreadable at base after "
+                f"{_v_reads} read(s) in {_verify_budget:.1f}s with F4 closed — "
+                "rebirth counted, stone marked UNKNOWN (pre-rebirth value is not reused)"
+            )
+            _rec_log_macro("rebirth_confirm", "end", error="stone_unreadable")
+            _mark_rebirth_stone_unverified("unreadable_after_respawn")
+            _console_status("REBIRTH", "Respawned - stone unreadable")
+        return True
+    finally:
+        _REBIRTH_IN_PROGRESS = False
+
+
+def _do_base_rock(target_stone: float = None) -> bool:
+    """Farm base rock until target_stone (default: STONE_FOR_A5_STAGE1). Returns True on success."""
+    global _at_base, _last_live_stone
+
+    if target_stone is None:
+        target_stone = STONE_FOR_A5_STAGE1
+    # Stone detection: the Manual Strength stone threshold replaces the
+    # route's own target everywhere the baserock grinds (default 1.36e152).
+    try:
+        import config as _cfg_t
+        _ms_stone = float(getattr(_cfg_t, "MANUAL_STR_STONE_TARGET", 0) or 0)
+        if _manual_strength_enabled() and not _manual_surge_detection() and _ms_stone > 0:
+            log.debug(f"[BASEROCK] manual stone target override: {_fmt_stone(_ms_stone)} (route: {_fmt_stone(target_stone)})")
+            target_stone = _ms_stone
+    except Exception:
+        pass
+
+    # v2019: no-needless-trip check — the live stone HUD answers "is it
+    # already enough?" without moving an inch. Every caller pre-checks
+    # before calling, but a failed/stale pre-check read must not cost a
+    # base→baserock→next round trip just to re-read the same number at
+    # the rock: confirm from right here and return success in place.
+    # (Manual-strength mode is excluded — its baserock flow also spends
+    # the surplus on upgrades, which needs the walk.)
+    if not _manual_strength_enabled() and not (_KILLED or _STONE_LOST):
+        _skip_probe = _read_stone_live(update_last=False, check_glitch=False)
+        if _skip_probe is not None and _skip_probe >= target_stone:
+            _skip_ok, _skip_cur = _confirm_stone_at_least(
+                target_stone,
+                "[BASEROCK] skip-trip confirm",
+                first_value=_skip_probe,
+                attempts=5,
+                required_hits=2,
+                delay=0.12,
+            )
+            if _skip_ok:
+                _skip_cur = _skip_cur or _skip_probe
+                _last_live_stone = _skip_cur
+                set_overlay(stone=_skip_cur)
+                _dash_update(cur_stone=_skip_cur)
+                log.info(
+                    f"[BASEROCK] stone {_fmt_stone(_skip_cur)} already >= "
+                    f"{_fmt_stone(target_stone)} — skipping baserock trip"
+                )
+                stats.mark_step("Base Rock")
+                _maybe_unlock_drills()   # same at-base drill check the walk path runs
+                return True
+
+    log.debug(f"[BASE_ROCK] _at_base={_at_base} — {'skipping teleport (already at base)' if _at_base else 'teleporting to base'} | target={target_stone:.2e}")
+    if not _at_base:
+        if not _teleport_to_base():
+            return False
+
+    if _auto_strength_enabled():
+        enable_auto_strength()
+        set_overlay(auto_str=True)
+
+    NO_GAIN_TIMEOUT  = 30   # seconds — if stone doesn't move at all, re-navigate
+    BASE_ROCK_RETRIES = _route_redo_limit()
+
+    for _br_attempt in range(1, BASE_ROCK_RETRIES + 1):
+        if _KILLED or _STONE_LOST:
+            return False
+
+        # ——— Pre-navigation drill unlock check —————————————————————————————————
+        # Check BEFORE navigating to baserock — if stone already >= threshold
+        # (e.g. bot started above e70), unlock drills here while still at base.
+        # This avoids wasting a base—rock—base round trip.
+        # _maybe_unlock_drills ends at base, so _at_base stays True and
+        # base_to_baserock below navigates cleanly without an extra teleport.
+        _maybe_unlock_drills()
+        if _KILLED or _STONE_LOST:
+            return False
+        # —————————————————————————————————————————————————————————————————————
+
+        _console_status("FARMING", "Base Rock")
+        log.info(f"[BASEROCK] attempt {_br_attempt}/{BASE_ROCK_RETRIES}  {_farm_env_bits()}")
+        r = _nav_or_redo("base_to_baserock")
+        if r == "kill":
+            return False
+        if r == "fail":
+            return False
+        if r == "redo":
+            log.warning("[NET] lag during walk — redo Base Rock path")
+            _at_base = False
+            if not _teleport_to_base():
+                return False
+            continue
+        _mark_left_base()
+
+        # Re-enable auto strength each attempt — a failed/retried attempt goes through
+        # _teleport_to_base() which disables it, so we must re-enable here.
+        if _auto_strength_enabled():
+            enable_auto_strength()
+            set_overlay(auto_str=True)
+
+        # Display seed only — the background stone reader and the stop-flag
+        # reads keep the real value fresh. A blocking OCR here would delay the
+        # fast-open sequence after the nav macro by ~0.5-1s.
+        start_stone = _last_live_stone or 0
+        _console_status("FARMING", "Base Rock", stone=start_stone)
+
+        # Replay baserock_hit macro until stone target reached or no-gain timeout.
+        # Each macro run is finite — crouch/uncrouch are always paired, so stopping
+        # between runs is always safe with no stuck-crouch risk.
+        # NOTE: last_stone starts None — the stone reading resets to baserock level
+        # (much lower than carry-over stage stone), so we must seed last_stone from
+        # the first valid baserock read rather than start_stone (which may be stale/high).
+        last_stone          = None   # seeded on first valid read at this rock
+        ok                  = False
+        cur                 = start_stone
+
+        # No-gain tolerance: count macro CYCLES with no stone increase.
+        # OCR glitches (e.g. reading '7' mid-swing) must not trigger a
+        # re-navigate — we require NO_GAIN_CYCLES consecutive gainless cycles.
+        NO_GAIN_CYCLES      = 2      # faster retry if repeated macro cycles produce no stone gain
+        _br_no_gain_streak  = 0      # incremented each cycle with no gain
+        _manual_mode        = _manual_strength_enabled()
+        _manual_no_gain_wait = _manual_hud_stall_seconds() if _manual_mode else float(NO_GAIN_TIMEOUT)
+        _last_gain_time     = time.time()
+        _manual_strength_watch = _make_manual_strength_watchdog("BASEROCK") if _manual_mode else None
+        _manual_activity_stone = None
+        _last_manual_buy_log = 0.0
+        # Surge read throttle state (surge mode only, from slim):
+        #   last surge level read  -> None until the first successful read
+        #   last full-check time   -> perf_counter of the last OCR evaluation
+        _surge_throttle_lvl = None
+        _surge_throttle_ts = 0.0
+        # Surge image, not the click counter. Clicks keep happening while the
+        # bot is upgrading air, so they must not count as progress. The clock
+        # starts at the attempt; it resets only when the surge crop actually
+        # changes. Frozen for MANUAL_STR_HUD_STALL_SECONDS -> re-navigate.
+        _surge_sig = None
+        _surge_sig_at = time.time()
+        _stone_throttle_ts = 0.0
+        _stop_why = [""]
+        _diag = {
+            "buys": 0,
+            "ocr_ok": 0,
+            "ocr_glitch": 0,
+            "ocr_miss": 0,
+            "last_c": None,
+            "last_glitch": None,
+            "last_buy_at": 0.0,
+            "last_buy": "",
+            "skip_log_at": 0.0,
+        }
+
+        def _dump_stall(why: str) -> None:
+            str_val = None
+            try:
+                if _manual_strength_watch:
+                    str_val = _manual_strength_watch.get("last_val")
+            except Exception:
+                pass
+            buy_ago = (time.time() - _diag["last_buy_at"]) if _diag["last_buy_at"] else -1
+            log.warning(
+                f"[STALL] {why}  peak={_fmt_stone(last_stone)} cur={_fmt_stone(_diag['last_c'])} "
+                f"glitch={_diag['last_glitch'] or '-'}  ocr_ok={_diag['ocr_ok']} "
+                f"ocr_glitch={_diag['ocr_glitch']} ocr_miss={_diag['ocr_miss']}  "
+                f"buys={_diag['buys']} last_buy={_diag['last_buy'] or '-'} "
+                f"buy_ago={buy_ago:.1f}s  str={_fmt_stone(str_val) if str_val is not None else '-'}  "
+                f"{_farm_env_bits()}"
+            )
+
+        def _manual_buy_activity(row_name=None, button_name=None):
+            nonlocal _last_manual_buy_log
+            # Upgrade clicks are not stone gain. Resetting _last_gain_time here
+            # is why 5s HUD stall never fired (6000 clicks → idle always 0.0s).
+            _diag["buys"] += 1
+            _diag["last_buy_at"] = time.time()
+            _diag["last_buy"] = str(button_name or row_name or "upgrade")
+            now = time.time()
+            if now - _last_manual_buy_log >= 1.0:
+                log.debug(f"[BASEROCK] manual buy activity: {_diag['last_buy']} n={_diag['buys']}")
+                _last_manual_buy_log = now
+
+        def _should_stop_baserock():
+            nonlocal last_stone, ok, cur, _br_no_gain_streak, _last_gain_time, _manual_activity_stone
+            nonlocal _surge_throttle_lvl, _surge_throttle_ts, _stone_throttle_ts
+            nonlocal _surge_sig, _surge_sig_at
+            global _last_live_stone
+            if _KILLED:
+                return True
+            if _peek_net_redo():
+                return True
+            _t_a = time.perf_counter()
+            _alive = _check_alive()
+            _ms_read_stat("alive_calls", time.perf_counter() - _t_a)
+            if not _alive:
+                return True
+            # Surge-level detection (bottom-row-only): stop buying when the
+            # bottom row surge level reaches the user threshold. Stone
+            # threshold checks are skipped in this mode - the surge level is
+            # the "done" signal. Stall watchdogs below still protect the run.
+            _surge_mode = _manual_mode and _manual_surge_detection()
+            if _surge_mode:
+                # Read throttle (from slim): the fast-read bar is always 10
+                # below the surge target (target 140 -> fast reads from 130
+                # on). Surge stop-signal reads run at 10/s below the bar and
+                # on every check (~12.5/s) at/above it. Stone/gain tracking
+                # stays at 1/s below the bar. Kill/net/alive checks above
+                # stay unthrottled.
+                try:
+                    _fast_lvl = max(0, int(_manual_surge_target()) - 10)
+                except Exception:
+                    _fast_lvl = 130
+                _now_pc = time.perf_counter()
+                _above_bar = (_surge_throttle_lvl is not None
+                              and _surge_throttle_lvl >= _fast_lvl)
+                # Surge read: 10/s below the bar (0.1s), every tick above it.
+                if _above_bar or (_now_pc - _surge_throttle_ts) >= 0.1:
+                    _surge_throttle_ts = _now_pc
+                    _t_s = time.perf_counter()
+                    lvl, sig = _read_surge_view()
+                    _ms_read_stat("surge_reads", time.perf_counter() - _t_s)
+                    if lvl is not None:
+                        _surge_throttle_lvl = lvl
+                    if sig is not None:
+                        from screen import surge_view_changed
+                        if _surge_sig is None or surge_view_changed(_surge_sig, sig):
+                            _surge_sig = sig
+                            _surge_sig_at = time.time()
+                if _surge_throttle_lvl is not None and \
+                        _surge_throttle_lvl >= _manual_surge_target():
+                    _stop_why[0] = "surge_target"
+                    log.info(f"[BASEROCK] surge level {_surge_throttle_lvl} >= "
+                             f"{_manual_surge_target()} - target reached; stopping")
+                    ok = True
+                    return True
+                _surge_stuck = time.time() - _surge_sig_at
+                if _surge_stuck >= _manual_no_gain_wait:
+                    _stop_why[0] = "surge_frozen"
+                    _lvl_txt = (_surge_throttle_lvl
+                                if _surge_throttle_lvl is not None else "?")
+                    log.warning(
+                        f"[BASEROCK] surge image unchanged for {_surge_stuck:.1f}s "
+                        f"(level={_lvl_txt}) — not buying, re-navigate"
+                    )
+                    return True
+                # Stone/gain tracking: 1/s always (from slim) — the surge read
+                # is the stop signal; stone bookkeeping doesn't need more.
+                if (_now_pc - _stone_throttle_ts) < 1.0:
+                    return False
+                _stone_throttle_ts = _now_pc
+            _t_st = time.perf_counter()
+            c = _read_stone_live(update_last=False, check_glitch=False)
+            _ms_read_stat("stone_reads", time.perf_counter() - _t_st)
+            if c is not None and c <= 0:
+                c = None
+            if c is None:
+                _diag["ocr_miss"] += 1
+            else:
+                _diag["last_c"] = c
+
+            # Determine if this OCR read looks like a glitch.
+            # Manual-strength menu OCR can spike far below or far above the real
+            # value. Ignore both directions for gain and threshold decisions.
+            # FIX 5: check_high=False — local `last_stone` peak can grow >1e6x
+            # per cycle with auto-strength ON; never treat real growth as glitch.
+            glitch_reason = _stone_glitch_reason(c, last_stone, check_high=False)
+            is_glitch = glitch_reason is not None
+
+            if c is not None and not is_glitch:
+                _diag["ocr_ok"] += 1
+                _diag["last_glitch"] = None
+                if c >= target_stone and not _surge_mode:
+                    confirmed, confirmed_cur = _confirm_stone_at_least(
+                        target_stone,
+                        "[BASEROCK] target",
+                        first_value=c,
+                        attempts=6,
+                        required_hits=2,
+                        delay=0.15,
+                    )
+                    if confirmed:
+                        c = confirmed_cur or c
+                        _last_live_stone = c
+                        last_stone = max(last_stone or c, c)
+                        cur = c
+                        set_overlay(stone=c)
+                        _dash_update(cur_stone=c)
+                        log.debug(f"[BASEROCK] threshold confirmed - stopping (stone={_fmt_stone(c)})")
+                        ok = True
+                        return True
+                    if confirmed_cur is None:
+                        return False
+                    c = confirmed_cur
+                    # FIX 5: same — local peak, check_high=False
+                    glitch_reason = _stone_glitch_reason(c, last_stone, check_high=False)
+                    is_glitch = glitch_reason is not None
+                    if is_glitch:
+                        log.debug(f"[BASEROCK] OCR {glitch_reason} glitch ignored after target re-check: {c} (peak={last_stone})")
+                        return False
+
+                _last_live_stone = c
+                set_overlay(stone=c)
+                _dash_update(cur_stone=c)
+                cur = c
+                if last_stone is None:
+                    # FIX 6/7: Guard first-valid-read seed against OCR artifacts.
+                    # If start_stone is large and c is tiny (e.g. "153" misread),
+                    # seeding last_stone=153 poisons the baseline — every real
+                    # stone value then looks like a 1e150x spike and gets rejected.
+                    # Only accept the seed if c is plausible relative to start_stone.
+                    _seed_ok = (
+                        c > 0 and (
+                            start_stone is None or start_stone < 1e6 or
+                            c >= start_stone * 0.001
+                        )
+                    )
+                    if not _seed_ok:
+                        log.debug(f"[BASEROCK] first-read seed rejected (c={_fmt_stone(c)} << start={_fmt_stone(start_stone)}) — waiting for valid read")
+                    else:
+                        # First valid read — seed baseline, reset streak
+                        last_stone         = c
+                        _manual_activity_stone = c
+                        _br_no_gain_streak = 0
+                        _last_gain_time    = time.time()
+                elif c > last_stone:
+                    last_stone         = c
+                    _manual_activity_stone = c
+                    _br_no_gain_streak = 0   # real gain — reset streak
+                    _last_gain_time    = time.time()
+                else:
+                    if _manual_mode:
+                        # In manual mode we still drive retries by stone gain.
+                        # Keep logging movement diagnostics, but do not reset
+                        # the no-gain timer unless we see real gain (c > peak).
+                        ref = _manual_activity_stone
+                        moved = (
+                            ref is None or
+                            (ref <= 0 and c != ref) or
+                            (ref and abs(c - ref) / ref >= 0.001)
+                        )
+                        _manual_activity_stone = c
+                        if moved:
+                            _last_gain_time = time.time()
+                            log.debug(f"[BASEROCK] manual stone movement activity: peak={_fmt_stone(last_stone)} cur={_fmt_stone(c)}")
+                        else:
+                            no_gain_for = time.time() - _last_gain_time
+                            log.debug(f"[BASEROCK] manual no-gain {no_gain_for:.1f}/{_manual_no_gain_wait:.1f}s")
+                    else:
+                        # Valid non-glitch read but no gain this macro cycle
+                        _br_no_gain_streak += 1
+                        log.debug(f"[BASEROCK] no-gain streak {_br_no_gain_streak}/{NO_GAIN_CYCLES}")
+            elif is_glitch:
+                _diag["ocr_glitch"] += 1
+                _diag["last_glitch"] = glitch_reason
+                _diag["last_c"] = c
+                log.debug(f"[BASEROCK] OCR {glitch_reason} glitch ignored: {c} (peak={last_stone})")
+            # else: OCR returned None — do NOT touch any counters
+
+            # No-gain bail — only fires after baseline is set
+            if last_stone is not None:
+                if _manual_mode:
+                    if _manual_strength_watchdog_stalled(
+                        _manual_strength_watch,
+                        recent_activity_at=_last_gain_time,
+                    ):
+                        _stop_why[0] = "strength_stall"
+                        _dump_stall("strength watchdog")
+                        return True
+                    # Purchases count as progress: while the bottom-row spam
+                    # keeps buying, stone sits flat by design (upgrades spend
+                    # it), so a flat HUD is NOT a stall. The 2026-11-06 log
+                    # bailed/re-navigated at 5.3s with buys=275 and
+                    # buy_ago=0.2s - a working run thrown away.
+                    _buy_ts = _diag.get("last_buy_at") or 0.0
+                    if _buy_ts and (time.time() - _buy_ts) <= 1.5:
+                        _last_gain_time = time.time()
+                    no_gain_for = time.time() - _last_gain_time
+                    if no_gain_for >= _manual_no_gain_wait:
+                        _stop_why[0] = "hud_stall"
+                        _dump_stall(f"HUD no-gain {no_gain_for:.1f}s")
+                        log.warning(f"Base rock: no stone gain for {no_gain_for:.1f}s — re-navigate")
+                        return True
+                    now = time.time()
+                    if now - _diag["skip_log_at"] >= 2.0:
+                        _diag["skip_log_at"] = now
+                        log.debug(
+                            f"[STALL] HUD idle {no_gain_for:.1f}/{_manual_no_gain_wait:.1f}s  "
+                            f"buys={_diag['buys']}  {_farm_env_bits()}"
+                        )
+                elif _br_no_gain_streak >= NO_GAIN_CYCLES:
+                    _stop_why[0] = "no_gain_cycles"
+                    log.warning(f"Base rock: no stone gain for {NO_GAIN_CYCLES} cycles — re-navigate")
+                    return True
+            elif _manual_mode:
+                # Stone reads 0/None while the spam spends it as fast as it is
+                # mined (common right after rebirth). Active buys are progress,
+                # same as the seeded branch above — don't bail on a flat HUD.
+                _buy_ts = _diag.get("last_buy_at") or 0.0
+                if _buy_ts and (time.time() - _buy_ts) <= 1.5:
+                    _last_gain_time = time.time()
+                no_gain_for = time.time() - _last_gain_time
+                if no_gain_for >= _manual_no_gain_wait:
+                    _stop_why[0] = "hud_stall_no_stone"
+                    _dump_stall(f"HUD no valid stone {no_gain_for:.1f}s")
+                    log.warning(f"Base rock: no valid stone for {no_gain_for:.1f}s — re-navigate")
+                    return True
+
+            # ——— Mid-loop drill unlock check ———————————————————————————————————————
+            # _maybe_unlock_drills is also called once before the loop starts,
+            # but if the bot starts below the e70 threshold, stone may cross it
+            # during this loop — we must catch that here so drills unlock on time.
+            if not _DRILLS_UNLOCKED:
+                _maybe_unlock_drills()
+                if _DRILLS_UNLOCKED:
+                    # Drill macro teleported us away and back — stop the hit loop
+                    # so _do_base_rock re-navigates cleanly via base_to_baserock.
+                    log.debug("[BASEROCK] drill unlock fired mid-loop — stopping hit loop to re-navigate")
+                    return True
+            # —————————————————————————————————————————————————————————————————————
+
+            return False
+
+        _run_baserock_loop_until(
+            _should_stop_baserock,
+            manual_reason="base rock" if _manual_strength_enabled() else "",
+            activity_callback=_manual_buy_activity if _manual_strength_enabled() else None,
+        )
+        _stop_drill_loop()
+        if _KILLED or _STONE_LOST:
+            return False
+        if _take_net_redo():
+            ok = False
+            log.warning("[NET] lag during Base Rock farm — redo path")
+
+        if ok:
+            if _manual_strength_enabled():
+                valid_manual_reads = [v for v in (cur, last_stone) if v is not None]
+                if valid_manual_reads:
+                    cur = max(valid_manual_reads)
+            else:
+                cur = _read_stone_live() or cur
+            if _manual_strength_enabled():
+                break
+            if _manual_strength_enabled() and cur is not None and cur < target_stone:
+                log.warning(f"[BASEROCK] manual upgrades spent below target after stop ({_fmt_stone(cur)} < {_fmt_stone(target_stone)}); retrying base rock")
+                ok = False
+            else:
+                break  # success — exit retry loop
+
+        log.warning(
+            f"Base rock farming failed (attempt {_br_attempt}/{BASE_ROCK_RETRIES})  "
+            f"why={_stop_why[0] or 'unknown'}  {_farm_env_bits()}"
+        )
+        if _stop_why[0]:
+            _dump_stall(f"attempt {_br_attempt} fail")
+        # Skip re-teleport if drills just fired — _maybe_unlock_drills already
+        # ends at base (_at_base=True), so another teleport_to_base is redundant.
+        if not _at_base and not _KILLED:
+            if not _teleport_to_base():
+                return False
+        # continue retry loop
+    else:
+        log.warning(f"Base rock: all {BASE_ROCK_RETRIES} attempts failed  {_farm_env_bits()}")
+        _rec_set_failure("redo_limit:baserock")
+        return False
+
+    if not ok:
+        return False
+
+    stats.mark_step("Base Rock")
+
+    if _manual_strength_enabled():
+        if not _stop_active_manual_strength_for_action("base rock complete"):
+            _rec_set_failure("manual_strength_close_failed:base_rock_complete")
+            return False
+        cur = _manual_post_threshold_topup("BASEROCK", target_stone, cur, "baserock_hit")
+        _console_status("FARMING", "Base Rock", stone=cur)
+        return True
+
+    topup = STAGE_TOPUP_SECONDS.get("base", 15)
+    topup_target = target_stone * 1.01
+    cur = _read_stone_live(update_last=False, check_glitch=False) or cur
+    if topup > 0:
+        if _auto_strength_enabled():
+            disable_auto_strength()
+            set_overlay(auto_str=False)
+        _console_status("FARMING", "Base Rock topup")
+        if _run_hit_macro("baserock_hit", wait=False, skip_center=True) is None:
+            return False
+        _topup_deadline = time.time() + TOPUP_TIMEOUT
+        log.debug(f"[BASEROCK] topup - up to 3s warmup hit then polling to {_fmt_stone(topup_target)} (max {TOPUP_TIMEOUT}s)")
+        _blind_deadline = time.time() + 3.0
+        while time.time() < _blind_deadline and not (_KILLED or _STONE_LOST):
+            _probe = _read_stone_live(update_last=False, check_glitch=False)
+            if _probe is not None and _probe >= topup_target:
+                break
+            _wait_polling(0.25, "Base rock topup - blind hit", freeze=False)
+        _close_hit_macro()
+        stop_macro()
+        _stop_drill_loop()
+        time.sleep(0.3)
+        cur = _read_stone_checked("[BASEROCK] topup precheck", attempts=8, delay=0.15, min_reads=3) or cur
+
+        if cur < topup_target:
+            def _should_stop_topup():
+                nonlocal cur
+                global _last_live_stone
+                if _KILLED:
+                    return True
+                if not _check_alive():
+                    return True
+                if time.time() > _topup_deadline:
+                    return True
+                c = _read_stone_live(update_last=False, check_glitch=False)
+                if c is not None:
+                    glitch_reason = _stone_glitch_reason(c, cur)
+                    if glitch_reason:
+                        log.debug(f"[BASEROCK] topup OCR {glitch_reason} glitch ignored: {c} (cur={cur})")
+                        return False
+                    if c >= topup_target:
+                        confirmed, confirmed_cur = _confirm_stone_at_least(
+                            topup_target,
+                            "[BASEROCK] topup",
+                            first_value=c,
+                            attempts=5,
+                            required_hits=2,
+                            delay=0.12,
+                        )
+                        if confirmed:
+                            cur = confirmed_cur or c
+                            log.debug(f"[BASEROCK] topup done - stone={_fmt_stone(cur)}")
+                            return True
+                        if confirmed_cur is not None:
+                            c = confirmed_cur
+                        else:
+                            return False
+                    _last_live_stone = c
+                    set_overlay(stone=c)
+                    _dash_update(cur_stone=c)
+                    cur = c
+                return False
+
+            _run_baserock_loop_until(
+                _should_stop_topup,
+                skip_center=True,
+                manual_reason="base rock topup" if _manual_strength_enabled() else "",
+            )
+            _stop_drill_loop()
+            cur = _read_stone_checked("[BASEROCK] topup final", attempts=5, delay=0.12, min_reads=2) or cur
+        else:
+            log.debug(f"[BASEROCK] topup: already at {_fmt_stone(cur)} >= {_fmt_stone(topup_target)} after blind hit")
+            _close_hit_macro()
+            stop_macro()
+            _stop_drill_loop()
+        set_overlay(stone=cur)
+
+    if cur is None or cur < target_stone:
+        log.warning(f"[BASEROCK] final stone below target ({_fmt_stone(cur)} < {_fmt_stone(target_stone)})")
+        return False
+    _last_live_stone = cur
+    _console_status("FARMING", "Base Rock", stone=cur)
+    return True
+
+
+# ——— Main run loop ——————————————————————————————————————————————
+
+def _delve_read_ui_text(region: tuple[int, int, int, int]) -> str:
+    try:
+        import cv2
+        import pytesseract
+        from screen import ensure_tesseract
+        ensure_tesseract()
+        img = grab_region(region)
+        up = cv2.resize(img, None, fx=2.4, fy=2.4, interpolation=cv2.INTER_CUBIC)
+        gray = cv2.cvtColor(up, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        raw = pytesseract.image_to_string(
+            thresh,
+            config="--psm 7 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+        )
+        return (raw or "").strip().upper()
+    except Exception as e:
+        log.debug(f"[DELVE] OCR failed: {e}")
+        return ""
+
+
+def _delve_close_visible() -> bool:
+    try:
+        import cv2
+        import numpy as np
+        import config as _cfg_delve
+        img = grab_region(getattr(_cfg_delve, "DELVE_CLOSE_REGION"))
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        yellow = cv2.inRange(
+            hsv,
+            np.array([18, 65, 100], dtype=np.uint8),  # widened for semi-transparent close button
+            np.array([45, 255, 255], dtype=np.uint8),
+        )
+        pct = float(np.count_nonzero(yellow)) / float(max(1, yellow.size))
+        text = _delve_read_ui_text(getattr(_cfg_delve, "DELVE_CLOSE_REGION"))
+        ok = pct >= 0.30 or "CLOSE" in text or "CLOS" in text
+        log.debug(f"[DELVE] close check yellow={pct:.1%} text={text!r} ok={ok}")
+        return ok
+    except Exception as e:
+        log.debug(f"[DELVE] close detection failed: {e}")
+        return False
+
+
+def _delve_join_visible() -> bool:
+    import config as _cfg_delve
+    text = _delve_read_ui_text(getattr(_cfg_delve, "DELVE_JOIN_REGION"))
+    ok = "JOIN" in text or "JOI" in text
+    log.debug(f"[DELVE] join OCR text={text!r} ok={ok}")
+    return ok
+
+
+def _delve_click_join_twice():
+    import config as _cfg_delve
+    from macro_runner import _mouse_left_click, _mouse_move_abs
+    x, y = getattr(_cfg_delve, "DELVE_JOIN_CENTER")
+    gap = max(0.0, float(getattr(_cfg_delve, "DELVE_JOIN_CLICK_GAP_SECONDS", 0.5)))
+    for idx in range(2):
+        _mouse_move_abs(int(x), int(y))
+        time.sleep(0.06)
+        _mouse_left_click()
+        log.debug(f"[DELVE] JOIN click {idx + 1}/2 at ({x},{y})")
+        if idx == 0:
+            time.sleep(gap)
+
+
+def _delve_prepare_weapon():
+    import config as _cfg_delve
+    wait_s = max(0.0, float(getattr(_cfg_delve, "DELVE_POST_JOIN_WAIT_SECONDS", 0.5)))
+    binding = str(getattr(_cfg_delve, "DELVE_WEAPON_BINDING", None) or getattr(_cfg_delve, "WEAPON_1_BINDING", "1"))
+    time.sleep(wait_s)
+    for idx in range(3):
+        if not trigger_binding_action(binding, hold_ms=45):
+            trigger_binding_action("1", hold_ms=45)
+        log.debug(f"[DELVE] weapon binding press {idx + 1}/3 ({binding})")
+        time.sleep(0.12)
+
+
+def _delve_try_menu_resume(reason: str) -> bool:
+    global _STONE_LOST
+    if not _STONE_LOST:
+        # Do not run proactive menu-resume probes during normal route/fight flow.
+        return False
+    try:
+        from dashboard import get_state as _ds
+        if not _menu_resume_enabled(_ds()):
+            return False
+    except Exception:
+        return False
+    # During active Delve fight we should not attempt menu resume while the
+    # in-match HUD (stone icon) is visible. This filters false positives from
+    # bright yellow UI elements that can look like PLAY.
+    try:
+        if reason == "boss fight" and _stone_icon_visible_restart_image():
+            return False
+    except Exception:
+        pass
+    # Require a stable menu detection before resuming to avoid false positives
+    # during movement/route frames (more common on higher resolutions).
+    try:
+        if not is_in_menu():
+            return False
+        time.sleep(0.12)
+        if not is_in_menu():
+            return False
+    except Exception:
+        return False
+    log.warning(f"[DELVE] menu detected during {reason}; attempting menu resume")
+    if _do_menu_resume():
+        log.info("[DELVE] menu resume succeeded")
+        return True
+    log.warning("[DELVE] menu resume failed")
+    return False
+
+
+def _delve_open_menu_via_a5() -> bool:
+    import config as _cfg_delve
+    attempts = _route_redo_limit()
+    wait_s = max(0.0, float(getattr(_cfg_delve, "DELVE_MENU_WAIT_SECONDS", 0.5)))
+    for attempt in range(1, attempts + 1):
+        if _KILLED:
+            return False
+        _console_status("DELVE", f"Teleport {attempt}/{attempts}")
+        _dash_update(status="DELVE", goal="Teleport")
+        set_overlay(status="DELVE", goal="Teleport")
+        if not _builtin_teleport_safe("area5", attempts=10, wait_seconds=3.5):
+            log.warning(f"[DELVE] F4 Area 5 teleport failed before delve macro ({attempt}/{attempts})")
+            if _boss_add_strike("delve", "F4 area5 teleport failed"):
+                return False
+            _delve_try_menu_resume("route teleport failure")
+            continue
+        _mark_area5_unlocked_if_visible(f"delve attempt {attempt}", attempts=2, delay=0.15)
+        _console_status("DELVE", f"Navigation {attempt}/{attempts}")
+        _dash_update(status="DELVE", goal="Navigation")
+        set_overlay(status="DELVE", goal="Navigation")
+        if not _run_macro("area5_to_delve"):
+            log.warning(f"[DELVE] area5_to_delve macro failed ({attempt}/{attempts})")
+            if _boss_add_strike("delve", "area5_to_delve macro failed"):
+                return False
+            _delve_try_menu_resume("route macro failure")
+            continue
+        time.sleep(wait_s)
+        close_ok = _delve_close_visible()
+        join_ok = _delve_join_visible()
+        if close_ok:
+            if not join_ok:
+                log.warning("[DELVE] CLOSE found but JOIN OCR missed; clicking configured JOIN center anyway")
+            return True
+        log.warning(f"[DELVE] boss menu not confirmed after route attempt {attempt}/{attempts}")
+        if _boss_add_strike("delve", "boss menu not confirmed after route"):
+            return False
+        _delve_try_menu_resume("route menu confirm miss")
+    _rec_set_failure("redo_limit:delve")
+    return False
+
+
+def _kraken_close_visible() -> bool:
+    try:
+        import cv2
+        import numpy as np
+        import config as _cfg_kraken
+        img = grab_region(getattr(_cfg_kraken, "KRAKEN_CLOSE_REGION"))
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        yellow = cv2.inRange(
+            hsv,
+            np.array([18, 65, 100], dtype=np.uint8),  # widened for semi-transparent close button
+            np.array([45, 255, 255], dtype=np.uint8),
+        )
+        pct = float(np.count_nonzero(yellow)) / float(max(1, yellow.size))
+        text = _delve_read_ui_text(getattr(_cfg_kraken, "KRAKEN_CLOSE_REGION"))
+        ok = pct >= 0.30 or "CLOSE" in text or "CLOS" in text
+        log.debug(f"[KRAKEN] close check yellow={pct:.1%} text={text!r} ok={ok}")
+        return ok
+    except Exception as e:
+        log.debug(f"[KRAKEN] close detection failed: {e}")
+        return False
+
+
+def _kraken_join_visible() -> bool:
+    import config as _cfg_kraken
+    text = _delve_read_ui_text(getattr(_cfg_kraken, "KRAKEN_JOIN_REGION"))
+    ok = "JOIN" in text or "JOI" in text
+    log.debug(f"[KRAKEN] join OCR text={text!r} ok={ok}")
+    return ok
+
+
+def _kraken_click_join_twice():
+    import config as _cfg_kraken
+    from macro_runner import _mouse_left_click, _mouse_move_abs
+    x, y = getattr(_cfg_kraken, "KRAKEN_JOIN_CENTER")
+    gap = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_JOIN_CLICK_GAP_SECONDS", 0.5)))
+    for idx in range(2):
+        _mouse_move_abs(int(x), int(y))
+        time.sleep(0.06)
+        _mouse_left_click()
+        log.debug(f"[KRAKEN] JOIN click {idx + 1}/2 at ({x},{y})")
+        if idx == 0:
+            time.sleep(gap)
+
+
+def _kraken_prepare_weapon():
+    import config as _cfg_kraken
+    wait_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_POST_JOIN_WAIT_SECONDS", 1.0)))
+    binding = str(getattr(_cfg_kraken, "KRAKEN_WEAPON_BINDING", None) or getattr(_cfg_kraken, "WEAPON_1_BINDING", "1"))
+    time.sleep(wait_s)
+    for idx in range(3):
+        if not trigger_binding_action(binding, hold_ms=45):
+            trigger_binding_action("1", hold_ms=45)
+        log.debug(f"[KRAKEN] weapon binding press {idx + 1}/3 ({binding})")
+        time.sleep(0.12)
+
+
+def _kraken_try_menu_resume(reason: str) -> bool:
+    global _STONE_LOST
+    if not _STONE_LOST:
+        # Do not run proactive menu-resume probes during normal route/fight flow.
+        return False
+    try:
+        from dashboard import get_state as _ds
+        if not _menu_resume_enabled(_ds()):
+            return False
+    except Exception:
+        return False
+    try:
+        if not is_in_menu():
+            return False
+    except Exception:
+        return False
+    log.warning(f"[KRAKEN] menu detected during {reason}; attempting menu resume")
+    if _do_menu_resume():
+        log.info("[KRAKEN] menu resume succeeded")
+        return True
+    log.warning("[KRAKEN] menu resume failed")
+    return False
+
+
+# \u2500\u2500 Boss-mode strike-out (dead-loop guard): kraken / zytos / delve \u2500\u2500\u2500\u2500\u2500
+# The dashboard "Route retry limit" (ROUTE_REDO_LIMIT) is the strike limit
+# for every boss mode, exactly like crater's consecutive-failure counter.
+# Strikes (per mode, consecutive):
+#   +1 for every failed route attempt (F4 teleport + walk macro + boss-menu
+#      check) that ends without the menu confirmed
+#   +1 for a failed fight-open (JOIN clicked but no health bar appeared)
+#      (kraken / zytos; delve has no health-bar detector)
+# Strikes reset on a successful kill (or death \u2014 game still responsive).
+# At the limit: force restart if it is ON in the dashboard (a REAL
+# leave-to-lobby restart, because the in-game map itself is usually what is
+# bugged), otherwise stop the bot instead of retrying forever.
+_BOSS_STRIKES = {"kraken": 0, "zytos": 0, "delve": 0}
+_BOSS_STOP = {"kraken": False, "zytos": False, "delve": False}
+
+
+def _boss_strike_init(mode: str):
+    """Fresh mode start: clear the strike counter and stop flag."""
+    _BOSS_STRIKES[mode] = 0
+    _BOSS_STOP[mode] = False
+
+
+def _boss_strike_stopped(mode: str) -> bool:
+    return bool(_BOSS_STOP.get(mode, False))
+
+
+def _boss_strike_reset(mode: str, reason: str = "kill"):
+    if _BOSS_STRIKES.get(mode):
+        log.info(f"[{mode.upper()}] {reason} \u2014 resetting strike count (was {_BOSS_STRIKES[mode]})")
+    _BOSS_STRIKES[mode] = 0
+
+
+_REBIRTH_RUN_STRIKES = 0
+
+
+def _rebirth_strike_record(run_ok: bool) -> bool:
+    """Track consecutive failed rebirth runs (dashboard strike limit).
+
+    Returns True only on strike-out: N failed runs in a row (each one
+    already went through its own force-restart / menu-resume attempt) means
+    recovery is not helping - stop instead of looping forever.
+    """
+    global _REBIRTH_RUN_STRIKES
+    if run_ok:
+        if _REBIRTH_RUN_STRIKES:
+            log.info(f"[REBIRTH] run succeeded \u2014 resetting failed-run strikes (was {_REBIRTH_RUN_STRIKES})")
+        _REBIRTH_RUN_STRIKES = 0
+        return False
+    _REBIRTH_RUN_STRIKES += 1
+    limit = _route_redo_limit()
+    log.warning(f"[REBIRTH] failed-run strike {_REBIRTH_RUN_STRIKES}/{limit}")
+    if _REBIRTH_RUN_STRIKES < limit:
+        return False
+    _REBIRTH_RUN_STRIKES = 0
+    log.error(f"[REBIRTH] {limit} consecutive failed runs \u2014 strike out (dead-loop guard)")
+    _rec_set_failure("strike_out:rebirth")
+    try:
+        from screen import save_debug_fullscreen
+        save_debug_fullscreen("rebirth_strike_out")
+    except Exception as e:
+        log.debug(f"[REBIRTH] strike-out screenshot failed: {e}")
+    return True
+
+
+def _boss_add_strike(mode: str, reason: str) -> bool:
+    """Count one consecutive failure for a boss mode (kraken/zytos/delve).
+
+    Returns False when the mode loop should keep going (still under the
+    limit, or force restart just recovered the game), True when the loop
+    must stop (limit reached and force restart is OFF or failed).
+    """
+    tag = mode.upper()
+    limit = _route_redo_limit()
+    _BOSS_STRIKES[mode] = _BOSS_STRIKES.get(mode, 0) + 1
+    log.warning(f"[{tag}] strike {_BOSS_STRIKES[mode]}/{limit} \u2014 {reason}")
+    if _BOSS_STRIKES[mode] < limit:
+        return False
+    log.error(f"[{tag}] {limit} consecutive failures ({reason}) \u2014 strike out")
+    _rec_set_failure(f"strike_out:{mode}:{reason}")
+    try:
+        from screen import save_debug_fullscreen
+        save_debug_fullscreen(f"{mode}_strike_out")
+    except Exception as e:
+        log.debug(f"[{tag}] strike-out screenshot failed: {e}")
+    _BOSS_STRIKES[mode] = 0
+    if _force_restart_enabled(None):
+        log.warning(f"[{tag}] force restart ON \u2014 leaving to lobby and rejoining")
+        _console_status(tag, "Force Restart")
+        set_overlay(status="RESTART", goal="Force Restart", run_start_time=0)
+        if _try_force_restart_after_failure(
+            f"{mode} strike out: {reason}", in_game_short_circuit=False
+        ):
+            log.info(f"[{tag}] force restart OK \u2014 resuming {mode} loop")
+            return False
+        log.error(f"[{tag}] force restart failed \u2014 stopping {mode} loop")
+    else:
+        log.error(f"[{tag}] force restart OFF \u2014 stopping {mode} loop (dead-loop guard)")
+    _BOSS_STOP[mode] = True
+    set_overlay(status="STOPPED", goal=f"{tag.title()} strike out", run_start_time=0)
+    _dash_update(run_active=False, run_start_time=None, status="STOPPED", goal=f"{tag.title()} strike out")
+    return True
+
+
+def _kraken_open_menu_via_a7() -> bool:
+    import config as _cfg_kraken
+    attempts = _route_redo_limit()
+    wait_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_MENU_WAIT_SECONDS", 0.5)))
+    for attempt in range(1, attempts + 1):
+        if _KILLED:
+            return False
+        if _kraken_try_menu_resume("route"):
+            continue
+        _console_status("KRAKEN", f"Teleport {attempt}/{attempts}")
+        _dash_update(status="KRAKEN", goal="Teleport")
+        set_overlay(status="KRAKEN", goal="Teleport", run_start_time=0)
+        if not _builtin_teleport_safe("area7", attempts=10, wait_seconds=3.5):
+            log.warning(f"[KRAKEN] F4 Area 7 teleport failed before kraken macro ({attempt}/{attempts})")
+            if _boss_add_strike("kraken", "F4 area7 teleport failed"):
+                return False
+            continue
+        _console_status("KRAKEN", f"Navigation {attempt}/{attempts}")
+        _dash_update(status="KRAKEN", goal="Navigation")
+        set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
+        if not _run_macro("area7_to_kraken"):
+            log.warning(f"[KRAKEN] area7_to_kraken macro failed ({attempt}/{attempts})")
+            if _boss_add_strike("kraken", "area7_to_kraken macro failed"):
+                return False
+            continue
+        time.sleep(wait_s)
+        close_ok = _kraken_close_visible()
+        join_ok = _kraken_join_visible()
+        if close_ok:
+            if not join_ok:
+                log.warning("[KRAKEN] CLOSE found but JOIN OCR missed; clicking configured JOIN center anyway")
+            return True
+        log.warning(f"[KRAKEN] boss menu not confirmed after route attempt {attempt}/{attempts}")
+        if _boss_add_strike("kraken", "boss menu not confirmed after route"):
+            return False
+    _rec_set_failure("redo_limit:kraken")
+    return False
+
+
+def _kraken_reopen_menu_after_kill():
+    """Walk forward for a fixed 3s while spamming E; abort on death screen.
+
+    Returns True (reward menu visible), False (fallback route result), or
+    the string "death" if the black/respawn screen appeared during the walk.
+    """
+    import config as _cfg_kraken
+    from macro_runner import _key_up as _mr_key_up
+
+    walk_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_REWARD_WALK_SECONDS", 4.0)))
+    wait_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_REWARD_OPEN_WAIT_SECONDS", 0.5)))
+    e_interval = 0.10
+
+    log.info("[KRAKEN] reward walk started (fixed %.1fs, spamming E)", walk_s)
+    try:
+        from macro_runner import live_wasd, remapped_movement_vks
+        fwd_name, fwd_vk = live_wasd().get("w", ("w", 0x57))
+        for _vk in remapped_movement_vks():
+            try:
+                _mr_key_up(_vk)
+            except Exception:
+                pass
+    except Exception:
+        fwd_name, fwd_vk = "w", 0x57
+        for _vk in (0x57, 0x41, 0x53, 0x44):
+            try:
+                _mr_key_up(_vk)
+            except Exception:
+                pass
+    for _k in ("w", "a", "s", "d", "shift", "ctrl", fwd_name):
+        try:
+            keyboard.release(_k)
+        except Exception:
+            pass
+    time.sleep(0.08)
+
+    walk_start = time.time()
+    last_e = 0.0
+    last_death_check = 0.0
+    death_seen = False
+    try:
+        keyboard.press(fwd_name)
+        from macro_runner import _key_down as _mr_key_down
+        _mr_key_down(fwd_vk)
+        while not _KILLED:
+            now = time.time()
+            elapsed = now - walk_start
+            # Death guard: the kill was confirmed without a black screen, but a
+            # late respawn screen can still show up - check while walking.
+            if now - last_death_check >= 0.10:
+                last_death_check = now
+                if is_rebirth_screen():
+                    death_seen = True
+                    break
+            if now - last_e >= e_interval:
+                trigger_binding_action("e", hold_ms=50)
+                last_e = now
+            if elapsed >= walk_s:
+                break
+            time.sleep(0.02)
+    finally:
+        try:
+            keyboard.release(fwd_name)
+        except Exception:
+            pass
+        try:
+            _mr_key_up(fwd_vk)
+        except Exception:
+            pass
+
+    if death_seen:
+        log.info("[KRAKEN] death screen during reward walk - treating as death")
+        return "death"
+
+    time.sleep(wait_s)
+    ok = _kraken_close_visible()
+    if ok:
+        log.info("[KRAKEN] reward menu confirmed after fixed walk")
+        return ok
+
+    log.warning("[KRAKEN] reward menu not visible after fixed walk - fallback to full teleport route")
+    _console_status("KRAKEN", "Reward fallback")
+    _dash_update(status="KRAKEN", goal="Teleport")
+    set_overlay(status="KRAKEN", goal="Teleport", run_start_time=0)
+    return _kraken_open_menu_via_a7()
+
+
+def _run_kraken_loop():
+    import config as _cfg_kraken
+    from macro_runner import _mouse_left_down, _mouse_left_up, _smooth_move_rel, _scale_smooth_move
+
+    _dash_update(run_active=True, status="KRAKEN", goal="Navigation", waiting_for_start=False)
+    set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
+    _boss_strike_init("kraken")
+    log.info("[KRAKEN] loop started (no ESP, no dodge — walk loop + mouse aim)")
+    menu_ready = False
+
+    # Boss menu + fight + reward walk all cover the stone HUD — the watcher
+    # false-fired mid-fight (stone icon missing -> STONE_LOST), which stopped
+    # the loop after ONE successful kill. Suppress it for the whole fight
+    # loop; the kraken strike/health-bar checks own failure detection.
+    _freeze_stone(True)
+    try:
+        while not _KILLED and not _TEST_FORCE_FAILURE and not _STONE_LOST and not _boss_strike_stopped("kraken"):
+            if not menu_ready:
+                if not _kraken_open_menu_via_a7():
+                    if _boss_strike_stopped("kraken"):
+                        break
+                    _console_status("KRAKEN", "Menu retry")
+                    _wait_polling(1.0, "Kraken retry", freeze=False)
+                    continue
+            menu_ready = False
+
+            # — Navigation phase: NO timer shown anywhere —
+            _console_status("KRAKEN", "Navigation")
+            _dash_update(status="KRAKEN", goal="Navigation", run_start_time=None)
+            set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
+            _kraken_click_join_twice()
+            _kraken_prepare_weapon()
+
+            # — Wait 1 second after joining before doing anything —
+            log.info("[KRAKEN] waiting 1s after join before aiming/shooting/walking")
+            _wait_polling(1.0, "Kraken post-join settle", freeze=False)
+            if _KILLED:
+                break
+
+            # — Smooth mouse aim: -75, -10 over 50ms (sensitivity-scaled) —
+            aim_dx, aim_dy = _scale_smooth_move(-75, -10)
+            log.info("[KRAKEN] smooth mouse aim: raw(-75,-10) scaled(%d,%d) over 50ms", aim_dx, aim_dy)
+            _smooth_move_rel(aim_dx, aim_dy, 50)
+
+            # — Activate drill once at start of fight (if enabled) —
+            try:
+                from dashboard import get_state as _ds_krakdrill
+                _krak_drill_on = bool(_ds_krakdrill().get("kraken_activate_drills", True))
+            except Exception:
+                _krak_drill_on = bool(getattr(_cfg_kraken, "KRAKEN_ACTIVATE_DRILLS", True))
+            if _krak_drill_on:
+                log.info("[KRAKEN] activating drill at fight start")
+                _trigger_drill_binding()
+
+            # — Fight phase: timer starts NOW —
+            boss_start = time.time()
+            boss_end_reason = "ended"
+            _console_status("KRAKEN", "Fight")
+            _dash_update(status="KRAKEN", goal="Fight", run_start_time=boss_start)
+            set_overlay(status="KRAKEN", goal="Fight", run_start_time=boss_start)
+            try:
+                from net_guard import set_path_redo as _set_kraken_redo
+                _set_kraken_redo(False)
+            except Exception:
+                pass
+            try:
+                from dashboard import get_state as _ds_kraken_move
+                movement_mode = str(_ds_kraken_move().get("kraken_movement_mode", "linear")).strip().lower()
+            except Exception:
+                movement_mode = str(getattr(_cfg_kraken, "KRAKEN_MOVEMENT_MODE", "linear")).strip().lower()
+            if movement_mode not in {"linear", "square"}:
+                movement_mode = "linear"
+            log.info("[KRAKEN] movement mode: %s", movement_mode)
+
+            poll_s = max(0.03, float(getattr(_cfg_kraken, "KRAKEN_SHOOT_POLL_SECONDS", 0.1)))
+            reassert_s = max(poll_s, float(getattr(_cfg_kraken, "KRAKEN_SHOOT_REASSERT_SECONDS", 0.5)))
+            death_wait = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_DEATH_WAIT_SECONDS", 5)))
+            hb_confirm_window_s = max(0.5, float(getattr(_cfg_kraken, "KRAKEN_HB_CONFIRM_WINDOW_SECONDS", 3.5)))
+            hb_post_loss_shoot_s = max(0.0, float(getattr(_cfg_kraken, "KRAKEN_POST_HB_LOSS_SHOOT_SECONDS", 1.75)))
+            first_hb_timeout_s = max(3.0, float(getattr(_cfg_kraken, "KRAKEN_HEALTH_BAR_FIRST_SEEN_TIMEOUT_SECONDS", 8.0)))
+
+            shooting = False
+            kill_detected_at: float | None = None
+            _walk_stop = threading.Event()
+
+            def _walk_loop():
+                """Background thread: selected movement pattern until _walk_stop."""
+                import keyboard as _kb
+                try:
+                    from macro_runner import live_wasd
+                    _wasd = live_wasd()
+                except Exception:
+                    _wasd = {"w": ("w", 0x57), "a": ("a", 0x41), "s": ("s", 0x53), "d": ("d", 0x44)}
+                names = {k: (_wasd.get(k, (k, 0))[0] or k) for k in ("w", "a", "s", "d")}
+                held = list(dict.fromkeys(names.values()))
+                pattern = (
+                    [("w", 2.0), ("d", 2.0), ("s", 2.0), ("a", 2.0)]
+                    if movement_mode == "square"
+                    else [("s", 2.0), ("w", 2.0)]
+                )
+                idx = 0
+                phase_start = time.time()
+                log.info("[KRAKEN] walk loop started")
+                while not _walk_stop.is_set():
+                    key, phase_secs = pattern[idx]
+                    live = names.get(key, key)
+                    for k in held:
+                        if k == live:
+                            _kb.press(k)
+                        else:
+                            _kb.release(k)
+                    if (time.time() - phase_start) >= phase_secs:
+                        idx = (idx + 1) % len(pattern)
+                        phase_start = time.time()
+                    time.sleep(0.05)
+                for k in held:
+                    try:
+                        _kb.release(k)
+                    except Exception:
+                        pass
+                log.info("[KRAKEN] walk loop stopped")
+
+            walk_thread = threading.Thread(target=_walk_loop, daemon=True, name="kraken_walk_loop")
+
+            try:
+                next_reassert = 0.0
+                health_missing_since = None
+                health_seen_once = False
+                shooting = True
+                walk_thread.start()
+
+                while not _KILLED and not _TEST_FORCE_FAILURE:
+                    now = time.time()
+
+                    # — Death while fighting: immediate black screen —
+                    if is_rebirth_screen():
+                        log.info("[KRAKEN] black screen detected - death; restarting")
+                        if shooting:
+                            _mouse_left_up()
+                            shooting = False
+                        boss_end_reason = "death"
+                        break
+
+                    # — Join failure guard: if health bar never appears, reset route —
+                    if (not health_seen_once) and ((now - boss_start) >= first_hb_timeout_s):
+                        log.warning(
+                            "[KRAKEN] no health bar seen after %.1fs - treating as join failure and retrying",
+                            now - boss_start,
+                        )
+                        if shooting:
+                            _mouse_left_up()
+                            shooting = False
+                        _walk_stop.set()
+                        boss_end_reason = "join_failed"
+                        break
+
+                    # — Health bar disappeared —
+                    # Once confirm mode starts (health_missing_since set), we never
+                    # reset it on temporary OCR flicker. This prevents mouse fire from
+                    # being re-armed right before Post Fight.
+                    hb_seen_now = kraken_health_bar_seen()
+                    if health_missing_since is None:
+                        if hb_seen_now:
+                            health_seen_once = True
+                        elif health_seen_once:
+                            health_missing_since = now
+                            log.info("[KRAKEN] health bar gone — watching for %.1fs to confirm kill vs death", hb_confirm_window_s)
+                            if shooting and hb_post_loss_shoot_s > 0:
+                                log.info("[KRAKEN] keeping fire for %.1fs after health bar loss", hb_post_loss_shoot_s)
+                            elif shooting:
+                                _mouse_left_up()
+                                shooting = False
+                            # Stop walk loop immediately when health bar gone
+                            _walk_stop.set()
+                    else:
+                        elapsed = now - health_missing_since
+                        if shooting and elapsed >= hb_post_loss_shoot_s:
+                            _mouse_left_up()
+                            shooting = False
+                            log.info("[KRAKEN] post-loss fire window ended at %.2fs", elapsed)
+                        if is_rebirth_screen():
+                            log.info("[KRAKEN] black screen during confirm window (%.2fs) — death", elapsed)
+                            if shooting:
+                                _mouse_left_up()
+                                shooting = False
+                            boss_end_reason = "death"
+                            break
+                        elif elapsed >= hb_confirm_window_s:
+                            kill_detected_at = health_missing_since
+                            log.info(
+                                "[KRAKEN] %.1fs confirm window passed, no black screen -> boss killed",
+                                elapsed,
+                            )
+                            if shooting:
+                                _mouse_left_up()
+                                shooting = False
+                            boss_end_reason = "killed"
+                            break
+
+                    # — Assert shooting while health bar is still visible —
+                    if health_missing_since is None:
+                        if now >= next_reassert:
+                            _mouse_left_down()
+                            next_reassert = now + reassert_s
+                            log.debug("[KRAKEN] left mouse down asserted")
+                        # Drill activation is deliberately not re-checked or
+                        # re-triggered here.  The start-of-fight path above is
+                        # the single activation attempt for this fight.  The old
+                        # timer path pressed the drill repeatedly whenever its
+                        # unreliable active-state detection flickered.
+
+                    if _kraken_try_menu_resume("boss fight"):
+                        boss_end_reason = "menu_resume"
+                        break
+                    time.sleep(poll_s)
+            finally:
+                try:
+                    from net_guard import set_path_redo as _set_kraken_redo
+                    _set_kraken_redo(True)
+                except Exception:
+                    pass
+                if shooting:
+                    _mouse_left_up()
+                _walk_stop.set()
+                walk_thread.join(timeout=1.0)
+                stop_kraken_esp()
+                if _KILLED:
+                    boss_end_reason = "stopped"
+                # — Fight ended: immediately clear timer from overlay + dashboard —
+                _dash_update(status="KRAKEN", goal="Finish", run_start_time=None)
+                set_overlay(status="KRAKEN", goal="Finish", run_start_time=0)
+                _console_status("KRAKEN", "Finish")
+                if boss_end_reason in {"killed", "death"} and boss_start:
+                    fight_duration = (kill_detected_at or time.time()) - boss_start
+                    try:
+                        _dash_record_kraken_run(fight_duration, boss_end_reason)
+                        log.info(f"[KRAKEN] run recorded: {fight_duration:.1f}s ({boss_end_reason})")
+                    except Exception as e:
+                        log.debug(f"[KRAKEN] timing record failed: {e}")
+
+            if _KILLED or _TEST_FORCE_FAILURE:
+                break
+            if boss_end_reason == "join_failed":
+                # Got there, clicked JOIN, but the fight never opened. This is a
+                # failed attempt too — it feeds the same strike counter.
+                if _boss_add_strike("kraken", "kraken fight did not open (no health bar after JOIN)"):
+                    break
+                _dash_update(status="KRAKEN", goal="Navigation", run_start_time=None)
+                set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
+                continue
+            if boss_end_reason == "killed":
+                _boss_strike_reset("kraken", "boss killed")
+                _dash_update(status="KRAKEN", goal="Post Fight", run_start_time=None)
+                set_overlay(status="KRAKEN", goal="Post Fight", run_start_time=0)
+                _console_status("KRAKEN", "Post Fight")
+                # Walk to re-enter the fight right away - no extra settle wait.
+                outcome = _kraken_reopen_menu_after_kill()
+                if outcome == "death":
+                    log.info("[KRAKEN] late death after kill - waiting for respawn")
+                elif outcome:
+                    menu_ready = True
+                    # Back to navigation - timer stays cleared until next fight starts
+                    _dash_update(status="KRAKEN", goal="Navigation", run_start_time=None)
+                    set_overlay(status="KRAKEN", goal="Navigation", run_start_time=0)
+                    continue
+            # Death / stopped / other: wait for respawn, no timer
+            if boss_end_reason == "death":
+                _boss_strike_reset("kraken", "death — game still responsive")
+            _dash_update(status="KRAKEN", goal="Finish", run_start_time=None)
+            set_overlay(status="KRAKEN", goal="Finish", run_start_time=0)
+            _wait_polling(death_wait, "Kraken respawn", freeze=True)
+    finally:
+        _freeze_stone(False)
+
+    _dash_update(run_active=False, run_start_time=None, waiting_for_start=True, status="WAITING", goal="Ready")
+    set_overlay(status="WAITING", goal="Ready", run_start_time=0)
+    stop_kraken_esp()
+    stop_kraken_dodge()
+    log.info("[KRAKEN] loop stopped")
+
+
+
+def _run_zytos_loop():
+    """Zytos mode entry point — own package, no kraken/delve calls."""
+    try:
+        from zytos.loop import run_zytos
+        run_zytos()
+    except Exception as e:
+        cprint(f"Zytos mode error: {e}", "err")
+        log.error(f"Zytos mode error: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+
+def _run_delve_loop():
+    import config as _cfg_delve
+    from macro_runner import _mouse_left_down, _mouse_left_up
+
+    _dash_update(run_active=True, status="DELVE", goal="Navigation", waiting_for_start=False)
+    set_overlay(status="DELVE", goal="Navigation")
+    log.info(
+        "[DELVE] runtime=%sx%s scale=%.3fx%.3f close_region=%s join_region=%s join_center=%s",
+        getattr(_cfg_delve, "RUNTIME_WIDTH", "?"),
+        getattr(_cfg_delve, "RUNTIME_HEIGHT", "?"),
+        float(getattr(_cfg_delve, "REGION_SCALE_X", 1.0)),
+        float(getattr(_cfg_delve, "REGION_SCALE_Y", 1.0)),
+        getattr(_cfg_delve, "DELVE_CLOSE_REGION", None),
+        getattr(_cfg_delve, "DELVE_JOIN_REGION", None),
+        getattr(_cfg_delve, "DELVE_JOIN_CENTER", None),
+    )
+    _boss_strike_init("delve")
+    log.info("[DELVE] loop started")
+    while not _KILLED and not _boss_strike_stopped("delve"):
+        if not _delve_open_menu_via_a5():
+            if _boss_strike_stopped("delve"):
+                break
+            _console_status("DELVE", "Menu retry")
+            _wait_polling(1.0, "Delve retry", freeze=False)
+            continue
+
+        _console_status("DELVE", "Navigation")
+        _dash_update(status="DELVE", goal="Navigation")
+        set_overlay(status="DELVE", goal="Navigation")
+        _delve_click_join_twice()
+        _delve_prepare_weapon()
+
+        # — Activate drill once at start of fight (if enabled) —
+        try:
+            from dashboard import get_state as _ds_delvedrill
+            _delve_drill_on = bool(_ds_delvedrill().get("delve_activate_drills", True))
+        except Exception:
+            _delve_drill_on = bool(getattr(_cfg_delve, "DELVE_ACTIVATE_DRILLS", True))
+        if _delve_drill_on:
+            log.info("[DELVE] activating drill at fight start")
+            _trigger_drill_binding()
+
+        boss_start = time.time()
+        boss_end_reason = "ended"
+        _console_status("DELVE", "Fight")
+        _dash_update(status="DELVE", goal="Fight", run_start_time=boss_start)
+        set_overlay(status="DELVE", goal="Fight", run_start_time=boss_start)
+        try:
+            from net_guard import set_path_redo as _set_delve_redo
+            _set_delve_redo(False)
+        except Exception:
+            pass
+        poll_s = max(0.03, float(getattr(_cfg_delve, "DELVE_SHOOT_POLL_SECONDS", 0.1)))
+        reassert_s = max(poll_s, float(getattr(_cfg_delve, "DELVE_SHOOT_REASSERT_SECONDS", 0.5)))
+        death_wait = max(0.0, float(getattr(_cfg_delve, "DELVE_DEATH_WAIT_SECONDS", 5)))
+        shooting = False
+        try:
+            next_reassert = 0.0
+            shooting = True
+            death_hits = 0
+            while not _KILLED:
+                if time.time() >= next_reassert:
+                    _mouse_left_down()
+                    next_reassert = time.time() + reassert_s
+                    log.debug("[DELVE] left mouse down asserted")
+                if is_rebirth_screen():
+                    death_hits += 1
+                    if death_hits >= 2:
+                        log.info("[DELVE] black/dark death screen confirmed - boss run ended/death; restarting")
+                        boss_end_reason = "death"
+                        break
+                else:
+                    death_hits = 0
+                if _delve_try_menu_resume("boss fight"):
+                    boss_end_reason = "menu_resume"
+                    break
+                time.sleep(poll_s)
+        finally:
+            try:
+                from net_guard import set_path_redo as _set_delve_redo
+                _set_delve_redo(True)
+            except Exception:
+                pass
+            if shooting:
+                _mouse_left_up()
+            if _KILLED:
+                boss_end_reason = "stopped"
+            if boss_start:
+                _console_status("DELVE", "Finish")
+                _dash_update(status="DELVE", goal="Finish", run_start_time=None)
+                set_overlay(status="DELVE", goal="Finish", run_start_time=0)
+                try:
+                    _dash_record_delve_run(time.time() - boss_start, boss_end_reason)
+                except Exception as e:
+                    log.debug(f"[DELVE] timing record failed: {e}")
+
+        if _KILLED:
+            break
+        if boss_end_reason == "death":
+            _boss_strike_reset("delve", "death - game still responsive")
+        _console_status("DELVE", "Finish")
+        _dash_update(status="DELVE", goal="Finish", run_start_time=None)
+        set_overlay(status="DELVE", goal="Finish", run_start_time=0)
+        _wait_polling(death_wait, "Delve respawn", freeze=True)
+
+    _dash_update(run_active=False, run_start_time=None, waiting_for_start=True, status="WAITING", goal="Ready")
+    set_overlay(status="WAITING", goal="Ready", run_start_time=0)
+    log.info("[DELVE] loop stopped")
+
+
+def run_bot():
+    global _KILLED, _STONE_LOST, _TEST_FORCE_FAILURE, _WAITING_FOR_START, _LOADOUT_BLOCKED
+    global _DRILLS_UNLOCKED, _A5_UNLOCKED_THIS_RUN, _AREA_UNLOCKED_THIS_RUN, _RUN_MODE, _ACTIVATE_DRILLS
+    global _menu_resume_fresh_start, _at_base, _QUESTS_DONE_THIS_RUN, _QUESTS_STARTED_THIS_RUN, _QUEST_PLAN
+
+    _register_hotkeys()
+    _ensure_low_level_hook()
+    _ensure_hotkey_poll_failsafe()
+    _ensure_win_hotkey_poll_failsafe()
+    start_overlay()
+    # dashboard already started at module level before auth
+
+    if _auto_strength_enabled():
+        set_overlay(status="WAITING", goal="Ready", show_auto_str=True)
+    else:
+        set_overlay(status="WAITING", goal="Ready", auto_str=None, show_auto_str=False)
+    _teleport_set_killed_fn(lambda: _KILLED or _TEST_FORCE_FAILURE)
+    try:
+        from quest_menu import set_killed_fn as _quest_set_killed_fn
+        _quest_set_killed_fn(lambda: _KILLED or _TEST_FORCE_FAILURE)
+    except Exception:
+        pass
+    try:
+        from net_guard import start as _net_start
+        _net_start()
+    except Exception:
+        pass
+    log.info("Bot starting — waiting for dashboard Start")
+    try:
+        from fr_flow import log_monitors
+        log_monitors("startup")
+    except Exception as e:
+        log.warning(f"[MONITOR] startup log failed: {e}")
+
+    # Outer loop: soft-reset (F9) brings us back here each time
+    while True:
+        # suspension check removed — bot is free for all logged-in users
+        _soft_reset_state()
+
+        # ——— Inner run loop —————————————————————————————————————
+        _just_started = True  # first iteration does startup click; subsequent runs skip it
+        while not _KILLED:
+            # ——— Wait for Start button ——————————————————————————
+            _wait_for_start()
+            if _KILLED:
+                break
+            _missing_lo = missing_required_loadouts()
+            if _missing_lo:
+                _block_for_missing_loadouts(_missing_lo)
+                continue
+
+            if not is_fortnite_focused():
+                log.info("Waiting for Fortnite focus before starting run...")
+                if not wait_for_fortnite_focus():
+                    log.critical("Fortnite never focused — retrying after delay")
+                    time.sleep(1)
+                    continue
+
+            # Startup click — only on first run after launch or F9.
+            if _just_started:
+                log.info("Startup click — activating game input")
+                from macro_runner import _mouse_left_click as _startup_click
+                _startup_click()
+                log.info("Startup delay — quick settle before first macro")
+                import config as _cfg_runtime
+                try:
+                    _startup_settle = float(_cfg_runtime.startup_settle())
+                except Exception:
+                    _startup_settle = min(1.0, max(0.0, float(getattr(_cfg_runtime, "STARTUP_SETTLE_SECONDS", 0.20))))
+                _startup_deadline = time.time() + _startup_settle
+                _startup_in_game = False
+                while time.time() < _startup_deadline:
+                    if _KILLED or _STONE_LOST:
+                        break
+                    if _stone_icon_visible_restart_image() and is_fortnite_focused():
+                        _startup_in_game = True
+                        break
+                    time.sleep(0.05)
+                if _KILLED or _STONE_LOST:
+                    _just_started = False
+                elif not _startup_in_game and _fresh_start_not_in_game():
+                    # Average HUD color says we are NOT in game (lobby /
+                    # loading). Do NOT touch the loadout first — go straight
+                    # to the three-state / lobby-menu recovery, which checks
+                    # the selected game and rejoins Miner Tycoon 2.
+                    log.info("[FR_FLOW] fresh start: not in game — menu recovery before loadout")
+                    from dashboard import get_state as _ds_lo_ng
+                    _ds_lo = {}
+                    try:
+                        _ds_lo = _ds_lo_ng() or {}
+                    except Exception:
+                        pass
+                    if not _KILLED and _try_force_restart_after_failure("fresh_start_not_in_game", _ds_lo):
+                        _just_started = True
+                        continue
+                    if not _KILLED and _menu_resume_enabled(_ds_lo):
+                        if _do_menu_resume():
+                            _WAITING_FOR_START = False
+                            _at_base = False
+                            _menu_resume_fresh_start = True
+                            _just_started = True
+                            continue
+                    log.warning("[LOADOUT] fresh-start recovery failed — waiting for Start")
+                    _WAITING_FOR_START = True
+                    _just_started = True
+                    continue
+                elif not _apply_fresh_start_loadout():
+                    log.warning("[LOADOUT] fresh-start select failed")
+                    from dashboard import get_state as _ds_lo_fail
+                    _ds_lo = {}
+                    try:
+                        _ds_lo = _ds_lo_fail() or {}
+                    except Exception:
+                        pass
+                    if not _KILLED and _try_force_restart_after_failure("fresh_start_loadout_ui_failed", _ds_lo):
+                        _just_started = True
+                        continue
+                    if not _KILLED and _menu_resume_enabled(_ds_lo):
+                        if _do_menu_resume():
+                            _WAITING_FOR_START = False
+                            _at_base = False
+                            _menu_resume_fresh_start = True
+                            _just_started = True
+                            continue
+                    log.warning("[LOADOUT] recovery failed — waiting for Start")
+                    _WAITING_FOR_START = True
+                    _just_started = True
+                    continue
+                else:
+                    _just_started = False
+            else:
+                log.debug("Continuing run — skipping startup click/delay")
+
+            _DRILLS_UNLOCKED = False
+            _A5_UNLOCKED_THIS_RUN = False
+            _AREA_UNLOCKED_THIS_RUN = {1: False, 2: False, 3: False, 4: False, 5: False}
+            _QUESTS_DONE_THIS_RUN = False
+            _QUESTS_STARTED_THIS_RUN = False
+            _QUEST_PLAN = None
+
+
+            from dashboard import get_state as _ds
+            _ds_snap = _ds()
+            _bot_mode = str(_ds_snap.get("bot_mode", "rebirth")).lower()
+            if _bot_mode == "kraken":
+                _start_stone_watcher()   # stone icon watcher for kraken mode too
+                try:
+                    _run_kraken_loop()
+                finally:
+                    _stop_stone_watcher()
+
+                # Handle test force failure (arrow down) same as rebirth mode
+                _test_force_failure = bool(_TEST_FORCE_FAILURE)
+                if _test_force_failure:
+                    log.warning("[TEST_FAIL] simulated failure reached kraken handler")
+                    _rec_set_failure("test_force_restart_hotkey")
+                    _TEST_FORCE_FAILURE = False
+
+                if _KILLED:
+                    continue
+
+                # Stone-lost recovery: try force restart or menu resume
+                if _STONE_LOST and not _KILLED:
+                    _dash_update(run_active=False, run_start_time=None)
+                    _capture_failure_fullscreen("run_failed")
+                    _ds_snap_sl = _ds()
+                    _wait_secs = _ds_snap_sl.get("stone_icon_missing_wait") or 5
+                    log.info(f"[KRAKEN] In-game image lost — initial wait {_wait_secs}s")
+                    _console_status("IMAGE DETECT FAIL", "Recovering...")
+                    set_overlay(status="IMAGE DETECT FAIL", goal="Recovering...")
+                    if not _hold_for_network():
+                        continue
+                    if _stone_icon_visible_restart_image():
+                        log.info("[KRAKEN] HUD back after network wait — resume")
+                        _STONE_LOST = False
+                        continue
+                    _wait_polling(float(_wait_secs), "...", freeze=True)
+
+                    if not _KILLED:
+                        if _try_force_restart_after_failure("stone_lost", _ds_snap_sl):
+                            _STONE_LOST = False
+                            _WAITING_FOR_START = False
+                            continue
+                        if _menu_resume_enabled(_ds_snap_sl):
+                            import config as _cfg_kraken_sl
+                            _appear_secs = float(getattr(_cfg_kraken_sl, "MENU_APPEAR_WAIT", 60))
+                            _console_status("MENU RESUME", "...")
+                            set_overlay(status="MENU RESUME", goal="...")
+                            _appear_deadline = time.time() + _appear_secs
+                            while time.time() < _appear_deadline and not _KILLED:
+                                if _stone_icon_visible_restart_image() or is_in_menu():
+                                    break
+                                _wait_polling(0.25, "...", freeze=True)
+                            if not _KILLED:
+                                resume_ok = _do_menu_resume()
+                                if resume_ok:
+                                    log.info("[KRAKEN] Menu resume succeeded — resuming kraken loop")
+                                    _STONE_LOST = False
+                                    _WAITING_FOR_START = False
+                                    continue
+                                else:
+                                    log.warning("[KRAKEN] Menu resume failed — falling back to wait-for-start")
+                                    time.sleep(1)
+                        _STONE_LOST = False
+
+                # Handle test force failure: try force restart
+                if _test_force_failure and not _KILLED:
+                    _ds_snap_tf = _ds()
+                    if _try_force_restart_after_failure("test_force_restart_hotkey", _ds_snap_tf):
+                        _TEST_FORCE_FAILURE = False
+                        _WAITING_FOR_START = False
+                        continue
+                    if not _KILLED and _menu_resume_enabled(_ds_snap_tf):
+                        resume_ok = _do_menu_resume()
+                        if resume_ok:
+                            log.info("[KRAKEN] Menu resume after test failure — resuming")
+                            _TEST_FORCE_FAILURE = False
+                            _WAITING_FOR_START = False
+                            continue
+                        else:
+                            log.warning("[KRAKEN] Menu resume failed after test failure")
+                            time.sleep(1)
+
+                if not _KILLED:
+                    _WAITING_FOR_START = True
+                continue
+            if _bot_mode == "zytos":
+                _start_stone_watcher()   # stone icon watcher for zytos mode too
+                try:
+                    _run_zytos_loop()
+                finally:
+                    _stop_stone_watcher()
+
+                # Handle test force failure (arrow down) same as rebirth mode
+                _test_force_failure = bool(_TEST_FORCE_FAILURE)
+                if _test_force_failure:
+                    log.warning("[TEST_FAIL] simulated failure reached zytos handler")
+                    _rec_set_failure("test_force_restart_hotkey")
+                    _TEST_FORCE_FAILURE = False
+
+                if _KILLED:
+                    continue
+
+                # Stone-lost recovery: try force restart or menu resume
+                if _STONE_LOST and not _KILLED:
+                    _dash_update(run_active=False, run_start_time=None)
+                    _capture_failure_fullscreen("run_failed")
+                    _ds_snap_sl = _ds()
+                    _wait_secs = _ds_snap_sl.get("stone_icon_missing_wait") or 5
+                    log.info(f"[ZYTOS] In-game image lost — initial wait {_wait_secs}s")
+                    _console_status("IMAGE DETECT FAIL", "Recovering...")
+                    set_overlay(status="IMAGE DETECT FAIL", goal="Recovering...")
+                    if not _hold_for_network():
+                        continue
+                    if _stone_icon_visible_restart_image():
+                        log.info("[ZYTOS] HUD back after network wait — resume")
+                        _STONE_LOST = False
+                        continue
+                    _wait_polling(float(_wait_secs), "...", freeze=True)
+
+                    if not _KILLED:
+                        if _try_force_restart_after_failure("stone_lost", _ds_snap_sl):
+                            _STONE_LOST = False
+                            _WAITING_FOR_START = False
+                            continue
+                        if _menu_resume_enabled(_ds_snap_sl):
+                            import config as _cfg_zytos_sl
+                            _appear_secs = float(getattr(_cfg_zytos_sl, "MENU_APPEAR_WAIT", 60))
+                            _console_status("MENU RESUME", "...")
+                            set_overlay(status="MENU RESUME", goal="...")
+                            _appear_deadline = time.time() + _appear_secs
+                            while time.time() < _appear_deadline and not _KILLED:
+                                if _stone_icon_visible_restart_image() or is_in_menu():
+                                    break
+                                _wait_polling(0.25, "...", freeze=True)
+                            if not _KILLED:
+                                resume_ok = _do_menu_resume()
+                                if resume_ok:
+                                    log.info("[ZYTOS] Menu resume succeeded — resuming zytos loop")
+                                    _STONE_LOST = False
+                                    _WAITING_FOR_START = False
+                                    continue
+                                else:
+                                    log.warning("[ZYTOS] Menu resume failed — falling back to wait-for-start")
+                                    time.sleep(1)
+                        _STONE_LOST = False
+
+                # Handle test force failure: try force restart
+                if _test_force_failure and not _KILLED:
+                    _ds_snap_tf = _ds()
+                    if _try_force_restart_after_failure("test_force_restart_hotkey", _ds_snap_tf):
+                        _TEST_FORCE_FAILURE = False
+                        _WAITING_FOR_START = False
+                        continue
+                    if not _KILLED and _menu_resume_enabled(_ds_snap_tf):
+                        resume_ok = _do_menu_resume()
+                        if resume_ok:
+                            log.info("[ZYTOS] Menu resume after test failure — resuming")
+                            _TEST_FORCE_FAILURE = False
+                            _WAITING_FOR_START = False
+                            continue
+                        else:
+                            log.warning("[ZYTOS] Menu resume failed after test failure")
+                            time.sleep(1)
+
+                if not _KILLED:
+                    _WAITING_FOR_START = True
+                continue
+            if _bot_mode == "delve":
+                _run_delve_loop()
+                if not _KILLED:
+                    _WAITING_FOR_START = True
+                continue
+            if _bot_mode == "crater":
+                _run_crater_loop()
+                if not _KILLED:
+                    _WAITING_FOR_START = True
+                continue
+            if _bot_mode == "farm_meteor":
+                _start_stone_watcher()   # stone icon watcher for farm meteor mode too
+                try:
+                    _run_farm_meteor_loop()
+                finally:
+                    _stop_stone_watcher()
+                if not _KILLED:
+                    _WAITING_FOR_START = True
+                continue
+            _RUN_MODE        = _normalize_start_mode(_ds_snap.get("run_mode", "a5meteor"))
+            _ACTIVATE_DRILLS = _CFG_ACTIVATE_DRILLS
+            log.debug(f"Run config: mode={_RUN_MODE}, activate_drills={_ACTIVATE_DRILLS}, recorder=always_on")
+
+            start_mode = _RUN_MODE
+            start_stone = None
+            # v20373: a run started right after a confirmed rebirth (or a
+            # fresh force-restart join) logically has stone=0 — that's what
+            # _mark_rebirth_zero_confirmed established moments ago. Re-reading
+            # the HUD here lets a misreading stone region (e.g. a constant 7.0
+            # OCR artefact) mark EVERY fresh run as "resumed" — orange on the
+            # chart and excluded from avg/best/worst. Trust the confirmation
+            # for 5 minutes; a manual start on a game that already has stone
+            # (or an OCR miss outside the window) still reads the HUD.
+            if time.time() - _REBIRTH_ZERO_CONFIRMED_AT <= 300.0:
+                start_stone = 0.0
+                log.debug("start stone: post-rebirth/fresh-join confirmation — stone=0 (no HUD re-read)")
+            if start_stone is None:
+                try:
+                    # v2023: post-rebirth the verify read stone=0 a moment ago —
+                    # reuse it instead of paying a second HUD OCR every cycle.
+                    from screen import get_fresh_stone as _get_fresh_start_stone
+                    start_stone = _get_fresh_start_stone(max_age=1.5)
+                    if start_stone is None:
+                        from screen import read_stone as _read_start_stone
+                        start_stone = _read_start_stone()
+                except Exception:
+                    start_stone = None
+            if start_stone is None and _last_live_stone is not None:
+                start_stone = _last_live_stone
+                log.debug(f"start stone OCR miss — using last live {_fmt_stone(start_stone)}")
+            stats.start_run(start_stone=start_stone, start_mode=start_mode)
+            _dash_update(
+                run_active=True,
+                status="RUNNING",
+                run_start_time=stats._current_run.start_time if stats._current_run else time.time(),
+                run_number=stats._current_run.run_number if stats._current_run else 0,
+                run_steps=0,
+                run_errors=0,
+                run_quests_completed=0,
+                waiting_for_start=False,
+            )
+            # ——— Start run recorder (always on) —————————————————————————
+            try:
+                import config as _cfg_rec
+                _rec_thresholds = {
+                    "stage1": getattr(_cfg_rec, "STONE_FOR_A5_STAGE1", 0),
+                    "stage2": getattr(_cfg_rec, "STONE_FOR_A5_STAGE2", 0),
+                    "stage3": getattr(_cfg_rec, "STONE_FOR_A5_STAGE3", 0),
+                    "stage4": getattr(_cfg_rec, "STONE_FOR_A5_STAGE4", 0),
+                    "meteor": getattr(_cfg_rec, "STONE_FOR_METEOR", 0),
+                }
+                _run_num = stats._current_run.run_number if stats._current_run else 0
+                _get_recorder().start_run(run_number=_run_num, thresholds=_rec_thresholds)
+            except Exception as _rec_e:
+                log.debug(f"[Recorder] start_run error: {_rec_e}")
+            _run_start_ts = stats._current_run.start_time if stats._current_run else time.time()
+            if _auto_strength_enabled():
+                set_overlay(status="RUNNING", goal="Base Rock", show_auto_str=True, run_start_time=_run_start_ts)
+            else:
+                _disable_auto_strength_for_manual("run start")
+                set_overlay(status="RUNNING", goal="Base Rock", auto_str=None, show_auto_str=False, run_start_time=_run_start_ts)
+            log.info(f"Run mode={_RUN_MODE}, starting from: {start_mode}  stone={start_stone}")
+
+            # v1.8.32: accept (Start) the daily quests right at run start so
+            # rock quests can progress naturally during the grind; the doing
+            # + doing stays in the end-of-run quest phase, which skips any
+            # quest already Done on the HUD before teleporting anywhere.
+            if _quests_enabled():
+                _start_daily_quests()
+                if _KILLED or _STONE_LOST:
+                    break
+
+            run_ok = False
+            _start_stone_watcher()   # always-on icon check (every 1s in background)
+            try:
+                run_ok = _run_progression_cycle(start_mode)
+            except Exception as e:
+                log.exception(f"Unexpected error in run cycle: {e}")
+                stats.record_error()
+            finally:
+                _stop_stone_watcher()
+
+            _test_force_failure = bool(_TEST_FORCE_FAILURE)
+            if _test_force_failure:
+                log.warning("[TEST_FAIL] simulated failure reached run handler")
+                _rec_set_failure("test_force_restart_hotkey")
+                run_ok = False
+                _TEST_FORCE_FAILURE = False
+
+            if _KILLED:
+                break
+
+            # ——— Stone-lost recovery (watcher fired mid-run) ————————————————
+            if _STONE_LOST and not _KILLED:
+                stats.record_error()
+                _dash_update(run_active=False, run_start_time=None)
+                _capture_failure_fullscreen("run_failed")
+                from dashboard import get_state as _ds_sl
+                _ds_sl_snap = _ds_sl()
+                import config as _cfg_sl
+
+                # Step 1: brief initial wait (stone icon missing debounce)
+                _wait_secs = _ds_sl_snap.get("stone_icon_missing_wait") or getattr(_cfg_sl, "STONE_ICON_MISSING_WAIT", 5)
+                log.info(f"[WATCHER] In-game image lost — initial wait {_wait_secs}s")
+                _console_status("IMAGE DETECT FAIL", "Recovering...")
+                if not _hold_for_network():
+                    break
+                if _stone_icon_visible_restart_image():
+                    log.info("[WATCHER] HUD back after network wait — resume")
+                    _STONE_LOST = False
+                    continue
+                set_overlay(status="IMAGE DETECT FAIL", goal="Recovering...")
+                _wait_polling(float(_wait_secs), "...", freeze=True)
+
+                if not _KILLED:
+                    if _try_force_restart_after_failure("stone_lost", _ds_sl_snap):
+                        _just_started = True
+                        continue
+
+                    if _menu_resume_enabled(_ds_sl_snap):
+                        # Step 2: wait for menu to appear after kick before checking
+                        _appear_secs = float(getattr(_cfg_sl, "MENU_APPEAR_WAIT", 60))
+                        log.info("...")
+                        _console_status("MENU RESUME", "...")
+                        set_overlay(status="MENU RESUME", goal="...")
+                        _appear_deadline = time.time() + _appear_secs
+                        while time.time() < _appear_deadline and not _KILLED:
+                            if _stone_icon_visible_restart_image() or is_in_menu():
+                                break
+                            _wait_polling(0.25, "...", freeze=True)
+
+                        if not _KILLED:
+                            # Step 3: check for menu and attempt resume
+                            log.info("[WATCHER] Checking for menu and attempting resume")
+                            resume_ok = _do_menu_resume()
+                            if resume_ok:
+                                log.info("[WATCHER] Menu resume succeeded — starting fresh run from base")
+                                _WAITING_FOR_START = False
+                                _STONE_LOST = False
+                                _at_base = False  # player just spawned — not at base
+                                _menu_resume_fresh_start = True
+                                _just_started = True  # fresh game — need startup click/delay before first macro
+                                continue
+                            else:
+                                # Step 4: check stone icon — maybe we're already back in game
+                                log.warning("[WATCHER] Menu resume failed — checking if stone icon came back")
+                                time.sleep(2)
+                                if _stone_icon_visible_restart_image():
+                                    log.info("[WATCHER] Stone icon visible after failed menu resume — resuming run")
+                                    _STONE_LOST = False
+                                    _WAITING_FOR_START = False
+                                    continue
+                                else:
+                                    # Stone still gone, menu not found — soft kill
+                                    log.warning("[WATCHER] Stone icon still gone after menu resume failed — soft killing")
+                                    _console_status("IMAGE DETECT FAIL", "Recovery failed")
+                                    set_overlay(status="WAITING", goal="Image detect fail")
+                                    _capture_failure_fullscreen("stone_lost_recovery_failed")
+                                    _KILLED = True
+                    else:
+                        log.info("[WATCHER] menu_resume OFF — soft-kill, waiting for Start")
+                        _console_status("IMAGE DETECT FAIL", "Image detect fail — soft kill (menu resume OFF)")
+                        set_overlay(status="WAITING", goal="Image detect fail")
+                        _capture_failure_fullscreen("stone_lost_menu_resume_off")
+                        _KILLED = True
+
+                _STONE_LOST = False
+                continue   # loop back (either to _wait_for_start via _KILLED path, or clean restart)
+
+            if run_ok:
+                _rebirth_strike_record(True)
+                stats.finish_run()
+                gs = stats.global_stats
+                _dash_update(
+                    run_active=False,
+                    run_start_time=None,
+                    total_rebirths=gs.total_rebirths,
+                    total_errors=gs.total_errors,
+                    avg_time_secs=gs.average_time_secs,
+                    min_time_secs=gs.min_time_secs,
+                    max_time_secs=gs.max_time_secs,
+                    run_history=gs.run_history,
+                )
+                # ——— Stop recorder on successful rebirth ———————————————————
+                try:
+                    _rec = _get_recorder()
+                    if _rec.is_active():
+                        _last_stone = _state_stone_snapshot()
+                        _rec.stop_run(final_stone=_last_stone, status="rebirth_complete")
+                except Exception as _rec_e:
+                    log.debug(f"[Recorder] stop_run error: {_rec_e}")
+            else:
+                if _rebirth_strike_record(False):
+                    # v20372: a strike-out must not park a 24/7 grind. Boss
+                    # modes already auto-recover from strike-out with a full
+                    # leave-to-lobby restart when Force Restart is on; the
+                    # rebirth loop now does the same. Only when FR is OFF (or
+                    # the restart itself fails) does the bot soft-kill and
+                    # wait for a manual Start.
+                    if _force_restart_enabled(None):
+                        log.warning("[REBIRTH] strike out — Force Restart ON: leaving to lobby and rejoining (24/7 auto-resume)")
+                        _console_status("RESTART", "Strike out - Force Restart")
+                        set_overlay(status="RESTART", goal="Force Restart", run_start_time=0)
+                        if _try_force_restart_after_failure(
+                            "rebirth strike out: dead-loop guard", in_game_short_circuit=False
+                        ):
+                            log.info("[REBIRTH] force restart OK after strike out — resuming the grind")
+                            _just_started = True
+                            continue
+                        log.error("[REBIRTH] force restart failed after strike out — stopping (waiting for Start)")
+                    _console_status("STOPPED", "Too many failed runs")
+                    set_overlay(status="STOPPED", goal="Strike out")
+                    _dash_update(run_active=False, run_start_time=None, status="STOPPED", goal="Strike out")
+                    _KILLED = True   # soft kill: F9 tail parks the bot in wait-for-start
+                    continue
+                if _LOADOUT_BLOCKED:
+                    _LOADOUT_BLOCKED = False
+                    _WAITING_FOR_START = True
+                    continue
+                stats.record_error()
+                _dash_update(run_active=False, run_start_time=None)
+                _failure_reason = "test_force_restart_hotkey" if _test_force_failure else "run_failed"
+                _capture_failure_fullscreen(_failure_reason)
+                # ——— Stop recorder on failed run ————————————————————————————
+                try:
+                    _rec = _get_recorder()
+                    if _rec.is_active():
+                        if not getattr(_rec, "_failure_reason", None):
+                            _rec.set_failure_reason(_failure_reason if _test_force_failure else "run_failed_unspecified")
+                        _rec.stop_run(final_stone=None, status=_failure_reason)
+                except Exception as _rec_e:
+                    log.debug(f"[Recorder] stop_run error: {_rec_e}")
+
+                # ——— Auto menu resume on run failure ———————————————————————
+                from dashboard import get_state as _ds_mr
+                _ds_mr_snap = _ds_mr()
+                if _try_force_restart_after_failure(_failure_reason, _ds_mr_snap):
+                    _just_started = True
+                    continue
+                if not _KILLED and _menu_resume_enabled(_ds_mr_snap):
+                    # Read join-wait from live dashboard state (updated when user saves config)
+                    # Falls back to config module, then hardcoded default
+                    import config as _cfg_mr2
+                    _configured_wait = float(_ds_mr_snap.get("menu_resume_join_wait") or getattr(_cfg_mr2, "MENU_RESUME_JOIN_WAIT", 120))
+                    pre_wait = min(10.0, _configured_wait)
+                    log.info(f"[MENU_RESUME] Run failed — waiting {pre_wait} s then attempting menu resume")
+                    _console_status("MENU RESUME", "...")
+                    set_overlay(status="WAITING", goal="...")
+                    _pre_deadline = time.time() + float(pre_wait)
+                    while time.time() < _pre_deadline and not _KILLED:
+                        if _stone_icon_visible_restart_image() or is_in_menu():
+                            break
+                        _wait_polling(0.25, "...", freeze=False)
+                    if not _KILLED:
+                        resume_ok = _do_menu_resume()
+                        if resume_ok:
+                            log.info("[MENU_RESUME] Resume succeeded — starting fresh run from base")
+                            # Skip _wait_for_start: mark bot as active and continue
+                            _WAITING_FOR_START = False
+                            _at_base = False  # player just spawned — not at base
+                            _menu_resume_fresh_start = True
+                            _just_started = True  # fresh game — need startup click/delay before first macro
+                            continue
+                        else:
+                            log.warning("[MENU_RESUME] Resume failed — falling back to normal wait-for-start")
+                            time.sleep(1)
+                else:
+                    time.sleep(1)
+
+        # _KILLED=True means F9 was pressed — soft reset and loop back to waiting
+        log.info("F9 soft reset: stopping macros, resetting state, waiting for Start")
+        _register_hotkeys()   # re-register every loop so F9 survives game focus changes
+        # ——— Stop recorder WITHOUT uploading (F9 = mid-run abort, not a complete run) ———
+        try:
+            _rec = _get_recorder()
+            if _rec.is_active():
+                _rec.stop_run(final_stone=_state_stone_snapshot(), status="stopped")
+                
+        except Exception as _rec_f9_e:
+            log.debug(f"[Recorder] stop_run (F9) error: {_rec_f9_e}")
+        _stop_stone_watcher()
+        _close_hit_macro()
+        stop_macro()
+        _stop_drill_loop()
+        if _auto_strength_enabled():
+            disable_auto_strength()
+            set_overlay(status="WAITING", goal="Ready", show_auto_str=True)
+        else:
+            _disable_auto_strength_for_manual("soft reset")
+            set_overlay(status="WAITING", goal="Ready", auto_str=None, show_auto_str=False)
+        _dash_update(killed=False, bot_alive=True, run_active=False,
+                     status="WAITING", goal="Ready",
+                     waiting_for_start=True)
+        log.info("Soft reset complete")
+
+
+
+
+if __name__ == "__main__":
+    import sys as _sys_main
+
+    # ——— --webview mode: just open the embedded browser window —————————————————
+    # When the main EXE is re-launched with --webview (by start_dashboard),
+    # this process's sole job is to show the pywebview window.  It exits when
+    # the window is closed.  This gives pywebview its own main thread (required
+    # by the WinForms/edgechromium COM STA model).
+    if "--webview" in _sys_main.argv:
+        import time as _t
+        _t.sleep(0.5)          # brief wait for Flask to be ready
+        try:
+            import webview
+            webview.create_window(
+                "MT2 Rebirth Bot",
+                "http://127.0.0.1:7373",
+                width=1100, height=760,
+                resizable=True, min_size=(900, 600),
+            )
+            webview.start()
+        except Exception as _wve:
+            import webbrowser
+            webbrowser.open("http://127.0.0.1:7373")
+        import sys; sys.exit(0)
+
+    # ——— Normal mode ———————————————————————————————————————————————————————————
+    # main thread  — tkinter overlay mainloop (Windows requires this)
+    # thread       — Flask server             (started inside start_dashboard)
+    # process      — pywebview window         (separate process, own main thread)
+    # thread       — bot logic + auth wait
+
+    def _bot_main():
+        run_bot()
+
+    bot_thread = threading.Thread(target=_bot_main, daemon=True, name="bot")
+    bot_thread.start()
+
+    # Start Flask (+ pywebview in dev) — returns immediately
+    start_dashboard()
+
+    # Give main thread to tkinter overlay (blocks here until process exits)
+    from overlay import run_overlay_mainloop
+    run_overlay_mainloop()
+
+    # run_overlay_mainloop only returns if tkinter crashes/exits.
+    # Keep process alive as long as bot thread is running.
+    bot_thread.join()

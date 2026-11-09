@@ -1,0 +1,34 @@
+// ╔══════════════════════════════════════════════╗
+// ║ Block: pcr_file_write_text                       ║
+// ║ Category: file_manager                        ║
+// ║ Source: Extra (not in MCreator plugin)        ║
+// ║ Desc: Write text to file (overwrites)        ║
+// ╚══════════════════════════════════════════════╝
+
+// ─── Definition ───
+Blockly.Blocks['pcr_file_write_text'] = {
+  init: function() {
+    this.jsonInit({
+      "type": "pcr_file_write_text",
+      "message0": "Write %1 to file %2",
+      "args0": [
+        { "type": "input_value", "name": "TEXT", "check": "String" },
+        { "type": "input_value", "name": "PATH", "check": ["String", "RESLOC"] }
+      ],
+      "inputsInline": true,
+      "previousStatement": null,
+      "nextStatement": null,
+      "colour": 270,
+      "tooltip": "Write text content to a file (overwrites existing content)"
+    });
+  }
+};
+
+// ─── Python Generator ───
+Blockly.Python['pcr_file_write_text'] = function(block) {
+  var text = Blockly.Python.valueToCode(block, 'TEXT', Blockly.Python.ORDER_NONE) || "''";
+  var path = 'resolve_path(' + (Blockly.Python.valueToCode(block, 'PATH', Blockly.Python.ORDER_NONE) || "''") + ')';
+  var code = 'with open(' + path + ", 'w') as f:\n";
+  code += '    f.write(str(' + text + '))\n';
+  return code;
+};

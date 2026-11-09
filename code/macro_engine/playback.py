@@ -1,0 +1,1672 @@
+import json
+import logging
+import re
+import ctypes
+import ctypes.wintypes
+import os
+import sys
+import threading
+import time
+from dataclasses import dataclass
+
+_CODE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _CODE_DIR not in sys.path:
+    sys.path.append(_CODE_DIR)
+
+from macro_engine.macro_logic import (
+    handle_switch,
+    handle_case,
+    handle_end_switch,
+    branch_active,
+    find_break_target,
+    macro_log_line,
+    find_break_target,
+    define_variable,
+    scan_loop_background,
+    handle_else,
+    handle_else_if,
+    handle_end_if,
+    handle_end_while,
+    handle_iterate,
+    handle_end_iterate,
+    handle_if,
+    handle_while,
+    list_add,
+    list_remove,
+    parse_payload,
+    run_grab_image,
+    run_image_check,
+    set_variable,
+    start_background_loop,
+    start_watcher,
+    stop_all_watchers,
+    stop_watcher,
+)
+from macro_engine.macro_text import canonicalize_lines
+
+
+def _print_console(text: str, vars_state: dict, bot_root: str = "",
+                   macro_dir: str | None = None) -> None:
+    """PRINT:<text> — the ${} substitution and console routing live in
+    macro_runner (one implementation for both interpreters). Imported
+    lazily: macro_runner sets up the full playback environment at import."""
+    try:
+        from macro_engine.macro_runner import _print_console as _runner_print
+        _runner_print(text, vars_state, bot_root, macro_dir)
+    except Exception:
+        log.info("[MACRO] %s", text)
+
+try:
+    from win_dpi import enable_dpi_awareness
+except Exception:
+    def enable_dpi_awareness() -> None:
+        try:
+            user32 = ctypes.windll.user32
+        except Exception:
+            return
+        try:
+            user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+            return
+        except Exception:
+            pass
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+            return
+        except Exception:
+            pass
+        try:
+            user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+enable_dpi_awareness()
+
+# ── Win32 constants ──────────────────────────────────────────────────────────
+INPUT_MOUSE            = 0
+INPUT_KEYBOARD         = 1
+MOUSEEVENTF_MOVE       = 0x0001
+MOUSEEVENTF_LEFTDOWN   = 0x0002
+MOUSEEVENTF_LEFTUP     = 0x0004
+MOUSEEVENTF_RIGHTDOWN  = 0x0008
+MOUSEEVENTF_RIGHTUP    = 0x0010
+MOUSEEVENTF_MIDDLEDOWN = 0x0020
+MOUSEEVENTF_MIDDLEUP   = 0x0040
+MOUSEEVENTF_MOVE_NOCOALESCE = 0x2000
+MOUSEEVENTF_ABSOLUTE   = 0x8000
+MOUSEEVENTF_MOVE_ABS   = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE
+KEYEVENTF_KEYUP        = 0x0002
+KEYEVENTF_SCANCODE     = 0x0008
+KEYEVENTF_EXTENDEDKEY  = 0x0001
+WM_HOTKEY              = 0x0312
+WM_QUIT                = 0x0012
+log = logging.getLogger(__name__)
+MOD_NOREPEAT           = 0x4000
+VK_F5                  = 0x74
+VK_F6                  = 0x75
+WH_KEYBOARD_LL         = 13
+WH_MOUSE_LL            = 14
+HC_ACTION              = 0
+WM_KEYDOWN             = 0x0100
+WM_KEYUP               = 0x0101
+WM_SYSKEYDOWN          = 0x0104
+WM_SYSKEYUP            = 0x0105
+WM_MOUSEMOVE           = 0x0200
+WM_LBUTTONDOWN         = 0x0201
+WM_LBUTTONUP           = 0x0202
+WM_RBUTTONDOWN         = 0x0204
+WM_RBUTTONUP           = 0x0205
+WM_MBUTTONDOWN         = 0x0207
+WM_MBUTTONUP           = 0x0208
+CURSOR_SHOWING         = 0x00000001
+LLMHF_INJECTED         = 0x00000001
+LLKHF_INJECTED         = 0x00000010
+PM_REMOVE              = 0x0001
+WM_INPUT               = 0x00FF
+RID_INPUT              = 0x10000003
+RIM_TYPEMOUSE          = 0
+RIDEV_INPUTSINK        = 0x00000100
+RIDEV_REMOVE           = 0x00000001
+HID_USAGE_PAGE_GENERIC = 0x01
+HID_USAGE_GENERIC_MOUSE = 0x02
+
+PUL = ctypes.POINTER(ctypes.c_ulong)
+ULONG_PTR = ctypes.c_size_t
+
+
+class POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+class RECT(ctypes.Structure):
+    _fields_ = [
+        ("left",   ctypes.c_long),
+        ("top",    ctypes.c_long),
+        ("right",  ctypes.c_long),
+        ("bottom", ctypes.c_long),
+    ]
+
+
+class CURSORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize",     ctypes.c_ulong),
+        ("flags",      ctypes.c_ulong),
+        ("hCursor",    ctypes.c_void_p),
+        ("ptScreenPos", POINT),
+    ]
+
+
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [
+        ("dx",          ctypes.c_long),
+        ("dy",          ctypes.c_long),
+        ("mouseData",   ctypes.c_ulong),
+        ("dwFlags",     ctypes.c_ulong),
+        ("time",        ctypes.c_ulong),
+        ("dwExtraInfo", ULONG_PTR),
+    ]
+
+
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ("wVk",         ctypes.c_ushort),
+        ("wScan",       ctypes.c_ushort),
+        ("dwFlags",     ctypes.c_ulong),
+        ("time",        ctypes.c_ulong),
+        ("dwExtraInfo", ULONG_PTR),
+    ]
+
+
+class _INPUT_UNION(ctypes.Union):
+    _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT)]
+
+
+class INPUT(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_ulong), ("ii", _INPUT_UNION)]
+
+
+class MSG(ctypes.Structure):
+    _fields_ = [
+        ("hwnd",    ctypes.c_void_p),
+        ("message", ctypes.c_uint),
+        ("wParam",  ctypes.c_size_t),
+        ("lParam",  ctypes.c_size_t),
+        ("time",    ctypes.c_uint),
+        ("pt_x",    ctypes.c_long),
+        ("pt_y",    ctypes.c_long),
+    ]
+
+
+class MSLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [
+        ("pt",          POINT),
+        ("mouseData",   ctypes.wintypes.DWORD),
+        ("flags",       ctypes.wintypes.DWORD),
+        ("time",        ctypes.wintypes.DWORD),
+        ("dwExtraInfo", ULONG_PTR),
+    ]
+
+
+class KBDLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [
+        ("vkCode",      ctypes.wintypes.DWORD),
+        ("scanCode",    ctypes.wintypes.DWORD),
+        ("flags",       ctypes.wintypes.DWORD),
+        ("time",        ctypes.wintypes.DWORD),
+        ("dwExtraInfo", ULONG_PTR),
+    ]
+
+
+WNDPROC = ctypes.WINFUNCTYPE(
+    ctypes.c_ssize_t,
+    ctypes.wintypes.HWND,
+    ctypes.wintypes.UINT,
+    ctypes.wintypes.WPARAM,
+    ctypes.wintypes.LPARAM,
+)
+
+
+class WNDCLASSW(ctypes.Structure):
+    _fields_ = [
+        ("style",         ctypes.wintypes.UINT),
+        ("lpfnWndProc",   WNDPROC),
+        ("cbClsExtra",    ctypes.c_int),
+        ("cbWndExtra",    ctypes.c_int),
+        ("hInstance",     ctypes.wintypes.HINSTANCE),
+        ("hIcon",         ctypes.wintypes.HANDLE),
+        ("hCursor",       ctypes.wintypes.HANDLE),
+        ("hbrBackground", ctypes.wintypes.HANDLE),
+        ("lpszMenuName",  ctypes.wintypes.LPCWSTR),
+        ("lpszClassName", ctypes.wintypes.LPCWSTR),
+    ]
+
+
+class RAWINPUTDEVICE(ctypes.Structure):
+    _fields_ = [
+        ("usUsagePage", ctypes.wintypes.USHORT),
+        ("usUsage",     ctypes.wintypes.USHORT),
+        ("dwFlags",     ctypes.wintypes.DWORD),
+        ("hwndTarget",  ctypes.wintypes.HWND),
+    ]
+
+
+class RAWINPUTHEADER(ctypes.Structure):
+    _fields_ = [
+        ("dwType",  ctypes.wintypes.DWORD),
+        ("dwSize",  ctypes.wintypes.DWORD),
+        ("hDevice", ctypes.wintypes.HANDLE),
+        ("wParam",  ctypes.wintypes.WPARAM),
+    ]
+
+
+class _RAWMOUSE_BUTTONS(ctypes.Structure):
+    _fields_ = [
+        ("usButtonFlags", ctypes.wintypes.USHORT),
+        ("usButtonData",  ctypes.wintypes.USHORT),
+    ]
+
+
+class _RAWMOUSE_BUTTON_UNION(ctypes.Union):
+    _fields_ = [
+        ("ulButtons", ctypes.wintypes.ULONG),
+        ("buttons",   _RAWMOUSE_BUTTONS),
+    ]
+
+
+class RAWMOUSE(ctypes.Structure):
+    _fields_ = [
+        ("usFlags",            ctypes.wintypes.USHORT),
+        ("button_union",       _RAWMOUSE_BUTTON_UNION),
+        ("ulRawButtons",       ctypes.wintypes.ULONG),
+        ("lLastX",             ctypes.wintypes.LONG),
+        ("lLastY",             ctypes.wintypes.LONG),
+        ("ulExtraInformation", ctypes.wintypes.ULONG),
+    ]
+
+
+class RAWKEYBOARD(ctypes.Structure):
+    _fields_ = [
+        ("MakeCode",         ctypes.wintypes.USHORT),
+        ("Flags",            ctypes.wintypes.USHORT),
+        ("Reserved",         ctypes.wintypes.USHORT),
+        ("VKey",             ctypes.wintypes.USHORT),
+        ("Message",          ctypes.wintypes.UINT),
+        ("ExtraInformation", ctypes.wintypes.ULONG),
+    ]
+
+
+class RAWHID(ctypes.Structure):
+    _fields_ = [
+        ("dwSizeHid", ctypes.wintypes.DWORD),
+        ("dwCount",   ctypes.wintypes.DWORD),
+        ("bRawData",  ctypes.c_byte * 1),
+    ]
+
+
+class _RAWINPUT_DATA(ctypes.Union):
+    _fields_ = [
+        ("mouse",    RAWMOUSE),
+        ("keyboard", RAWKEYBOARD),
+        ("hid",      RAWHID),
+    ]
+
+
+class RAWINPUT(ctypes.Structure):
+    _fields_ = [
+        ("header", RAWINPUTHEADER),
+        ("data",   _RAWINPUT_DATA),
+    ]
+
+
+HOOKPROC = ctypes.WINFUNCTYPE(
+    ctypes.c_long,
+    ctypes.c_int,
+    ctypes.wintypes.WPARAM,
+    ctypes.wintypes.LPARAM,
+)
+
+
+_SendInput        = ctypes.windll.user32.SendInput
+_GetSystemMetrics = ctypes.windll.user32.GetSystemMetrics
+_GetCursorPos     = ctypes.windll.user32.GetCursorPos
+_RegisterHotKey   = ctypes.windll.user32.RegisterHotKey
+_UnregisterHotKey = ctypes.windll.user32.UnregisterHotKey
+_GetMessageW      = ctypes.windll.user32.GetMessageW
+_PeekMessageW     = ctypes.windll.user32.PeekMessageW
+_TranslateMessage = ctypes.windll.user32.TranslateMessage
+_DispatchMessageW = ctypes.windll.user32.DispatchMessageW
+_MapVirtualKeyW   = ctypes.windll.user32.MapVirtualKeyW
+_PostThreadMessageW = ctypes.windll.user32.PostThreadMessageW
+_GetCurrentThreadId = ctypes.windll.kernel32.GetCurrentThreadId
+_GetModuleHandleW = ctypes.windll.kernel32.GetModuleHandleW
+_SetWindowsHookExW = ctypes.windll.user32.SetWindowsHookExW
+_CallNextHookEx = ctypes.windll.user32.CallNextHookEx
+_UnhookWindowsHookEx = ctypes.windll.user32.UnhookWindowsHookEx
+_RegisterClassW = ctypes.windll.user32.RegisterClassW
+_CreateWindowExW = ctypes.windll.user32.CreateWindowExW
+_DestroyWindow = ctypes.windll.user32.DestroyWindow
+_DefWindowProcW = ctypes.windll.user32.DefWindowProcW
+_RegisterRawInputDevices = ctypes.windll.user32.RegisterRawInputDevices
+_GetRawInputData = ctypes.windll.user32.GetRawInputData
+_GetCursorInfo  = ctypes.windll.user32.GetCursorInfo
+_GetClipCursor  = ctypes.windll.user32.GetClipCursor
+
+_GetCursorPos.argtypes = [ctypes.POINTER(POINT)]
+_GetCursorPos.restype = ctypes.wintypes.BOOL
+_GetModuleHandleW.argtypes = [ctypes.wintypes.LPCWSTR]
+_GetModuleHandleW.restype = ctypes.wintypes.HMODULE
+_SetWindowsHookExW.argtypes = [ctypes.c_int, HOOKPROC, ctypes.wintypes.HMODULE, ctypes.wintypes.DWORD]
+_SetWindowsHookExW.restype = ctypes.c_void_p
+_CallNextHookEx.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM]
+_CallNextHookEx.restype = ctypes.c_long
+_UnhookWindowsHookEx.argtypes = [ctypes.c_void_p]
+_UnhookWindowsHookEx.restype = ctypes.wintypes.BOOL
+_RegisterClassW.argtypes = [ctypes.POINTER(WNDCLASSW)]
+_RegisterClassW.restype = ctypes.wintypes.ATOM
+_CreateWindowExW.argtypes = [
+    ctypes.wintypes.DWORD,
+    ctypes.wintypes.LPCWSTR,
+    ctypes.wintypes.LPCWSTR,
+    ctypes.wintypes.DWORD,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.wintypes.HWND,
+    ctypes.wintypes.HMENU,
+    ctypes.wintypes.HINSTANCE,
+    ctypes.c_void_p,
+]
+_CreateWindowExW.restype = ctypes.wintypes.HWND
+_DestroyWindow.argtypes = [ctypes.wintypes.HWND]
+_DestroyWindow.restype = ctypes.wintypes.BOOL
+_DefWindowProcW.argtypes = [
+    ctypes.wintypes.HWND,
+    ctypes.wintypes.UINT,
+    ctypes.wintypes.WPARAM,
+    ctypes.wintypes.LPARAM,
+]
+_DefWindowProcW.restype = ctypes.c_ssize_t
+_RegisterRawInputDevices.argtypes = [
+    ctypes.POINTER(RAWINPUTDEVICE),
+    ctypes.wintypes.UINT,
+    ctypes.wintypes.UINT,
+]
+_RegisterRawInputDevices.restype = ctypes.wintypes.BOOL
+_GetRawInputData.argtypes = [
+    ctypes.wintypes.HANDLE,
+    ctypes.wintypes.UINT,
+    ctypes.c_void_p,
+    ctypes.POINTER(ctypes.wintypes.UINT),
+    ctypes.wintypes.UINT,
+]
+_GetRawInputData.restype = ctypes.wintypes.UINT
+
+# 1 ms timer resolution — required for accurate sleep/smooth-move timing
+try:
+    ctypes.WinDLL("winmm").timeBeginPeriod(1)
+except Exception:
+    pass
+
+
+@dataclass
+class Sensitivity:
+    recorded_h: float = 17.0
+    recorded_v: float = 17.0
+    user_h: float = 17.0
+    user_v: float = 17.0
+
+    def scale(self, dx: int, dy: int) -> tuple[int, int]:
+        if self.user_h <= 0 or self.user_v <= 0:
+            return dx, dy
+        return (
+            int(round(dx * self.recorded_h / self.user_h)),
+            int(round(dy * self.recorded_v / self.user_v)),
+        )
+
+    def ratios(self) -> tuple[float, float]:
+        if self.user_h <= 0 or self.user_v <= 0:
+            return 1.0, 1.0
+        return self.recorded_h / self.user_h, self.recorded_v / self.user_v
+
+
+def _make_mouse(flags: int, dx: int = 0, dy: int = 0) -> INPUT:
+    union = _INPUT_UNION()
+    union.mi = MOUSEINPUT(dx=dx, dy=dy, mouseData=0, dwFlags=flags, time=0,
+                          dwExtraInfo=0)
+    return INPUT(INPUT_MOUSE, union)
+
+
+def _is_extended_vk(vk: int) -> bool:
+    return vk in {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
+                  0x2D, 0x2E, 0xA3, 0xA5}
+
+
+def _vk_to_scancode(vk: int) -> int:
+    if vk == 0xA0: return 0x2A
+    if vk == 0xA1: return 0x36
+    if vk in (0xA2, 0xA3): return 0x1D
+    if vk in (0xA4, 0xA5): return 0x38
+    return _MapVirtualKeyW(vk, 0)
+
+
+def _make_key(vk: int, is_key_up: bool) -> INPUT:
+    scan  = _vk_to_scancode(vk)
+    flags = KEYEVENTF_SCANCODE
+    if is_key_up:      flags |= KEYEVENTF_KEYUP
+    if _is_extended_vk(vk): flags |= KEYEVENTF_EXTENDEDKEY
+    extra = ctypes.c_ulong(0)
+    union = _INPUT_UNION()
+    union.ki = KEYBDINPUT(wVk=0, wScan=scan, dwFlags=flags, time=0,
+                          dwExtraInfo=0)
+    return INPUT(INPUT_KEYBOARD, union)
+
+
+def _send_input(*inputs: INPUT) -> None:
+    arr = (INPUT * len(inputs))(*inputs)
+    _SendInput(len(inputs), arr, ctypes.sizeof(INPUT))
+
+
+def _mouse_move_abs(x: int, y: int) -> None:
+    sw = _GetSystemMetrics(0) or 1920
+    sh = _GetSystemMetrics(1) or 1080
+    _send_input(_make_mouse(MOUSEEVENTF_MOVE_ABS, int(x * 65535 / sw), int(y * 65535 / sh)))
+
+
+def _resolve_macro_number(value, vars_state: dict) -> tuple[float, bool]:
+    text = str(value or "").strip()
+    if not text:
+        return 0.0, False
+    var_name = text
+    if text.startswith("${") and text.endswith("}"):
+        var_name = text[2:-1].strip()
+    if var_name in vars_state:
+        try:
+            return float(vars_state.get(var_name) or 0), True
+        except Exception:
+            return 0.0, True
+    try:
+        return float(text), False
+    except Exception:
+        return 0.0, False
+
+
+def _mouse_move_rel(dx: int, dy: int) -> None:
+    try:
+        from macro_engine.macro_runner import _raw_mouse_move_rel
+        _raw_mouse_move_rel(int(dx), int(dy))
+        return
+    except Exception:
+        pass
+    extra = ctypes.c_ulong(0)
+    try:
+        ctypes.windll.user32.mouse_event(MOUSEEVENTF_MOVE, int(dx), int(dy), 0, 0)
+    except Exception:
+        _send_input(_make_mouse(MOUSEEVENTF_MOVE, int(dx), int(dy)))
+
+
+# Click pacing lives in macro_runner._send_mouse_event (shared state):
+# every synthesized DOWN waits 1ms after the last UP of that button, every
+# UP waits until the button was held >= 1ms — the Fortnite-tested rule.
+# .macro playback routes ALL its button events through that guard so the
+# pacing state is shared with mouse_click()/mouse_down() blocks.
+def _mr_send_mouse(flags: int, data: int = 0) -> None:
+    try:
+        from macro_engine.macro_runner import _send_mouse_event as _guarded
+        _guarded(flags, data)
+    except Exception:
+        _send_input(_make_mouse(flags))
+
+
+def _mouse_left_down()  -> None: _mr_send_mouse(MOUSEEVENTF_LEFTDOWN)
+def _mouse_left_up()    -> None: _mr_send_mouse(MOUSEEVENTF_LEFTUP)
+try:
+    from config import MIN_PRESS_MS as _MIN_PRESS_MS
+except Exception:
+    _MIN_PRESS_MS = 20
+# down→up gap: config.MIN_PRESS_MS floor (20ms) — below that the game
+# merges/eats the click or key tap.
+_CLICK_PRESS_S = max(0.020, float(_MIN_PRESS_MS) / 1000.0)
+
+
+def _mouse_left_click() -> None:
+    _mouse_left_down(); time.sleep(_CLICK_PRESS_S); _mouse_left_up()
+
+
+def _mouse_right_down()  -> None: _mr_send_mouse(MOUSEEVENTF_RIGHTDOWN)
+def _mouse_right_up()    -> None: _mr_send_mouse(MOUSEEVENTF_RIGHTUP)
+def _mouse_right_click() -> None:
+    _mouse_right_down(); time.sleep(_CLICK_PRESS_S); _mouse_right_up()
+
+
+def _mouse_middle_down()  -> None: _mr_send_mouse(MOUSEEVENTF_MIDDLEDOWN)
+def _mouse_middle_up()    -> None: _mr_send_mouse(MOUSEEVENTF_MIDDLEUP)
+def _mouse_middle_click() -> None:
+    _mouse_middle_down(); time.sleep(_CLICK_PRESS_S); _mouse_middle_up()
+
+
+def _key_down(vk: int)  -> None: _send_input(_make_key(vk, False))
+def _key_up(vk: int)    -> None: _send_input(_make_key(vk, True))
+def _key_press(vk: int) -> None:
+    _key_down(vk); time.sleep(0.03); _key_up(vk)
+
+
+def _release_all_keys() -> None:
+    """Release common held keys — called immediately on F6 stop."""
+    vks = [0xA0, 0xA1, 0xA2, 0xA3, 0x10, 0x11, 0x57, 0x41, 0x53, 0x44, 0x20]
+    for vk in vks:
+        try:
+            _key_up(vk)
+        except Exception:
+            pass
+    try:
+        _mouse_left_up()
+    except Exception:
+        pass
+
+
+def _cursor_visible() -> bool:
+    """True when the mouse cursor is on screen (CURSOR_SHOWING)."""
+    ci = CURSORINFO()
+    ci.cbSize = ctypes.sizeof(CURSORINFO)
+    try:
+        if _GetCursorInfo(ctypes.byref(ci)):
+            return bool(ci.flags & CURSOR_SHOWING)
+    except Exception:
+        pass
+    return True  # assume visible on failure — never falsely trigger game mode
+
+
+def _clip_confined_tiny() -> bool:
+    """True when ClipCursor confines the pointer to a tiny rect — games do
+    this to grab relative camera control. Desktop/RDP use the full screen."""
+    rc = RECT()
+    try:
+        if _GetClipCursor(ctypes.byref(rc)):
+            w = rc.right - rc.left
+            h = rc.bottom - rc.top
+            return 0 <= w <= 8 and 0 <= h <= 8
+    except Exception:
+        pass
+    return False
+
+
+def _get_cursor_pos() -> tuple[int, int]:
+    pt = POINT()
+    if _GetCursorPos(ctypes.byref(pt)):
+        return int(pt.x), int(pt.y)
+    return 0, 0
+
+
+_PLAY_MACRO_MAX_DEPTH = 16
+
+def _read_macro_lines(path: str) -> list[str]:
+    """Read a .macro's canonical lines — v3 container OR legacy text."""
+    from macro_engine import container as _c
+    with open(path, "rb") as f:
+        data = f.read()
+    if _c.is_container_bytes(data):
+        data = _c.read_generated_text(data).encode("utf-8", errors="replace")
+    return [ln.strip() for ln in data.decode("utf-8", errors="replace").splitlines()]
+
+
+
+_DRIVE_LETTER_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+def _is_rooted_path(p: str) -> bool:
+    """True for Windows drive-letter paths, UNC paths, or any OS-absolute path."""
+    return bool(_DRIVE_LETTER_RE.match(p)) or p.startswith("\\\\") or os.path.isabs(p)
+
+
+def _resolve_nested_macro(target: str, macros_dir: str):
+    """Resolve a PLAY_MACRO target to a .macro file.
+
+    Accepts either a full path picked via the Windows file dialog (used as-is,
+    anywhere on disk), or a "name" / "folder/name" resolved inside macros/
+    with directory-traversal guarded. Returns None if not found / not allowed.
+    """
+    if not target:
+        return None
+    target = str(target).strip()
+    if _is_rooted_path(target):
+        path = os.path.normpath(target)
+        if os.path.isfile(path):
+            return path
+        if os.path.isfile(path + ".macro"):
+            return path + ".macro"
+        return None
+    target = target.replace("\\", "/").strip("/")
+    if target.lower().endswith(".macro"):
+        target = target[:-6]
+    if not target:
+        return None
+    base = os.path.abspath(macros_dir)
+    path = os.path.normpath(os.path.join(base, target))
+    if not (path == base or path.startswith(base + os.sep)):
+        return None
+    if os.path.isfile(path):
+        return path
+    if os.path.isfile(path + ".macro"):
+        return path + ".macro"
+    return None
+
+
+def _raw_mouse_delta(l_param) -> tuple[int, int]:
+    size = ctypes.wintypes.UINT(0)
+    header_size = ctypes.sizeof(RAWINPUTHEADER)
+    _GetRawInputData(l_param, RID_INPUT, None, ctypes.byref(size), header_size)
+    if size.value <= 0:
+        return 0, 0
+    buf = ctypes.create_string_buffer(size.value)
+    copied = _GetRawInputData(l_param, RID_INPUT, buf, ctypes.byref(size), header_size)
+    if copied in (0, ctypes.wintypes.UINT(-1).value):
+        return 0, 0
+    raw = ctypes.cast(buf, ctypes.POINTER(RAWINPUT)).contents
+    if raw.header.dwType != RIM_TYPEMOUSE:
+        return 0, 0
+    return int(raw.data.mouse.lLastX), int(raw.data.mouse.lLastY)
+
+
+class MacroEngine:
+    def __init__(self, macros_dir: str, on_state=None):
+        self.macros_dir = macros_dir
+        self.current_path: str | None = None
+        self.current_macro: str | None = None
+        self.sensitivity = Sensitivity()
+        self._stop_event  = threading.Event()
+        self._play_thread: threading.Thread | None = None
+        self._record_stop_event = threading.Event()
+        self._record_thread: threading.Thread | None = None
+        self._record_thread_id: int | None = None
+        self._record_ready = threading.Event()
+        self._record_lock = threading.Lock()
+        self._record_events: list[tuple[float, str, str]] = []
+        self._record_keys_down: set[int] = set()
+        self._record_buttons_down: set[str] = set()
+        self._record_mouse_down = False
+        self._record_start = 0.0
+        self._record_sensitivity = Sensitivity()
+        self._hotkey_thread_id: int | None = None
+        self._hotkey_stopped = threading.Event()
+        self._hotkey_stopped.set()
+        self._record_toggle_vk = VK_F5
+        self._on_state    = on_state
+        self._state_lock  = threading.Lock()
+        self.state = {
+            "running":   False,
+            "recording": False,
+            "macro":     None,
+            "elapsed":   0.0,
+            "estimated": 0.0,
+            "progress":  0.0,
+            "record_version": 0,
+            "record_path": "",
+            "play_binding": "F6",
+            "record_binding": "F5",
+        }
+
+    # ── public API ──────────────────────────────────────────────────────────
+
+    def stop(self) -> None:
+        """Signal stop immediately and release all held inputs."""
+        self._stop_event.set()
+        _release_all_keys()
+        self._set_state(running=False)
+
+    def is_running(self) -> bool:
+        return bool(self._play_thread and self._play_thread.is_alive())
+
+    def is_recording(self) -> bool:
+        return bool(self._record_thread and self._record_thread.is_alive())
+
+    def start_recording(self, macro_name: str, sensitivity: Sensitivity | None = None) -> bool:
+        """Start capturing input events. Returns False if play/record is already active."""
+        if self.is_running() or self.is_recording():
+            return False
+        self._record_stop_event = threading.Event()
+        self._record_ready = threading.Event()
+        self._record_thread_id = None
+        self._record_events = []
+        self._record_keys_down = set()
+        self._record_mouse_down = False
+        self._record_buttons_down = set()
+        self._record_start = time.perf_counter()
+        self._record_sensitivity = sensitivity or Sensitivity()
+        self.current_macro = macro_name
+        self._record_thread = threading.Thread(
+            target=self._record_loop, args=(macro_name,), daemon=True, name="macro-record"
+        )
+        self._record_thread.start()
+        self._record_ready.wait(1.0)
+        return self.is_recording()
+
+    def stop_recording(self) -> list[dict]:
+        """Stop recording and return editor blocks."""
+        if not self.is_recording():
+            return []
+        self._record_stop_event.set()
+        if self._record_thread_id:
+            try:
+                _PostThreadMessageW(self._record_thread_id, WM_QUIT, 0, 0)
+            except Exception:
+                pass
+        if self._record_thread:
+            self._record_thread.join(timeout=2.0)
+        return self._record_events_to_blocks()
+
+    def play_path_once(
+        self,
+        path: str,
+        macro_name: str,
+        repeat_count: int = 1,
+        sensitivity_override: Sensitivity | None = None,
+    ) -> bool:
+        """Start playing a macro file. Returns False if already running or file missing."""
+        if self.is_running() or self.is_recording():
+            return False
+        if not os.path.exists(path):
+            return False
+        _release_all_keys()
+        self.current_path  = path
+        self.current_macro = macro_name
+        self._stop_event   = threading.Event()
+        self._play_thread  = threading.Thread(
+            target=self._play_file, args=(path, macro_name, repeat_count, sensitivity_override), daemon=True
+        )
+        self._play_thread.start()
+        return True
+
+    # ── internal ────────────────────────────────────────────────────────────
+
+    def _append_record_event(self, event_type: str, value: str = "") -> None:
+        ts = time.perf_counter() - self._record_start
+        with self._record_lock:
+            self._record_events.append((ts, event_type, value))
+
+    def _record_loop(self, macro_name: str) -> None:
+        self._record_thread_id = int(_GetCurrentThreadId())
+        self._set_state(
+            running=False, recording=True, macro=macro_name,
+            elapsed=0.0, estimated=0.0, progress=0.0,
+        )
+
+        last_x, last_y = _get_cursor_pos()
+        last_state_update = 0.0
+        module_handle = _GetModuleHandleW(None)
+        raw_mouse_enabled = False
+        raw_hwnd = None
+        raw_cb = None
+
+        # ── smooth (scaled) vs absolute move auto-detection ──────────────
+        # game_mode: the foreground game has hidden the cursor and/or
+        # confined it with ClipCursor → record raw deltas as SMOOTH_MOVE
+        # (sensitivity-scaled camera moves). Otherwise (desktop, apps,
+        # in-game GUIs with a visible pointer) record MOUSE_MOVE_ABS —
+        # absolute coordinates replay identically regardless of sensitivity.
+        game_mode = [False]           # box — read inside hook callbacks
+        _hidden_since = [None]        # when the cursor first vanished
+        _visible_since = [time.perf_counter()]  # when it was last visible
+        _last_mode_check = [0.0]
+        ENTER_GAME_MS = 0.35          # hidden this long → game
+        EXIT_GAME_MS = 0.15           # visible this long → desktop again
+        ABS_MIN_DIST = 4              # px — abs move throttle distance
+        ABS_MIN_DT = 0.04             # s  — abs move throttle interval
+        abs_x, abs_y = _get_cursor_pos()
+        abs_last_x, abs_last_y = abs_x, abs_y   # last EMITTED abs position
+        abs_last_t = 0.0
+
+        def _emit_abs(x: int, y: int, force: bool = False) -> None:
+            nonlocal abs_last_x, abs_last_y, abs_last_t
+            now = time.perf_counter()
+            moved = (abs(x - abs_last_x) >= ABS_MIN_DIST) or (abs(y - abs_last_y) >= ABS_MIN_DIST)
+            if not force and not (moved and now - abs_last_t >= ABS_MIN_DT):
+                return
+            self._append_record_event("MOUSE_MOVE_ABS", f"{x},{y}")
+            abs_last_x, abs_last_y, abs_last_t = x, y, now
+
+        def raw_wnd_proc(hwnd, msg, w_param, l_param):
+            if msg == WM_INPUT:
+                dx, dy = _raw_mouse_delta(l_param)
+                # raw deltas are only meaningful as camera/sensitivity-scaled
+                # moves while the game has grabbed the pointer. On the desktop
+                # they're just the same movement the low-level hook already
+                # reports — recording both would double-apply.
+                if (dx or dy) and game_mode[0]:
+                    self._append_record_event("SMOOTH_MOVE", f"{dx},{dy}")
+                return 0
+            return _DefWindowProcW(hwnd, msg, w_param, l_param)
+
+        try:
+            class_name = f"MacroEngineRawInputWindow_{self._record_thread_id}_{id(self)}"
+            raw_cb = WNDPROC(raw_wnd_proc)
+            wc = WNDCLASSW()
+            wc.lpfnWndProc = raw_cb
+            wc.hInstance = module_handle
+            wc.lpszClassName = class_name
+            if _RegisterClassW(ctypes.byref(wc)):
+                raw_hwnd = _CreateWindowExW(
+                    0, class_name, class_name, 0,
+                    0, 0, 0, 0, None, None, module_handle, None,
+                )
+                if raw_hwnd:
+                    rid = RAWINPUTDEVICE(
+                        HID_USAGE_PAGE_GENERIC,
+                        HID_USAGE_GENERIC_MOUSE,
+                        RIDEV_INPUTSINK,
+                        raw_hwnd,
+                    )
+                    raw_mouse_enabled = bool(
+                        _RegisterRawInputDevices(
+                            ctypes.byref(rid),
+                            1,
+                            ctypes.sizeof(RAWINPUTDEVICE),
+                        )
+                    )
+        except Exception:
+            raw_mouse_enabled = False
+
+        def mouse_proc(n_code, w_param, l_param):
+            nonlocal last_x, last_y, abs_x, abs_y
+            if n_code == HC_ACTION:
+                info = ctypes.cast(l_param, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
+                injected = bool(info.flags & LLMHF_INJECTED)
+                x, y = int(info.pt.x), int(info.pt.y)
+                btn = None
+                down = False
+                if w_param == WM_MOUSEMOVE:
+                    dx, dy = x - last_x, y - last_y
+                    last_x, last_y = x, y
+                    if (dx or dy) and not injected:
+                        if game_mode[0]:
+                            # game grabbed the pointer — raw deltas are the
+                            # real signal; hook deltas only as a fallback
+                            # when raw input is unavailable.
+                            if not raw_mouse_enabled:
+                                self._append_record_event("SMOOTH_MOVE", f"{dx},{dy}")
+                        else:
+                            # desktop / visible-cursor context → absolute
+                            abs_x, abs_y = x, y
+                            _emit_abs(x, y)
+                    return _CallNextHookEx(None, n_code, w_param, l_param)
+                elif w_param == WM_LBUTTONDOWN:   btn, down = "LEFT",   True
+                elif w_param == WM_LBUTTONUP:     btn, down = "LEFT",   False
+                elif w_param == WM_RBUTTONDOWN:   btn, down = "RIGHT",  True
+                elif w_param == WM_RBUTTONUP:     btn, down = "RIGHT",  False
+                elif w_param == WM_MBUTTONDOWN:   btn, down = "MIDDLE", True
+                elif w_param == WM_MBUTTONUP:     btn, down = "MIDDLE", False
+                if btn and not injected:
+                    if down and not game_mode[0]:
+                        # exact click position — the throttle may lag behind
+                        _emit_abs(x, y, force=True)
+                    if down:
+                        self._record_buttons_down.add(btn)
+                        if btn == "LEFT":
+                            self._record_mouse_down = True
+                    else:
+                        self._record_buttons_down.discard(btn)
+                        if btn == "LEFT":
+                            self._record_mouse_down = False
+                    self._append_record_event(f"MOUSE_{btn}_{'DOWN' if down else 'UP'}")
+            return _CallNextHookEx(None, n_code, w_param, l_param)
+
+        def keyboard_proc(n_code, w_param, l_param):
+            if n_code == HC_ACTION:
+                info = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
+                vk = int(info.vkCode)
+                injected = bool(info.flags & LLKHF_INJECTED)
+                if not injected and vk not in (self._record_toggle_vk,):
+                    is_down = w_param in (WM_KEYDOWN, WM_SYSKEYDOWN)
+                    is_up = w_param in (WM_KEYUP, WM_SYSKEYUP)
+                    if is_down and vk not in self._record_keys_down:
+                        self._record_keys_down.add(vk)
+                        self._append_record_event("KEY_DOWN", f"0x{vk:02X}")
+                    elif is_up and vk in self._record_keys_down:
+                        self._record_keys_down.discard(vk)
+                        self._append_record_event("KEY_UP", f"0x{vk:02X}")
+            return _CallNextHookEx(None, n_code, w_param, l_param)
+
+        mouse_cb = HOOKPROC(mouse_proc)
+        keyboard_cb = HOOKPROC(keyboard_proc)
+        mouse_hook = _SetWindowsHookExW(WH_MOUSE_LL, mouse_cb, module_handle, 0)
+        keyboard_hook = _SetWindowsHookExW(WH_KEYBOARD_LL, keyboard_cb, module_handle, 0)
+        self._record_ready.set()
+
+        try:
+            msg = MSG()
+            while not self._record_stop_event.is_set():
+                while _PeekMessageW(ctypes.byref(msg), None, 0, 0, PM_REMOVE):
+                    if msg.message == WM_QUIT:
+                        self._record_stop_event.set()
+                        break
+                    _TranslateMessage(ctypes.byref(msg))
+                    _DispatchMessageW(ctypes.byref(msg))
+
+                now = time.perf_counter()
+                if now - last_state_update >= 0.05:
+                    last_state_update = now
+                    self._set_state(elapsed=now - self._record_start, progress=0.0)
+                if now - _last_mode_check[0] >= 0.05:
+                    _last_mode_check[0] = now
+                    grabbed = (not _cursor_visible()) or _clip_confined_tiny()
+                    if grabbed:
+                        if _hidden_since[0] is None:
+                            _hidden_since[0] = now
+                        _visible_since[0] = now   # ignore brief flashes
+                    else:
+                        _hidden_since[0] = None
+                        _visible_since[0] = now
+                    was_game = game_mode[0]
+                    if not was_game and (
+                        _hidden_since[0] is not None
+                        and (now - _hidden_since[0]) * 1000.0 >= ENTER_GAME_MS * 1000.0
+                    ):
+                        game_mode[0] = True
+                    elif was_game and (now - _visible_since[0]) * 1000.0 >= EXIT_GAME_MS * 1000.0:
+                        game_mode[0] = False
+                time.sleep(0.001)
+        finally:
+            for btn in sorted(self._record_buttons_down):
+                self._append_record_event(f"MOUSE_{btn}_UP")
+            self._record_buttons_down.clear()
+            self._record_mouse_down = False
+            for vk in sorted(self._record_keys_down):
+                self._append_record_event("KEY_UP", f"0x{vk:02X}")
+            self._record_keys_down.clear()
+            if mouse_hook:
+                _UnhookWindowsHookEx(mouse_hook)
+            if keyboard_hook:
+                _UnhookWindowsHookEx(keyboard_hook)
+            if raw_mouse_enabled:
+                try:
+                    rid = RAWINPUTDEVICE(
+                        HID_USAGE_PAGE_GENERIC,
+                        HID_USAGE_GENERIC_MOUSE,
+                        RIDEV_REMOVE,
+                        None,
+                    )
+                    _RegisterRawInputDevices(ctypes.byref(rid), 1, ctypes.sizeof(RAWINPUTDEVICE))
+                except Exception:
+                    pass
+            if raw_hwnd:
+                try:
+                    _DestroyWindow(raw_hwnd)
+                except Exception:
+                    pass
+            elapsed = time.perf_counter() - self._record_start
+            self._set_state(recording=False, elapsed=elapsed, progress=1.0)
+
+    def _record_events_to_blocks(self) -> list[dict]:
+        with self._record_lock:
+            events = list(self._record_events)
+        blocks: list[dict] = []
+        prev = 0.0
+        carry_ms = 0.0
+        for ts, event_type, value in events:
+            delta_ms = max(0.0, (ts - prev) * 1000.0)
+            prev = ts
+            carry_ms += delta_ms
+            delay_ms = int(round(carry_ms))
+            if delay_ms > 0:
+                blocks.append({"type": "DELAY", "value": str(delay_ms)})
+                carry_ms -= delay_ms
+            blocks.append({"type": event_type, "value": value})
+        return blocks
+
+    def _set_state(self, **kwargs):
+        with self._state_lock:
+            self.state.update(kwargs)
+            snap = dict(self.state)
+        if self._on_state:
+            try:
+                self._on_state(snap)
+            except Exception:
+                pass
+
+    def _estimate_runtime_seconds(self, lines: list[str], visited: set | None = None) -> float:
+        est = 0.0
+        if visited is None:
+            visited = set()
+        repeat_stack: list[tuple[int, int]] = []
+        pc = 0
+        safety = 0
+        while pc < len(lines) and safety < 300_000:
+            safety += 1
+            raw = lines[pc].strip()
+            pc += 1
+            if not raw or raw.startswith("#") or raw.startswith("LABEL:"):
+                continue
+            if raw.startswith("PLAY_MACRO:") or raw.startswith("PLAY_MACRO_FROM:"):
+                target = ""
+                if raw.startswith("PLAY_MACRO_FROM:"):
+                    try:
+                        target = str(json.loads(raw[16:] or "{}").get("macro") or "").strip()
+                    except Exception:
+                        target = ""
+                else:
+                    target = raw[11:].strip()
+                # estimate from the top — overestimates the label-skipped
+                # prefix, which only makes the progress bar smoother
+                inner_path = _resolve_nested_macro(target, self.macros_dir) if target else None
+                if inner_path:
+                    key = os.path.abspath(inner_path)
+                    if key not in visited:
+                        try:
+                            inner_lines = canonicalize_lines(_read_macro_lines(inner_path))
+                            est += self._estimate_runtime_seconds(inner_lines, visited | {key})
+                        except Exception:
+                            pass
+                continue
+            if raw.startswith("DELAY:"):
+                try: est += max(0, int(raw[6:])) / 1000.0
+                except Exception: pass
+                continue
+            if raw.startswith("KEY_PRESS:"):
+                est += 0.03; continue
+            if raw == "MOUSE_LEFT_CLICK":
+                est += _CLICK_PRESS_S; continue
+            if raw.startswith("REPEAT:"):
+                try: repeat_stack.append((pc, max(0, int(raw[7:]))))
+                except Exception: pass
+                continue
+            if raw == "ENDREPEAT" and repeat_stack:
+                start, rem = repeat_stack[-1]
+                rem -= 1
+                if rem > 0:
+                    repeat_stack[-1] = (start, rem)
+                    pc = start
+                else:
+                    repeat_stack.pop()
+        return max(0.1, est)
+
+    def _update_runtime(self, t0: float, est_total: float) -> None:
+        elapsed  = time.perf_counter() - t0
+        progress = min(1.0, elapsed / est_total) if est_total > 0 else 0.0
+        self._set_state(elapsed=elapsed, progress=progress)
+
+    def _play_file(
+        self,
+        path: str,
+        macro_name: str,
+        repeat_count: int = 1,
+        sensitivity_override: Sensitivity | None = None,
+    ) -> None:
+        try:
+            # .macro v3 containers unzip to a clean temp first — macro_dir
+            # then points at the extraction so embedded images/ resolve
+            from macro_engine import container as _c
+            if _c.is_container_file(path):
+                path = _c.extract_for_playback(path)
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                raw_lines = [ln.strip() for ln in f]
+        except Exception:
+            self._set_state(running=False)
+            return
+        # .macro files come in two on-disk formats: the v1 line format the
+        # engine runs directly, and the v2 pretty format (IF (hp < 20) { … }).
+        # canonicalize_lines accepts both and always yields v1 engine lines
+        # (v1 input passes through byte-for-byte).
+        raw_lines = canonicalize_lines(raw_lines)
+
+        # Load sensitivity from macro comments
+        for line in raw_lines:
+            if line.startswith("# SENS_RECORDED_H:"):
+                try: self.sensitivity.recorded_h = float(line.split(":")[1])
+                except Exception: pass
+            elif line.startswith("# SENS_RECORDED_V:"):
+                try: self.sensitivity.recorded_v = float(line.split(":")[1])
+                except Exception: pass
+            elif line.startswith("# SENS_USER_H:"):
+                try: self.sensitivity.user_h = float(line.split(":")[1])
+                except Exception: pass
+            elif line.startswith("# SENS_USER_V:"):
+                try: self.sensitivity.user_v = float(line.split(":")[1])
+                except Exception: pass
+        if sensitivity_override:
+            self.sensitivity.recorded_h = sensitivity_override.recorded_h
+            self.sensitivity.recorded_v = sensitivity_override.recorded_v
+            self.sensitivity.user_h = sensitivity_override.user_h
+            self.sensitivity.user_v = sensitivity_override.user_v
+
+        try:
+            repeat_count = int(repeat_count)
+        except Exception:
+            repeat_count = 1
+        repeat_count = max(0, repeat_count)
+        est_one = self._estimate_runtime_seconds(raw_lines)
+        est_total = est_one if repeat_count == 0 else max(0.1, est_one * max(1, repeat_count))
+        self._set_state(running=True, macro=macro_name,
+                        elapsed=0.0, estimated=est_total, progress=0.0)
+        t0 = time.perf_counter()
+        next_due = t0
+        last_runtime_update = 0.0
+        try:
+            from macro_engine.macro_runner import (
+                prime_game_mouse_capture,
+                _prepare_windows_mouse_compatibility,
+                _boost_playback_timing,
+            )
+            _prepare_windows_mouse_compatibility()
+            _boost_playback_timing()
+            prime_game_mouse_capture()
+        except Exception:
+            pass
+
+        def update_runtime(force: bool = False) -> None:
+            nonlocal last_runtime_update
+            now = time.perf_counter()
+            if force or now - last_runtime_update >= 0.05:
+                last_runtime_update = now
+                self._update_runtime(t0, est_total)
+
+        def sleep_until(deadline: float) -> bool:
+            # 1:1 with manual strength _pace_wait (v2022): plain time.sleep
+            # quantizes to ~15.6ms under Win11 EcoQoS for a background
+            # process, so DELAY:15/DELAY:5 spam-click pacing ran nothing like
+            # manual strength. Bulk-sleep only long waits (>20ms), then
+            # busy-spin the rest with sleep(0) yields.
+            while True:
+                if self._stop_event.is_set():
+                    return False
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    update_runtime()
+                    return True
+                if remaining > 0.02:
+                    time.sleep(remaining - 0.002)
+                    update_runtime()
+                else:
+                    time.sleep(0)  # yield slice: keeps GIL pressure near zero
+                    update_runtime()
+
+        loop_index = 0
+        smooth_carry_x = 0.0
+        smooth_carry_y = 0.0
+        vars_state: dict = {}
+        macro_dir = os.path.dirname(os.path.abspath(path))
+        bot_root = os.path.dirname(os.path.abspath(self.macros_dir))
+
+        def run_lines(lines: list[str], m_dir: str, depth: int = 0, start_pc: int = 0) -> bool:
+            """Execute one macro's lines to completion.
+
+            Returns False when playback was stopped. Variables, timing
+            and the smooth-move carry are shared across nested PLAY_MACRO
+            calls; labels and IF / REPEAT scopes are local to each file.
+            start_pc: begin at this line index (PLAY_MACRO FROM label) —
+            the FULL lines list is kept so GOTO works in both directions
+            from the entry point.
+            """
+            nonlocal next_due, smooth_carry_x, smooth_carry_y
+            labels: dict[str, int] = {
+                ln[6:].strip(): i
+                for i, ln in enumerate(lines)
+                if ln.startswith("LABEL:")
+            }
+            pc = int(start_pc or 0)
+            repeat_stack: list[tuple[int, int]] = []
+            if_stack: list[dict] = []
+            while_stack: list[int] = []   # body-start pc per active WHILE/UNTIL loop
+            iterate_stack: list[int] = []  # body-start pc per active ITERATE loop
+            loop_bg: dict = {}             # body-start pc -> BackgroundLoop (WHILE/UNTIL arm)
+            watchers: dict = {}            # var name -> BackgroundWatcher (WATCH lines)
+            # hand both registries to _play_file so its repeat-loop finally
+            # can actually stop them (they used to be out of scope there)
+            _live_regs["loop_bg"] = loop_bg
+            _live_regs["watchers"] = watchers
+
+            def _arm_bg(lines: list, body_pc: int, registry: dict) -> None:
+                """WHILE:/UNTIL: entered and the loop has a BACKGROUND arm
+                (lines after its END marker): start the arm's thread once.
+                Pass 2+ re-runs the WHILE:/UNTIL: line — the arm is already
+                running (same body pc key), so nothing re-arms."""
+                if body_pc in registry:
+                    return
+                arm = scan_loop_background(lines, body_pc)
+                if not arm:
+                    return
+                registry[body_pc] = start_background_loop(
+                    arm, vars_state, self._stop_event,
+                    bot_root=bot_root, macro_dir=macro_dir,
+                    print_cb=lambda text, vs: _print_console(text, vs, bot_root, m_dir))
+            while pc < len(lines):
+                update_runtime()
+
+                if self._stop_event.is_set():
+                    return False
+
+                raw = lines[pc]
+                pc += 1
+                if not raw or raw.startswith("#"):
+                    continue
+                # LOCK { ... } is a re-record envelope, not playback: skip
+                # the markers, the steps inside execute normally
+                if raw == "LOCK:" or raw.startswith("LOCK_END:"):
+                    continue
+                # BACKGROUND arm markers of a WHILE/UNTIL loop — the arm's
+                # steps run on a background thread armed at the WHILE:/UNTIL:
+                # line (scan_loop_background); the main thread never walks
+                # them: jump the whole arm section (arm sits AFTER the loop's
+                # END marker in v1 order)
+                if raw == "BG_BEGIN:":
+                    j = pc
+                    while j < len(lines) and lines[j] != "BG_END:":
+                        j += 1
+                    pc = j + 1   # resume after the arm
+                    continue
+                if raw == "BG_END:" or raw.startswith("BG_END:"):
+                    continue
+                # LOOK is the legacy alias of SMOOTH_MOVE (old recordings)
+                if raw.startswith("LOOK:"):
+                    raw = "SMOOTH_MOVE:" + raw[5:]
+
+                if raw.startswith("VARIABLE:"):
+                    if branch_active(if_stack):
+                        define_variable(vars_state, parse_payload(raw, "VARIABLE"))
+                    continue
+                if raw.startswith("SET_VARIABLE:"):
+                    if branch_active(if_stack):
+                        set_variable(vars_state, parse_payload(raw, "SET_VARIABLE"), bot_root, m_dir)
+                    continue
+                # LIST_ADD / LIST_REMOVE — list variable mutation (List category)
+                if raw.startswith("LIST_ADD:"):
+                    if branch_active(if_stack):
+                        list_add(vars_state, parse_payload(raw, "LIST_ADD"), bot_root, m_dir)
+                    continue
+                if raw.startswith("LIST_REMOVE:"):
+                    if branch_active(if_stack):
+                        list_remove(vars_state, parse_payload(raw, "LIST_REMOVE"), bot_root, m_dir)
+                    continue
+                # WATCH <var> WHEN (<cond>) EVERY <ms> — standalone condition
+                # watcher: keeps <var> at 1/0 on a background thread until the
+                # macro ends or STOP WATCH runs
+                if raw.startswith("WATCH:"):
+                    if branch_active(if_stack):
+                        start_watcher(parse_payload(raw, "WATCH"), vars_state,
+                                      self._stop_event, watchers, bot_root, m_dir)
+                    continue
+                if raw.startswith("STOP_WATCH:"):
+                    if branch_active(if_stack):
+                        stop_watcher(raw[11:], watchers)
+                    continue
+                if raw.startswith("IMAGE:"):
+                    if branch_active(if_stack):
+                        run_image_check(vars_state, parse_payload(raw, "IMAGE"), bot_root, m_dir)
+                    continue
+                if raw.startswith("GRAB_IMAGE:"):
+                    if branch_active(if_stack):
+                        run_grab_image(vars_state, parse_payload(raw, "GRAB_IMAGE"), bot_root, m_dir)
+                    continue
+                if raw.startswith("IF:"):
+                    handle_if(if_stack, vars_state, parse_payload(raw, "IF"), bot_root, m_dir)
+                    continue
+                if raw.startswith("ELSE_IF:"):
+                    handle_else_if(if_stack, vars_state, parse_payload(raw, "ELSE_IF"), bot_root, m_dir)
+                    continue
+                if raw == "ELSE" or raw.startswith("ELSE:"):
+                    # plain ELSE branch — handle_else existed but was never
+                    # dispatched here, so ELSE bodies ran even when an earlier
+                    # branch of the same IF had already been taken
+                    handle_else(if_stack)
+                    continue
+                if raw == "END_IF" or raw.startswith("END_IF:"):
+                    handle_end_if(if_stack)
+                    continue                # --- SWITCH / CASE (Logic category switch block) ---
+                if raw.startswith("SWITCH:"):
+                    handle_switch(if_stack, vars_state, parse_payload(raw, "SWITCH"), bot_root, m_dir)
+                    continue
+                if raw.startswith("CASE:"):
+                    if branch_active(if_stack):
+                        handle_case(if_stack, vars_state, parse_payload(raw, "CASE"), bot_root, m_dir)
+                    continue
+                if raw == "END_SWITCH" or raw.startswith("END_SWITCH:"):
+                    handle_end_switch(if_stack)
+                    continue
+
+                # --- WHILE / UNTIL loops (same stack as IF branches) ---
+                if raw.startswith("WHILE:"):
+                    handle_while(if_stack, vars_state, parse_payload(raw, "WHILE"), bot_root, m_dir)
+                    if if_stack[-1]["active"]:
+                        while_stack.append(pc)   # body start (pc already past WHILE line)
+                        _arm_bg(lines, pc, loop_bg)
+                    continue
+                if raw.startswith("UNTIL:"):
+                    handle_while(if_stack, vars_state, parse_payload(raw, "UNTIL"), bot_root, m_dir,
+                                 invert=True)
+                    if if_stack[-1]["active"]:
+                        while_stack.append(pc)
+                        _arm_bg(lines, pc, loop_bg)
+                    continue
+                if raw == "END_WHILE" or raw.startswith("END_WHILE:") or raw == "END_UNTIL" or raw.startswith("END_UNTIL:"):
+                    pre_body_pc = while_stack[-1] if while_stack else None
+                    pre_ws = len(while_stack)
+                    jump = handle_end_while(if_stack, while_stack, vars_state, bot_root, m_dir)
+                    if jump is not None:
+                        pc = jump
+                        # fresh DELAY budget for the next pass — a long pass
+                        # (image checks, key holds) must never eat the next
+                        # pass's first DELAY down to 0ms
+                        next_due = time.perf_counter()
+                    elif pre_ws > 0 and len(while_stack) < pre_ws and pre_body_pc in loop_bg:
+                        # the loop ran and exited — retire its BACKGROUND arm
+                        loop_bg.pop(pre_body_pc).stop()
+                    continue
+                # ITERATE <list> AS "name" ... END_ITERATE — List category loop
+                if raw.startswith("ITERATE:"):
+                    handle_iterate(if_stack, vars_state, parse_payload(raw, "ITERATE"), bot_root, m_dir)
+                    if if_stack[-1].get("iterate") and if_stack[-1].get("active"):
+                        iterate_stack.append(pc)   # body start
+                    continue
+                if raw == "END_ITERATE" or raw.startswith("END_ITERATE:"):
+                    jump = handle_end_iterate(if_stack, iterate_stack, vars_state)
+                    if jump is not None:
+                        pc = jump
+                        # fresh DELAY budget for the next pass
+                        next_due = time.perf_counter()
+                    continue
+                if raw == "BREAK_LOOP" or raw.startswith("BREAK_LOOP:"):
+                    _in_switch = any(f.get("kind") == "switch" for f in if_stack)
+                    if branch_active(if_stack) and (repeat_stack or while_stack or iterate_stack or _in_switch):
+                        end_pc = find_break_target(lines, pc)
+                        if end_pc is not None:
+                            _bk_head = str(lines[end_pc]).split(":", 1)[0]
+                            if _bk_head == "ENDREPEAT":
+                                if repeat_stack:
+                                    repeat_stack.pop()
+                            elif _bk_head == "END_ITERATE":
+                                # ITERATE: pop the frames up to and including
+                                # the loop's component frame
+                                if iterate_stack:
+                                    iterate_stack.pop()
+                                while if_stack:
+                                    top = if_stack.pop()
+                                    if top.get("iterate"):   # the loop frame itself
+                                        break
+                            elif _bk_head == "END_SWITCH":
+                                # SWITCH: pop the frames up to and including
+                                # the switch frame (BREAK inside a case body
+                                # exits the switch, like break in C)
+                                while if_stack:
+                                    top = if_stack.pop()
+                                    if top.get("kind") == "switch":
+                                        break
+                            else:
+                                # WHILE/UNTIL: pop the frames up to and
+                                # including the loop frame, retire its arm
+                                if while_stack:
+                                    body_pc = while_stack.pop()
+                                    arm = loop_bg.pop(body_pc, None)
+                                    if arm is not None:
+                                        arm.stop()
+                                while if_stack:
+                                    top = if_stack.pop()
+                                    if "invert" in top:   # the loop frame itself
+                                        break
+                            pc = end_pc + 1
+                    continue
+                if not branch_active(if_stack):
+                    continue
+
+                if raw.startswith("LABEL:"):
+                    continue
+                if raw.startswith("GOTO:"):
+                    pc = labels.get(raw[5:].strip(), pc); continue
+
+                if raw.startswith("DELAY:"):
+                    ms = max(0, int(round(_resolve_macro_number(raw[6:], vars_state)[0])))
+                    next_due += ms / 1000.0
+                    if not sleep_until(next_due):
+                        return False
+                    continue
+
+                # --- PRINT (app console) ---
+                # bare "PRINT" (empty text — a hand-edited file or the pretty
+                # printer with an empty value) prints an empty line, never
+                # silently dropped. ${var} and full expressions (grab_at(...),
+                # screen_color(...), comparisons) interpolate at playback.
+                if raw == "PRINT" or raw.startswith("PRINT:"):
+                    _print_console(raw[6:] if raw.startswith("PRINT:") else "",
+                                   vars_state, bot_root, m_dir)
+                    continue
+                # --- LOG (bot log file) ---
+                if raw == "LOG" or raw.startswith("LOG:"):
+                    try:
+                        macro_log_line(raw[4:] if raw.startswith("LOG:") else "",
+                                       vars_state, bot_root, m_dir)
+                    except Exception:
+                        pass
+                    continue
+
+                if raw.startswith("REPEAT:"):
+                    try: repeat_stack.append((pc, max(1, int(round(_resolve_macro_number(raw[7:], vars_state)[0])))))
+                    except Exception: pass
+                    continue
+                if raw == "ENDREPEAT":
+                    if repeat_stack:
+                        start, rem = repeat_stack[-1]
+                        rem -= 1
+                        if rem > 0:
+                            repeat_stack[-1] = (start, rem); pc = start
+                        else:
+                            repeat_stack.pop()
+                    continue
+
+                if raw.startswith("KEY_DOWN:"):
+                    _key_down(int(raw[9:].strip(), 16))
+                    continue
+                if raw.startswith("KEY_UP:"):
+                    _key_up(int(raw[7:].strip(), 16))
+                    continue
+                if raw.startswith("KEY_PRESS:"):
+                    _key_press(int(raw[10:].strip(), 16))
+                    continue
+
+                if raw.startswith("MOUSE_MOVE_ABS:"):
+                    x, y = raw[15:].split(",")
+                    xv = int(round(_resolve_macro_number(x, vars_state)[0]))
+                    yv = int(round(_resolve_macro_number(y, vars_state)[0]))
+                    _mouse_move_abs(xv, yv);  continue
+                if raw == "MOUSE_LEFT_DOWN":
+                    _mouse_left_down();  continue
+                if raw == "MOUSE_LEFT_UP":
+                    _mouse_left_up();    continue
+                if raw == "MOUSE_LEFT_CLICK":
+                    _mouse_left_click(); continue
+                if raw == "MOUSE_RIGHT_DOWN":
+                    _mouse_right_down(); continue
+                if raw == "MOUSE_RIGHT_UP":
+                    _mouse_right_up();   continue
+                if raw == "MOUSE_RIGHT_CLICK":
+                    _mouse_right_click(); continue
+                if raw == "MOUSE_MIDDLE_DOWN":
+                    _mouse_middle_down(); continue
+                if raw == "MOUSE_MIDDLE_UP":
+                    _mouse_middle_up();   continue
+                if raw == "MOUSE_MIDDLE_CLICK":
+                    _mouse_middle_click(); continue
+                if raw.startswith("MOUSE_REL:"):
+                    dx, dy = raw[10:].split(",")
+                    dxv = int(round(_resolve_macro_number(dx, vars_state)[0]))
+                    dyv = int(round(_resolve_macro_number(dy, vars_state)[0]))
+                    _mouse_move_rel(dxv, dyv); continue
+
+                if raw.startswith("SMOOTH_MOVE:"):
+                    parts = [p.strip() for p in raw[12:].split(",")]
+                    if len(parts) < 2:
+                        continue
+                    dx = int(round(_resolve_macro_number(parts[0], vars_state)[0]))
+                    dy = int(round(_resolve_macro_number(parts[1], vars_state)[0]))
+                    rx, ry = self.sensitivity.ratios()
+                    smooth_carry_x += dx * rx
+                    smooth_carry_y += dy * ry
+                    sdx = int(smooth_carry_x)
+                    sdy = int(smooth_carry_y)
+                    smooth_carry_x -= sdx
+                    smooth_carry_y -= sdy
+                    if sdx or sdy:
+                        _mouse_move_rel(sdx, sdy)
+                    next_due = max(next_due, time.perf_counter())
+                    continue
+
+                if raw.startswith("PLAY_MACRO:") or raw.startswith("PLAY_MACRO_FROM:"):
+                    is_from = raw.startswith("PLAY_MACRO_FROM:")
+                    target = ""
+                    label = ""
+                    if is_from:
+                        # PLAY_MACRO_FROM:{"macro":"x.macro","label":"start"}
+                        # — nested call like PLAY_MACRO, but execution of the
+                        # inner file begins at its LABEL: line. Label not
+                        # found → play from the very top (never dies). This
+                        # is a SUBROUTINE call, not a macro switch: the
+                        # inner macro runs to completion inside THIS run,
+                        # then flow resumes right here — same variables,
+                        # same timing, nothing is swapped.
+                        try:
+                            spec = json.loads(raw[16:] or "{}")
+                        except Exception:
+                            spec = {}
+                        target = str(spec.get("macro") or "").strip()
+                        label = str(spec.get("label") or "").strip()
+                    else:
+                        target = raw[11:].strip()
+                    if not target:
+                        continue
+                    if depth >= _PLAY_MACRO_MAX_DEPTH:
+                        log.warning(f"[PLAY_MACRO] max nesting depth ({_PLAY_MACRO_MAX_DEPTH}) reached; skipping {target!r}")
+                        continue
+                    inner_path = _resolve_nested_macro(target, self.macros_dir)
+                    if not inner_path:
+                        log.warning(f"[PLAY_MACRO] macro not found: {target!r}")
+                        continue
+                    try:
+                        inner_lines = canonicalize_lines(_read_macro_lines(inner_path))
+                    except Exception as e:
+                        log.warning(f"[PLAY_MACRO] cannot read {target!r}: {e}")
+                        continue
+                    start_pc = 0
+                    if is_from and label:
+                        # find the label index by hand: run_lines builds its
+                        # own dict, we need the ENTRY point here
+                        for _li, _ln in enumerate(inner_lines):
+                            if _ln.startswith("LABEL:") and _ln[6:].strip() == label:
+                                start_pc = _li
+                                break
+                        else:
+                            log.warning(f"[PLAY_MACRO] label {label!r} not found in {target!r} — playing from start")
+                    old_rh = self.sensitivity.recorded_h
+                    old_rv = self.sensitivity.recorded_v
+                    try:
+                        for ln in inner_lines:
+                            if ln.startswith("# SENS_RECORDED_H:"):
+                                try: self.sensitivity.recorded_h = float(ln.split(":", 1)[1])
+                                except Exception: pass
+                            elif ln.startswith("# SENS_RECORDED_V:"):
+                                try: self.sensitivity.recorded_v = float(ln.split(":", 1)[1])
+                                except Exception: pass
+                        if not run_lines(inner_lines, os.path.dirname(os.path.abspath(inner_path)), depth + 1, start_pc=start_pc):
+                            return False
+                    finally:
+                        self.sensitivity.recorded_h = old_rh
+                        self.sensitivity.recorded_v = old_rv
+                    continue
+            return True
+
+        _live_regs: dict = {}   # filled by run_lines(); see its finally above
+        try:
+            while repeat_count == 0 or loop_index < repeat_count:
+                loop_index += 1
+                if not run_lines(raw_lines, macro_dir, 0):
+                    return
+
+        finally:
+            _release_all_keys()
+            # nothing outlives the macro: BACKGROUND arms stop with their
+            # loop (or the stop_event); WATCH watchers live until here
+            try:
+                stop_all_watchers(_live_regs.get("watchers") or {})
+                for bg in list((_live_regs.get("loop_bg") or {}).values()):
+                    bg.stop()
+            except Exception:
+                pass
+            elapsed = time.perf_counter() - t0
+            self._set_state(running=False, elapsed=elapsed, progress=1.0)
+
+    # ── F6 hotkey listener ───────────────────────────────────────────────────
+
+    def stop_hotkeys(self, timeout: float = 1.0) -> None:
+        """Uninstall the F5/F6 low-level hook and wait until it is gone."""
+        tid = self._hotkey_thread_id
+        if not tid:
+            return
+        try:
+            _PostThreadMessageW(tid, WM_QUIT, 0, 0)
+        except Exception:
+            pass
+        ev = getattr(self, "_hotkey_stopped", None)
+        if ev is not None:
+            ev.wait(timeout=timeout)
+
+    def start_hotkeys(self, on_f6_toggle, on_f5_toggle=None, *, play_vk: int = VK_F6, record_vk: int = VK_F5) -> threading.Thread:
+        """Listen for configurable system-wide hotkeys with a low-level keyboard hook.
+
+        Returns after the hook is installed (or failed), so callers can await
+        arming before flipping the Recorder tab.
+        """
+        self.stop_hotkeys()
+        if self._hotkey_thread_id:
+            return None
+        ready = threading.Event()
+        stopped = threading.Event()
+        self._hotkey_stopped = stopped
+
+        def _listener():
+            hooked = False
+            keyboard_hook = None
+            try:
+                self._hotkey_thread_id = int(_GetCurrentThreadId())
+                self._record_toggle_vk = int(record_vk)
+                down_keys: set[int] = set()
+
+                def dispatch(callback) -> None:
+                    threading.Thread(target=callback, daemon=True, name="macro-hotkey-action").start()
+
+                def keyboard_proc(n_code, w_param, l_param):
+                    if n_code == HC_ACTION:
+                        info = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
+                        vk = int(info.vkCode)
+                        injected = bool(info.flags & LLKHF_INJECTED)
+                        is_down = w_param in (WM_KEYDOWN, WM_SYSKEYDOWN)
+                        is_up = w_param in (WM_KEYUP, WM_SYSKEYUP)
+                        if not injected and is_down and vk not in down_keys:
+                            down_keys.add(vk)
+                            if vk == int(play_vk):
+                                dispatch(on_f6_toggle)
+                            elif vk == int(record_vk) and on_f5_toggle:
+                                dispatch(on_f5_toggle)
+                        elif is_up and vk in down_keys:
+                            down_keys.discard(vk)
+                    return _CallNextHookEx(None, n_code, w_param, l_param)
+
+                keyboard_cb = HOOKPROC(keyboard_proc)
+                module_handle = _GetModuleHandleW(None)
+                keyboard_hook = _SetWindowsHookExW(WH_KEYBOARD_LL, keyboard_cb, module_handle, 0)
+                if not keyboard_hook:
+                    return
+                hooked = True
+                ready.set()
+                msg = MSG()
+                while _GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+                    _TranslateMessage(ctypes.byref(msg))
+                    _DispatchMessageW(ctypes.byref(msg))
+            finally:
+                if hooked:
+                    try:
+                        _UnhookWindowsHookEx(keyboard_hook)
+                    except Exception:
+                        pass
+                self._hotkey_thread_id = None
+                stopped.set()
+                ready.set()
+
+        t = threading.Thread(target=_listener, daemon=True, name="hotkey-f5-f6")
+        t.start()
+        ready.wait(timeout=1.0)
+        return t
