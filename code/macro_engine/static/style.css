@@ -221,6 +221,14 @@ html.embedded #topbar { display: none !important; }
   inset: 0;
   z-index: 5;
 }
+#blockly-empty {
+  position: absolute; inset: 0; z-index: 50;
+  display: none; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; background: var(--bg); text-align: center; user-select: none;
+}
+#blockly-empty.open { display: flex; }
+#blockly-empty .empty-title { font-size: 20px; font-weight: 800; color: var(--muted); letter-spacing: .4px; }
+#blockly-empty .empty-hint { font-size: 12px; color: var(--muted); opacity: .7; }
 #blockly-mount iframe {
   width: 100%;
   height: 100%;
@@ -671,7 +679,9 @@ select {
 }
 
 .side-panel {
-  position: fixed; top: 52px; right: 0; bottom: 0; width: 420px;
+  /* flush under the topbar: 46px bar + 1px border-bottom = 47px (was 52px,
+     which left a 5px gap between the bar and the panel) */
+  position: fixed; top: 47px; right: 0; bottom: 0; width: 420px;
   background: #13131a; border-left: 1px solid var(--border);
   z-index: 300; display: flex; flex-direction: column; transform: translateX(110%);
   transition: transform .25s cubic-bezier(.4,0,.2,1);

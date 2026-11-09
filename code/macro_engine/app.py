@@ -784,6 +784,28 @@ def _split_note_colour(value: str) -> tuple[str, str]:
         return m.group(2).strip(), ""
     return str(value or ""), ""
 
+def _socket_step(btype: str, val: str) -> dict:
+    """REPEAT / DELAY step for the editor: the whole value can be a ${...}
+    socket (a variable getter or full expression plugged into the number
+    slot). Plain ${var} refs stay text — the editor's getter path rebuilds
+    them; full expressions come pre-parsed as step["exprs"][0] nodes so the
+    loader round-trips them as real blocks instead of a '0' shadow."""
+    step = {"type": btype, "value": val}
+    m = _PRINT_REF_RE.fullmatch(val)
+    if m:
+        from macro_engine.macro_text import expr_from_str
+        try:
+            node = expr_from_str(m.group(1).strip())
+        except Exception:
+            node = None
+        if (isinstance(node, dict) and list(node.keys()) == ["get"]
+                and _PLAIN_IDENT_RE.match(str(node.get("get") or ""))):
+            return step   # plain ${var} — the editor's getter path handles it
+        if isinstance(node, dict) and node:
+            step["exprs"] = {0: node}
+    return step
+
+
 def _parse_macro_text(text: str) -> dict:
     """Parse .macro text into blocks.
 
@@ -871,6 +893,9 @@ def _parse_macro_text(text: str) -> dict:
                 val = f"{parts[0]},{parts[1]},{parts[2]}"
             elif len(parts) >= 2:
                 val = f"{parts[0]},{parts[1]}"
+        if btype in ("REPEAT", "DELAY"):
+            blocks.append(_socket_step(btype, val))
+            continue
         if btype == "PRINT":
             blocks.append(_print_step(val))
             continue
@@ -987,10 +1012,14 @@ def _normalize_blocks(blocks: list[dict]) -> list[dict]:
             elif len(parts) >= 2:
                 val = f"{parts[0]},{parts[1]}"
         elif btype == "DELAY":
-            try:
-                val = str(max(0, int(float(val or 0))))
-            except Exception:
-                val = "0"
+            # a ${...} socket (variable getter / expression in the MS slot)
+            # must survive the save round-trip — the old coercion flattened
+            # it to DELAY:0 and silently deleted the variable reference.
+            if not (val.startswith("${") and val.endswith("}")):
+                try:
+                    val = str(max(0, int(float(val or 0))))
+                except Exception:
+                    val = "0"
         normalized.append({"type": btype, "value": val, "locked": bool(block.get("locked"))})
     return normalized
 
@@ -1352,9 +1381,13 @@ def _minimize_webview_window() -> None:
         return
     try:
         SW_MINIMIZE = 6
-        hwnd = ctypes.windll.user32.FindWindowW(None, "Macro Engine")
-        if hwnd:
-            ctypes.windll.user32.ShowWindow(hwnd, SW_MINIMIZE)
+        # BlocklyRecorder hosts the engine in a window titled after the app;
+        # older builds used the "Macro Engine" standalone title.
+        for title in ("BlocklyRecorder", "Macro Engine"):
+            hwnd = ctypes.windll.user32.FindWindowW(None, title)
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, SW_MINIMIZE)
+                return
     except Exception:
         pass
 

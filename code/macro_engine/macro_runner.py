@@ -4,6 +4,7 @@
 # MacroRecorder needed. All input is sent via pure ctypes
 # Win32 (same approach as before, no pywin32 required).
 # ============================================================
+import json
 import os
 import threading
 import time
@@ -14,6 +15,9 @@ import re
 from logger import get_logger
 from config import MACROS_DIR
 from macro_engine.macro_logic import (
+    handle_switch,
+    handle_case,
+    handle_end_switch,
     find_break_target,
     macro_log_line,
     _macro_res_scale,
@@ -544,7 +548,8 @@ def _scale_macro_abs_xy(x: int, y: int) -> tuple[int, int]:
     return nx, ny
 
 
-def _resolve_macro_number(value, vars_state: dict) -> tuple[float, bool]:
+def _resolve_macro_number(value, vars_state: dict,
+                          bot_root: str = "", macro_dir: str | None = None) -> tuple[float, bool]:
     text = str(value or "").strip()
     if not text:
         return 0.0, False
@@ -556,6 +561,22 @@ def _resolve_macro_number(value, vars_state: dict) -> tuple[float, bool]:
             return float(vars_state.get(var_name) or 0), True
         except Exception:
             return 0.0, True
+    # full ${...} socket expression (arithmetic, ocr_read, color_diff…)
+    # in a number slot — REPEAT:$(n+1) / DELAY:${hold_ms}. Plain ${ident}
+    # for an undeclared variable stays 0 (same visible-typo rule as LOG).
+    if text.startswith("${") and text.endswith("}"):
+        try:
+            from macro_engine.macro_text import expr_from_str
+            from macro_engine.macro_logic import eval_expr
+            node = expr_from_str(var_name)
+        except Exception:
+            node = None
+        if (isinstance(node, dict) and node
+                and list(node.keys()) != ["get"]):
+            try:
+                return float(eval_expr(node, vars_state, bot_root, macro_dir)), True
+            except Exception:
+                return 0.0, True
     try:
         return float(text), False
     except Exception:
@@ -1231,6 +1252,7 @@ class MacroPlayer:
     def __init__(self, macro_path: str, stop_event: threading.Event | None = None):
         self.macro_path = macro_path
         self.stop_event = stop_event or threading.Event()
+        self.start_label = ""   # PLAY_MACRO FROM label: begin at this label (top if missing)
         self._sensitivity = _macro_sensitivity_from_lines([])
         self._smooth_carry_x = 0.0
         self._smooth_carry_y = 0.0
@@ -1299,7 +1321,9 @@ class MacroPlayer:
                 labels[stripped[6:].strip()] = idx
 
         # Execution loop
-        pc = 0                     # program counter
+        pc = labels.get(self.start_label, 0) if self.start_label else 0
+        if self.start_label and self.start_label not in labels:
+            log.warning(f"PLAY_MACRO: label {self.start_label!r} not found — playing from start")
         repeat_stack: list[tuple[int, int, int]] = []  # (start_pc, count, remaining)
         next_due = time.perf_counter()  # accumulated deadline — prevents drift accumulation
 
@@ -1396,6 +1420,19 @@ class MacroPlayer:
             if raw == "ELSE" or raw.startswith("ELSE:"):
                 handle_else(if_stack)
                 continue
+            # --- SWITCH / CASE (Logic category switch block) ---
+            if raw.startswith("SWITCH:"):
+                handle_switch(if_stack, vars_state, parse_payload(raw, "SWITCH"), _BOT_ROOT, macro_dir)
+                continue
+            if raw.startswith("CASE:"):
+                if branch_active(if_stack):
+                    # a case body only runs inside its switch frame's gate;
+                    # handle_case flips the frame's active for this arm
+                    handle_case(if_stack, vars_state, parse_payload(raw, "CASE"), _BOT_ROOT, macro_dir)
+                continue
+            if raw == "END_SWITCH" or raw.startswith("END_SWITCH:"):
+                handle_end_switch(if_stack)
+                continue
             if raw == "END_IF" or raw.startswith("END_IF:"):
                 handle_end_if(if_stack)
                 continue
@@ -1443,7 +1480,8 @@ class MacroPlayer:
                     next_due = time.perf_counter()
                 continue
             if raw == "BREAK_LOOP" or raw.startswith("BREAK_LOOP:"):
-                if branch_active(if_stack) and (repeat_stack or while_stack or iterate_stack):
+                _in_switch = any(f.get("kind") == "switch" for f in if_stack)
+                if branch_active(if_stack) and (repeat_stack or while_stack or iterate_stack or _in_switch):
                     end_pc = find_break_target(lines, pc)
                     if end_pc is not None:
                         _bk_head = str(lines[end_pc]).split(":", 1)[0]
@@ -1458,6 +1496,14 @@ class MacroPlayer:
                             while if_stack:
                                 top = if_stack.pop()
                                 if top.get("iterate"):   # the loop frame itself
+                                    break
+                        elif _bk_head == "END_SWITCH":
+                            # SWITCH: pop the frames up to and including
+                            # the switch frame (BREAK inside a case body
+                            # exits the switch, like break in C)
+                            while if_stack:
+                                top = if_stack.pop()
+                                if top.get("kind") == "switch":
                                     break
                         else:
                             # WHILE/UNTIL: pop the frames up to and
@@ -1491,7 +1537,8 @@ class MacroPlayer:
 
             # --- DELAY ---
             if raw.startswith("DELAY:"):
-                ms = int(round(_resolve_macro_number(raw[6:].strip(), vars_state)[0]))
+                ms = int(round(_resolve_macro_number(raw[6:].strip(), vars_state,
+                                                      _BOT_ROOT, macro_dir)[0]))
                 next_due += ms / 1000.0
                 _sleep_until(next_due, self._check_stop)
                 continue
@@ -1515,7 +1562,8 @@ class MacroPlayer:
 
             # --- REPEAT ---
             if raw.startswith("REPEAT:"):
-                count = int(round(_resolve_macro_number(raw[7:].strip(), vars_state)[0]))
+                count = int(round(_resolve_macro_number(raw[7:].strip(), vars_state,
+                                                          _BOT_ROOT, macro_dir)[0]))
                 repeat_stack.append((pc, count, count))
                 continue
 
@@ -1607,8 +1655,18 @@ class MacroPlayer:
                 middle_click()
                 next_due = max(next_due, time.perf_counter())
                 continue
-            if raw.startswith("PLAY_MACRO:"):
-                target = raw[11:].strip()
+            if raw.startswith("PLAY_MACRO:") or raw.startswith("PLAY_MACRO_FROM:"):
+                target = ""
+                label = ""
+                if raw.startswith("PLAY_MACRO_FROM:"):
+                    try:
+                        _spec = json.loads(raw[16:] or "{}")
+                    except Exception:
+                        _spec = {}
+                    target = str(_spec.get("macro") or "").strip()
+                    label = str(_spec.get("label") or "").strip()
+                else:
+                    target = raw[11:].strip()
                 if target:
                     sub_path = target
                     if not os.path.isabs(sub_path):
@@ -1621,6 +1679,8 @@ class MacroPlayer:
                         if _c.is_container_file(sub_path):
                             sub_path = _c.extract_for_playback(sub_path)
                         sub = MacroPlayer(sub_path, stop_event=self.stop_event)
+                        if label:
+                            sub.start_label = label
                         sub.play()
                     else:
                         log.warning(f"PLAY_MACRO: file not found '{target}'")

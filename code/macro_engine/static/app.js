@@ -3046,10 +3046,21 @@ bootstrap().catch(async e => {
 
   const origRender = renderBlocks;
   let _lastPushJson = null, _lastPushName = null, _lastPushKey = null;
+  // No macro open (or a brand-new empty one): hide the blockly editor
+  // entirely and show the "No Macro" placeholder — no empty workspace,
+  // no orphan hat block. The first real step (record F5, open a file,
+  // drag in a block) makes it reappear.
+  const _emptyEl = document.getElementById('blockly-empty');
+  function _syncEmptyState() {
+    if (!_emptyEl) return;
+    _emptyEl.classList.toggle('open', executableCount(blocks) === 0);
+  }
   renderBlocks = function () {
     origRender();
+    _syncEmptyState();
     pushToBlockly();
   };
+  _syncEmptyState();
 
   // ── code panel: dashboard asks for the generated .macro text ──
   window.addEventListener('message', async function (ev) {
